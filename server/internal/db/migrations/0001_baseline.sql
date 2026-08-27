@@ -1,0 +1,2 @@
+-- Market Lens baseline.
+-- Domain tables will be introduced by future specifications.

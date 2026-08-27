@@ -1,0 +1,16 @@
+.git
+.github
+.claude
+node_modules
+dist
+coverage
+test-results
+playwright-report
+.env
+.env.*
+server/.env
+server/tmp
+server/data
+specs
+docs
+README.md

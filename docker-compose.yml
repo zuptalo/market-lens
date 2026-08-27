@@ -1,0 +1,35 @@
+services:
+  app:
+    image: market-lens:local
+    build:
+      context: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ENV: production
+      DATABASE_URL: postgres://market_lens:${POSTGRES_PASSWORD:-market_lens}@db:5432/market_lens?sslmode=disable
+    ports:
+      - "${APP_PORT:-8080}:8080"
+
+  db:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: market_lens
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-market_lens}
+      POSTGRES_DB: market_lens
+    volumes:
+      - market_lens_pgdata:/var/lib/postgresql
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U market_lens -d market_lens"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  market_lens_pgdata:

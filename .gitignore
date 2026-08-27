@@ -1,0 +1,39 @@
+# Dependencies and build outputs
+node_modules/
+dist/
+dist-ssr/
+coverage/
+
+# Test and browser artifacts
+test-results/
+playwright-report/
+/playwright/.cache/
+
+# Runtime data and local configuration
+.env
+.env.*
+!.env.example
+server/.env
+server/tmp/
+server/data/
+*.local
+
+# Local database data
+postgres-data/
+.postgres/
+
+# OS, editor, and temporary files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.tmp
+.tmp/
+.tmp_verify/
+
+# Spec Kit active-feature pointer
+.specify/feature.json
+
+# Machine-local agent state
+.claude/settings.local.json
+.claude/*.lock
