@@ -1,0 +1,46 @@
+{
+  "fixture": "synthetic-nordic-instruments-v1",
+  "license": "CC0-1.0 synthetic test data",
+  "instruments": [
+    {
+      "provider_symbol": "NORD.XSTO",
+      "isin": "SE0000000001",
+      "ticker": "NORD",
+      "name": "North Test Industries AB",
+      "mic": "XSTO",
+      "currency": "SEK",
+      "country": "SE",
+      "timezone": "Europe/Stockholm"
+    },
+    {
+      "provider_symbol": "NORD.XHEL",
+      "isin": "FI0000000002",
+      "ticker": "NORD",
+      "name": "Nordic Fixture Oyj",
+      "mic": "XHEL",
+      "currency": "EUR",
+      "country": "FI",
+      "timezone": "Europe/Helsinki"
+    },
+    {
+      "provider_symbol": "DANE.XCSE",
+      "isin": "DK0000000003",
+      "ticker": "DANE",
+      "name": "Danish Sample A/S",
+      "mic": "XCSE",
+      "currency": "DKK",
+      "country": "DK",
+      "timezone": "Europe/Copenhagen"
+    },
+    {
+      "provider_symbol": "FJRD.XOSL",
+      "isin": "NO0000000004",
+      "ticker": "FJRD",
+      "name": "Fjord Fixture ASA",
+      "mic": "XOSL",
+      "currency": "NOK",
+      "country": "NO",
+      "timezone": "Europe/Oslo"
+    }
+  ]
+}

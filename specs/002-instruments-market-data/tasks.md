@@ -19,9 +19,9 @@ system/light/dark theme behavior.
 before financial-domain production code begins.
 
 - [ ] T001 Verify the configured EODHD account can resolve and retrieve daily history for representative Stockholm, Copenhagen, Helsinki, and Oslo listings, and record entitlement/endpoint evidence without credentials in `specs/002-instruments-market-data/research.md`
-- [ ] T002 [P] Add license-safe representative provider, calendar, correction, corporate-action, and malformed-record fixtures under `server/internal/marketdata/testdata/`
-- [ ] T003 [P] Add disposable PostgreSQL integration-test lifecycle helpers in `server/internal/testdb/testdb.go` and `server/internal/testdb/testdb_test.go`
-- [ ] T004 Update feature 002 to in-progress in `specs/002-instruments-market-data/spec.md`, `ROADMAP.md`, and `specs/README.md` when the first valid red production-behavior test is recorded
+- [x] T002 [P] Add license-safe representative provider, calendar, correction, corporate-action, and malformed-record fixtures under `server/internal/marketdata/testdata/`
+- [x] T003 [P] Add disposable PostgreSQL integration-test lifecycle helpers in `server/internal/testdb/testdb.go` and `server/internal/testdb/testdb_test.go`, and provide the isolated CI PostgreSQL service through `.github/workflows/ci.yml`
+- [x] T004 Update feature 002 to in-progress in `specs/002-instruments-market-data/spec.md`, `ROADMAP.md`, and `specs/README.md` when the first valid red production-behavior test is recorded
 
 ---
 
@@ -34,12 +34,12 @@ all four stories.
 
 ### Failing tests
 
-- [ ] T005 [P] Add market-data environment parsing, safe missing-token behavior, schedule, timeout, retry, and bounded-worker assertions to `server/internal/config/config_test.go`; run and record the expected red behavior
+- [x] T005 [P] Add market-data environment parsing, safe missing-token behavior, schedule, timeout, retry, and bounded-worker assertions to `server/internal/config/config_test.go`; run and record the expected red behavior
 - [ ] T006 [P] Add exact decimal, exchange-local session date, UUID identity, import status/count, and sanitized-error unit assertions in `server/internal/instruments/model_test.go` and `server/internal/marketdata/model_test.go`; run and record the expected red behavior
 
 ### Implementation
 
-- [ ] T007 Implement market-data provider and scheduler configuration without logging or returning secrets in `server/internal/config/config.go`
+- [x] T007 Implement market-data provider and scheduler configuration without logging or returning secrets in `server/internal/config/config.go`
 - [ ] T008 [P] Implement exchange, instrument, provider mapping, universe, and membership domain types in `server/internal/instruments/model.go`
 - [ ] T009 [P] Implement daily bar, action, import run/item, revision, and quality-finding domain types with exact decimal/session semantics in `server/internal/marketdata/model.go`
 

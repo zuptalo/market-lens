@@ -1,0 +1,8 @@
+{
+  "fixture": "synthetic-daily-history-correction-v1",
+  "license": "CC0-1.0 synthetic test data",
+  "provider_symbol": "NORD.XSTO",
+  "bars": [
+    {"date":"2024-04-02","open":"50.50000000","high":"52.25000000","low":"50.00000000","close":"52.00000000","adjusted_close":"52.00000000","volume":181250}
+  ]
+}

@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-28
 
-**Status**: planned
+**Status**: in-progress
 <!-- Market Lens spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: Establish the first financial-domain capability after the completed application foundation: maintain a curated universe of approximately 50–100 liquid Swedish and Nordic equities available to the user through Danske Bank, ingest about ten years of daily market history where available through a replaceable data source, validate and report data quality, and expose enough status and browsing capability to prove the stored market data is usable. This feature deliberately excludes feature calculation, strategies, signals, backtesting, portfolios, risk evaluation, paper trading, automated broker execution, hourly data, machine learning, news, and fundamentals.
