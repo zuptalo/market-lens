@@ -41,7 +41,9 @@ grep -Fq 'router.tls.certresolver: letsencrypt' "$DIR/30-ingress.yaml"
 grep -Fq 'entrypoints: web' "$DIR/30-ingress.yaml"
 grep -Fq 'scheme: https' "$DIR/30-ingress.yaml"
 
-if command -v kubectl >/dev/null && command -v envsubst >/dev/null; then
+if command -v kubectl >/dev/null \
+  && command -v envsubst >/dev/null \
+  && kubectl config current-context >/dev/null 2>&1; then
   rendered="$(mktemp -d)"
   trap 'rm -rf "$rendered"' EXIT
   export APP_HOST=market-lens.example.test ACME_EMAIL=operator@example.test
@@ -51,6 +53,8 @@ if command -v kubectl >/dev/null && command -v envsubst >/dev/null; then
     printf '\n---\n' >> "$bundle"
   done
   kubectl apply --dry-run=client --validate=false -f "$bundle" >/dev/null
+else
+  echo "k3s API validation skipped: kubectl context or envsubst unavailable"
 fi
 
 echo "k3s manifest contract: ok"
