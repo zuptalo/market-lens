@@ -1,6 +1,6 @@
 # Implementation Plan: Instruments and Daily Market Data
 
-**Branch**: `main` | **Date**: 2026-08-28 | **Spec**: [spec.md](spec.md)
+**Branch**: `002-instruments-market-data` | **Date**: 2026-08-28 | **Spec**: [spec.md](spec.md)
 
 **Input**: Feature specification from `specs/002-instruments-market-data/spec.md`
 
@@ -48,10 +48,10 @@ CLI, then UI.
 
 - `0002_instruments.sql`: exchanges, instruments, provider mappings, research universe,
   memberships, constraints, and search indexes.
-- `0003_market_data.sql`: exchange sessions, import runs/items, current daily bars,
-  immutable bar revisions, corporate actions, and quality findings.
-- `0004_nordic_universe.sql`: reviewed initial exchanges and exactly 100 instrument/
+- `0003_nordic_universe.sql`: reviewed initial exchanges and exactly 100 instrument/
   reference rows. Subsequent corrections use new forward migrations.
+- `0004_market_data.sql`: exchange sessions, import runs/items, current daily bars,
+  immutable bar revisions, corporate actions, and quality findings.
 - `0005_nordic_calendars.sql`: documented exchange sessions for the ten-year backfill
   window plus the next complete year. Annual extensions and corrections use forward
   migrations.

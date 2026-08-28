@@ -22,7 +22,7 @@ without a reviewed feature spec and valid red test.
 |---:|---|---|---|---|---|
 | 0 | Application foundation | Shipped | Repository baseline | — | Go/Vue app, migrations, embedded SPA, health/readiness, themes, tests, Docker/Compose, and CI. |
 | Ops-A | Optional public k3s deployment | In progress | [`001-k3s-deployment`](specs/001-k3s-deployment/spec.md) | Foundation | Same image runs on target k3s with PostgreSQL, TLS, and image rollout; not a product prerequisite. |
-| Release-A | Protected versioned delivery | In review | [`003-release-versioning`](specs/003-release-versioning/spec.md) and [plan](specs/003-release-versioning/plan.md) | Foundation | PR-only squash delivery, automatic SemVer/GHCR releases, protected main, and visible runtime version. |
+| Release-A | Protected versioned delivery | Shipped | [`003-release-versioning`](specs/003-release-versioning/spec.md) and [plan](specs/003-release-versioning/plan.md) | Foundation | PR-only squash delivery, automatic SemVer/GHCR releases, protected main, and visible runtime version. |
 | 1 | Instruments and daily market data | Planned | [`002-instruments-market-data`](specs/002-instruments-market-data/spec.md) and [plan](specs/002-instruments-market-data/plan.md) | Foundation | 100 Nordic listings, about ten years of daily OHLCV, action context, quality findings, observable imports, read-only inspection. |
 | Security-A | Single-user authentication | Backlog | Not yet specified | Foundation; required before public mutations/private data | Secure sessions for remotely exposed self-hosting without custom cryptography. |
 | 2 | Instrument exploration and financial charts | Backlog | Not yet specified | Milestone 1 | Search/browse, instrument detail, responsive candlestick/volume history, overlays, and basic statistics. |
@@ -37,9 +37,9 @@ without a reviewed feature spec and valid red test.
 
 ## Current focus
 
-Protected versioned delivery is the current cross-cutting feature and must ship before
-Milestone 1 implementation begins. After it is merged and verified, restore Milestone 1
-as current, run `/speckit-tasks`, review the breakdown, and implement test-first.
+Instruments and daily market data is the current product feature. Generate and review
+its dependency-ordered tasks, then implement each behavior test-first on the
+`002-instruments-market-data` branch.
 
 Milestones 2–5 are the next planning sequence. Create separate feature specs so their
 acceptance criteria, data ownership, responsive behavior, and test-first proof can be

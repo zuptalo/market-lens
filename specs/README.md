@@ -13,8 +13,8 @@ test before production code changes.
 | ID | Feature | Lifecycle | Plan | Tasks | Dependencies | Notes |
 |---|---|---|---|---|---|---|
 | 001 | [k3s deployment](001-k3s-deployment/spec.md) | In progress | Not generated in current workflow | Not generated | Foundation | Optional deployment track, not a prerequisite for product milestones. |
-| 002 | [Instruments and daily market data](002-instruments-market-data/spec.md) | Planned | [Complete](002-instruments-market-data/plan.md) | Not generated | Foundation | Current product feature; checklist complete and ready for `/speckit-tasks`. |
-| 003 | [Release versioning and protected delivery](003-release-versioning/spec.md) | In review | [Complete](003-release-versioning/plan.md) | [In progress](003-release-versioning/tasks.md) | Foundation | Current cross-cutting feature; ships before feature 002 implementation. |
+| 002 | [Instruments and daily market data](002-instruments-market-data/spec.md) | Planned | [Complete](002-instruments-market-data/plan.md) | [Complete](002-instruments-market-data/tasks.md) | Foundation | Current product feature; task breakdown is ready for test-first implementation. |
+| 003 | [Release versioning and protected delivery](003-release-versioning/spec.md) | Shipped | [Complete](003-release-versioning/plan.md) | [In progress](003-release-versioning/tasks.md) | Foundation | Shipped as immutable release `v0.2.0`; lifecycle record will merge with feature 002. |
 
 Feature lifecycle values are `planned → in-progress → in-review → shipped`. Update the
 spec and this registry together when lifecycle changes.
