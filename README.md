@@ -91,3 +91,11 @@ redirection, Traefik-managed Let's Encrypt TLS, and two-minute Keel polling of t
 Actual Market Lens domain functionality and schema will be implemented from specs
 later; the baseline intentionally contains no market-data, strategy, backtest,
 portfolio, or trading models.
+
+## Product planning
+
+- [`docs/product-vision.md`](docs/product-vision.md) is the durable long-term product
+  baseline.
+- [`ROADMAP.md`](ROADMAP.md) shows what is shipped, planned, backlogged, and deferred.
+- [`specs/README.md`](specs/README.md) is the feature-specification registry and explains
+  how to resume work in a future session.
