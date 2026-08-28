@@ -60,3 +60,10 @@ the specification or test approach before implementing it.
 
 Run `make verify`, relevant Playwright tests, the Docker build, and Compose validation in
 proportion to the change. Never disable a failing check to hide a regression.
+
+<!-- SPECKIT START -->
+For durable cross-session context, read `docs/product-vision.md`, `ROADMAP.md`, and
+`specs/README.md`. The current Release Versioning and Protected Delivery feature is
+governed by `specs/003-release-versioning/spec.md`; read its `plan.md` and supporting
+artifacts for technology choices, structure, commands, contracts, and boundaries.
+<!-- SPECKIT END -->

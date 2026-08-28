@@ -80,9 +80,10 @@ CLAUDE.md             Claude project instructions
 docs/                 Architectural and developer notes
 ```
 
-Successful pushes to `main` publish the tested multi-platform container image as
-`ghcr.io/zuptalo/market-lens:latest`. See `docs/GITHUB-ACTIONS.md` for the image tags and
-the required variables/secrets policy.
+Verified squash merges to protected `main` automatically create a semantic GitHub
+Release and publish one multi-platform image under full-version, major/minor, commit, and
+`latest` tags. The running version is visible in the application shell and health API.
+See `docs/GITHUB-ACTIONS.md` for delivery and sensitive-configuration policy.
 
 The production k3s manifests under `deploy/k8s/` provide PostgreSQL, HTTP-to-HTTPS
 redirection, Traefik-managed Let's Encrypt TLS, and two-minute Keel polling of the public `latest` image. See
@@ -91,3 +92,11 @@ redirection, Traefik-managed Let's Encrypt TLS, and two-minute Keel polling of t
 Actual Market Lens domain functionality and schema will be implemented from specs
 later; the baseline intentionally contains no market-data, strategy, backtest,
 portfolio, or trading models.
+
+## Product planning
+
+- [`docs/product-vision.md`](docs/product-vision.md) is the durable long-term product
+  baseline.
+- [`ROADMAP.md`](ROADMAP.md) shows what is shipped, planned, backlogged, and deferred.
+- [`specs/README.md`](specs/README.md) is the feature-specification registry and explains
+  how to resume work in a future session.

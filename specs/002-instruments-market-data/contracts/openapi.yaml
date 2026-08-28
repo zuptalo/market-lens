@@ -1,0 +1,250 @@
+openapi: 3.1.0
+info:
+  title: Market Lens Instruments and Market Data API
+  version: 1.0.0
+  description: Read-only V1 contract; import mutations require host access.
+servers:
+  - url: /api/v1
+paths:
+  /instruments:
+    get:
+      operationId: listInstruments
+      parameters:
+        - { $ref: '#/components/parameters/Query' }
+        - { $ref: '#/components/parameters/Exchange' }
+        - { $ref: '#/components/parameters/Country' }
+        - { $ref: '#/components/parameters/Currency' }
+        - { $ref: '#/components/parameters/Active' }
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: Paginated exchange-qualified instruments
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InstrumentPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /instruments/{instrumentId}:
+    get:
+      operationId: getInstrument
+      parameters:
+        - { $ref: '#/components/parameters/InstrumentId' }
+      responses:
+        '200':
+          description: Instrument identity and market-data summary
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InstrumentDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /instruments/{instrumentId}/prices:
+    get:
+      operationId: listDailyPrices
+      parameters:
+        - { $ref: '#/components/parameters/InstrumentId' }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: Daily bars newest first
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PricePage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /market-data/imports:
+    get:
+      operationId: listImportRuns
+      parameters:
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/ImportStatus' } }
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: Import runs newest first
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImportRunPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /market-data/imports/{runId}:
+    get:
+      operationId: getImportRun
+      parameters:
+        - { name: runId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Run, per-instrument outcomes, and safe host retry command
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImportRunDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /market-data/quality-findings:
+    get:
+      operationId: listQualityFindings
+      parameters:
+        - { name: instrument_id, in: query, schema: { type: string, format: uuid } }
+        - { name: status, in: query, schema: { type: string, enum: [open, resolved, accepted_limitation] } }
+        - { name: severity, in: query, schema: { type: string, enum: [warning, error] } }
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: Paginated findings
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/QualityFinding' } }
+                  next_cursor: { type: [string, 'null'] }
+        '400': { $ref: '#/components/responses/BadRequest' }
+components:
+  parameters:
+    InstrumentId: { name: instrumentId, in: path, required: true, schema: { type: string, format: uuid } }
+    Query: { name: q, in: query, schema: { type: string, maxLength: 120 } }
+    Exchange: { name: exchange, in: query, schema: { type: string, maxLength: 4 } }
+    Country: { name: country, in: query, schema: { type: string, minLength: 2, maxLength: 2 } }
+    Currency: { name: currency, in: query, schema: { type: string, minLength: 3, maxLength: 3 } }
+    Active: { name: active, in: query, schema: { type: boolean } }
+    Cursor: { name: cursor, in: query, schema: { type: string, maxLength: 512 } }
+    Limit: { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+  responses:
+    BadRequest:
+      description: Invalid request
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    NotFound:
+      description: Resource not found
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties: { error: { type: string } }
+    Exchange:
+      type: object
+      required: [mic, name, timezone]
+      properties:
+        mic: { type: string }
+        name: { type: string }
+        timezone: { type: string }
+    Instrument:
+      type: object
+      required: [id, isin, ticker, name, exchange, currency, country, instrument_type, active, purchasability_status]
+      properties:
+        id: { type: string, format: uuid }
+        isin: { type: string }
+        ticker: { type: string }
+        name: { type: string }
+        exchange: { $ref: '#/components/schemas/Exchange' }
+        currency: { type: string }
+        country: { type: string }
+        instrument_type: { type: string }
+        active: { type: boolean }
+        purchasability_status: { type: string, enum: [user_confirmed, unverified, unavailable] }
+    InstrumentPage:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Instrument' } }
+        next_cursor: { type: [string, 'null'] }
+    DailyBar:
+      type: object
+      required: [session_date, open, high, low, close, volume, currency, provider, observed_at]
+      properties:
+        session_date: { type: string, format: date }
+        open: { type: string, pattern: '^[0-9]+(\.[0-9]+)?$' }
+        high: { type: string, pattern: '^[0-9]+(\.[0-9]+)?$' }
+        low: { type: string, pattern: '^[0-9]+(\.[0-9]+)?$' }
+        close: { type: string, pattern: '^[0-9]+(\.[0-9]+)?$' }
+        adjusted_close: { type: [string, 'null'] }
+        volume: { type: integer, minimum: 0 }
+        currency: { type: string }
+        provider: { type: string }
+        observed_at: { type: string, format: date-time }
+    InstrumentDetail:
+      allOf:
+        - { $ref: '#/components/schemas/Instrument' }
+        - type: object
+          required: [history, quality_summary]
+          properties:
+            latest_bar: { anyOf: [{ $ref: '#/components/schemas/DailyBar' }, { type: 'null' }] }
+            history:
+              type: object
+              required: [bar_count]
+              properties:
+                first_session: { type: [string, 'null'], format: date }
+                last_session: { type: [string, 'null'], format: date }
+                bar_count: { type: integer, minimum: 0 }
+            quality_summary:
+              type: object
+              required: [open_warnings, open_errors]
+              properties:
+                open_warnings: { type: integer, minimum: 0 }
+                open_errors: { type: integer, minimum: 0 }
+    PricePage:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/DailyBar' } }
+        next_cursor: { type: [string, 'null'] }
+    ImportStatus: { type: string, enum: [queued, running, succeeded, partial, failed, cancelled] }
+    Counts:
+      type: object
+      required: [processed, accepted, rejected, flagged]
+      properties:
+        processed: { type: integer, minimum: 0 }
+        accepted: { type: integer, minimum: 0 }
+        rejected: { type: integer, minimum: 0 }
+        flagged: { type: integer, minimum: 0 }
+    ImportRun:
+      type: object
+      required: [id, kind, provider, status, started_at, counts]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [universe_sync, backfill, daily_update, retry] }
+        provider: { type: string }
+        status: { $ref: '#/components/schemas/ImportStatus' }
+        started_at: { type: string, format: date-time }
+        finished_at: { type: [string, 'null'], format: date-time }
+        requested_from: { type: [string, 'null'], format: date }
+        requested_to: { type: [string, 'null'], format: date }
+        counts: { $ref: '#/components/schemas/Counts' }
+        error_summary: { type: [string, 'null'] }
+    ImportRunPage:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/ImportRun' } }
+        next_cursor: { type: [string, 'null'] }
+    ImportRunDetail:
+      allOf:
+        - { $ref: '#/components/schemas/ImportRun' }
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                type: object
+                required: [instrument_id, status, attempts]
+                properties:
+                  instrument_id: { type: string, format: uuid }
+                  status: { $ref: '#/components/schemas/ImportStatus' }
+                  attempts: { type: integer, minimum: 0 }
+                  error_summary: { type: [string, 'null'] }
+            retry_command: { type: [string, 'null'] }
+    QualityFinding:
+      type: object
+      required: [id, instrument_id, rule, severity, disposition, status, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        instrument_id: { type: string, format: uuid }
+        session_date: { type: [string, 'null'], format: date }
+        rule: { type: string }
+        severity: { type: string, enum: [warning, error] }
+        disposition: { type: string, enum: [flagged, rejected] }
+        status: { type: string, enum: [open, resolved, accepted_limitation] }
+        detail: { type: string }
+        created_at: { type: string, format: date-time }

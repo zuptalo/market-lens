@@ -4,6 +4,38 @@ Market Lens uses specification-driven development. Create or update a document u
 `specs/` before implementing a substantial feature, and keep the specification, tests,
 and documentation aligned with the resulting behavior.
 
+## Branches and pull requests
+
+Never work directly on `main`. Create one branch per reviewed specification using its
+three-digit identifier and lowercase kebab-case name, for example:
+
+```sh
+git switch main
+git pull --ff-only
+git switch -c 002-instruments-market-data
+```
+
+Pull-request titles use Conventional Commit form and become the single squash commit on
+`main`. Allowed types are `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `build`,
+`ci`, `chore`, and `revert`, with an optional lowercase scope and `!` breaking marker:
+
+```text
+feat(market-data): ingest daily Nordic bars
+fix(api): preserve exchange-qualified identity
+feat(strategy)!: replace the signal contract
+```
+
+GitHub blocks nonconforming branches/titles, direct/force pushes, unresolved review
+threads, and pull requests whose required checks fail. Squash is the only merge method;
+merged feature branches are deleted automatically. The repository requires zero
+approvals so its single maintainer can merge, but the PR/check/conversation gates apply
+to administrators too.
+
+Every merged pull request releases automatically after post-merge verification. A
+breaking `!` increments major, `feat` increments minor, and every other allowed type
+increments patch. Do not edit a source version or create application release tags by
+hand; Git tags and release automation are authoritative.
+
 All production changes use strict red-green-refactor test-driven development. Write the
 automated test first, run it and confirm it fails for the expected reason, implement the
 minimum change required to make it pass, then refactor only while the suite remains

@@ -2,19 +2,20 @@
 
 FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS web
 WORKDIR /web
+ARG VERSION=dev
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY index.html tsconfig.json vite.config.ts ./
 COPY public ./public
 COPY src ./src
-RUN npm run build
+RUN APP_VERSION="${VERSION}" npm run build
 
 FROM --platform=$BUILDPLATFORM golang:1.26-bookworm AS server
 WORKDIR /src
+ARG VERSION=dev
 COPY server/go.mod server/go.sum ./
 RUN go mod download
 COPY server/ ./
-ARG VERSION=dev
 ARG TARGETOS
 ARG TARGETARCH
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \

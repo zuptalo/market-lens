@@ -1,0 +1,178 @@
+name: Market Lens Release
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: market-lens-release-main
+  cancel-in-progress: false
+  queue: max
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Verify and publish release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+      attestations: write
+      id-token: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Validate policy and calculate version
+        id: version
+        run: |
+          scripts/release-version.test.sh
+          title=$(git log -1 --format=%s "$GITHUB_SHA")
+          scripts/release-version.sh bump "$title" >/dev/null
+          head_tag=$(git tag --points-at "$GITHUB_SHA" --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-version:refname | head -1)
+          if [[ -n "$head_tag" ]]; then
+            tag=$head_tag
+            version=${head_tag#v}
+          else
+            latest=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-version:refname | head -1)
+            version=$(scripts/release-version.sh next "$latest" "$title")
+            tag="v$version"
+          fi
+          major=${version%%.*}
+          remainder=${version#*.}
+          minor=${remainder%%.*}
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "major=$major" >> "$GITHUB_OUTPUT"
+          echo "major_minor=$major.$minor" >> "$GITHUB_OUTPUT"
+
+      - name: Reserve version tag
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          existing=$(git rev-list -n 1 "$RELEASE_TAG" 2>/dev/null || true)
+          if [[ -n "$existing" ]]; then
+            [[ "$existing" == "$GITHUB_SHA" ]] || { echo "$RELEASE_TAG already points to another commit" >&2; exit 1; }
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f ref="refs/tags/$RELEASE_TAG" -f sha="$GITHUB_SHA"
+          fi
+
+      - name: Create or resume draft release
+        id: release_state
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          release=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
+            --jq ".[] | select(.tag_name == \"$RELEASE_TAG\") | [.id, .draft] | @tsv" | head -1)
+          if [[ -z "$release" ]]; then
+            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag \
+              --draft --generate-notes --title "Market Lens $RELEASE_VERSION"
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          else
+            draft=${release#*$'\t'}
+            if [[ "$draft" == true ]]; then
+              echo "published=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "$RELEASE_TAG is already published for this commit; nothing to do"
+              echo "published=true" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - uses: actions/setup-node@v5
+        if: steps.release_state.outputs.published != 'true'
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-go@v6
+        if: steps.release_state.outputs.published != 'true'
+        with:
+          go-version: '1.26'
+          cache-dependency-path: server/go.sum
+      - if: steps.release_state.outputs.published != 'true'
+        run: npm ci
+
+      - name: Post-merge verification
+        if: steps.release_state.outputs.published != 'true'
+        env:
+          APP_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          make verify
+          npx playwright install --with-deps chromium
+          npm run test:e2e
+          docker compose config
+          deploy/k8s/test.sh
+
+      - uses: docker/setup-qemu-action@v4
+        if: steps.release_state.outputs.published != 'true'
+      - uses: docker/setup-buildx-action@v4
+        if: steps.release_state.outputs.published != 'true'
+      - name: Log in to GitHub Container Registry
+        if: steps.release_state.outputs.published != 'true'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Generate image metadata
+        if: steps.release_state.outputs.published != 'true'
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: latest=false
+          tags: |
+            type=raw,value=${{ steps.version.outputs.version }}
+            type=raw,value=${{ steps.version.outputs.major_minor }}
+            type=raw,value=${{ steps.version.outputs.major }}
+            type=sha,prefix=sha-,format=long
+            type=raw,value=latest
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+      - name: Build and publish image
+        if: steps.release_state.outputs.published != 'true'
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: VERSION=${{ steps.version.outputs.version }}
+          cache-from: type=gha,scope=market-lens-image
+          cache-to: type=gha,mode=max,scope=market-lens-image
+          provenance: mode=max
+          sbom: true
+      - name: Attest published image provenance
+        if: steps.release_state.outputs.published != 'true'
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+      - name: Verify published image tags
+        if: steps.release_state.outputs.published != 'true'
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          MAJOR_MINOR: ${{ steps.version.outputs.major_minor }}
+          MAJOR: ${{ steps.version.outputs.major }}
+          EXPECTED_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          short_sha=${GITHUB_SHA:0:40}
+          for tag in "$RELEASE_VERSION" "$MAJOR_MINOR" "$MAJOR" "sha-$short_sha" latest; do
+            docker buildx imagetools inspect "$IMAGE:$tag" | grep -Fq "$EXPECTED_DIGEST"
+          done
+      - name: Publish immutable release
+        if: steps.release_state.outputs.published != 'true'
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
