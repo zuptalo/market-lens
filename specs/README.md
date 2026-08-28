@@ -13,8 +13,9 @@ test before production code changes.
 | ID | Feature | Lifecycle | Plan | Tasks | Dependencies | Notes |
 |---|---|---|---|---|---|---|
 | 001 | [k3s deployment](001-k3s-deployment/spec.md) | In progress | Not generated in current workflow | Not generated | Foundation | Optional deployment track, not a prerequisite for product milestones. |
-| 002 | [Instruments and daily market data](002-instruments-market-data/spec.md) | In progress | [Complete](002-instruments-market-data/plan.md) | [In progress](002-instruments-market-data/tasks.md) | Foundation | Current product feature; implementation began from the recorded configuration red test. |
+| 002 | [Instruments and daily market data](002-instruments-market-data/spec.md) | In progress | [Complete](002-instruments-market-data/plan.md) | [In progress](002-instruments-market-data/tasks.md) | Foundation | Current product feature; REST snapshots plus durable resumable SSE are required for client-visible changes. |
 | 003 | [Release versioning and protected delivery](003-release-versioning/spec.md) | Shipped | [Complete](003-release-versioning/plan.md) | [In progress](003-release-versioning/tasks.md) | Foundation | Shipped as immutable release `v0.2.0`; lifecycle record will merge with feature 002. |
+| 004 | [Owner access and invitations](004-owner-access/spec.md) | Planned | Not generated | Not generated | Foundation | Required before browser access beyond bootstrap and before any private user data or authorized private SSE. |
 
 Feature lifecycle values are `planned → in-progress → in-review → shipped`. Update the
 spec and this registry together when lifecycle changes.
@@ -30,9 +31,10 @@ reserve directory numbers.
 | 2 | Reusable feature engine | 002 | Timestamped return/trend/momentum/relative-strength/volatility/ATR/RSI/MACD/drawdown/volume/regime features; missing data, determinism, leakage tests. |
 | 3 | Deterministic strategies and signals | Feature engine | Strategy/config versioning, momentum/trend ranking, action/score/confidence, immutable explanations/snapshots, reproducibility, history. |
 | 4 | Reproducible backtesting | Strategies/signals | Simulation, data snapshots, accounting, rebalancing, percentage/minimum brokerage, FX/spread/slippage, benchmarks, metrics/curves/trades/signals, leakage and survivorship disclosure. |
-| 5 | Portfolio and risk engine | Strategies; backtest evidence | Cash/positions/P&L/exposure, stock/sector/country/cash/drawdown/liquidity/volatility/trade-size rules, rejection/modification, order intents. |
+| 5 | Personal tracking, portfolio, and risk engine | Authentication; strategies; backtest evidence | User-owned holdings/trades/tracking rules, cash/positions/P&L/exposure, stock/sector/country/cash/drawdown/liquidity/volatility/trade-size rules, rejection/modification, order intents. |
 | 6 | Paper trading | Market data, strategies, risk/portfolio | Virtual cash, latest signals, simulated orders/trades, permanent history, forward P&L, scheduling, shared-logic proof. |
-| Cross-cutting | Single-user authentication | Foundation | Secure remote access before browser mutations/private data, sessions, CSRF, secrets, recovery, deployment behavior, no custom crypto. |
+| Cross-cutting | Installable PWA and devices | Authentication; SSE foundation | Chrome/Edge mobile/tablet/desktop installation, offline/stale UI, device ownership, push permission lifecycle, and revocation. |
+| Cross-cutting | Email and Web Push notifications | Authentication; PWA/devices; explainable signals | Granular consent, quiet/frequency controls, per-device revocation, minimal payloads, provider outage handling, and links to authenticated explanations. |
 | Later | Advanced analysis | Trusted core | Hourly data, more strategies/markets, comparisons, costs, fundamentals/news/notifications through separate abstractions. |
 | Last | ML experimentation | Trusted deterministic platform | Time-aware export/splits/walk-forward validation, benchmark-relative classification/ranking, portable inference, baselines, leakage controls, no autonomous trading. |
 

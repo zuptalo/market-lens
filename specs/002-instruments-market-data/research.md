@@ -101,14 +101,32 @@ report conflicts while a bounded pool processes different instruments concurrent
 **Alternatives considered**: In-memory locks fail across replicas/commands; serializing
 the universe needlessly slows independent work.
 
-## Decision 8: Read-only REST and responsive inspection
+## Decision 8: Read-only snapshots and responsive inspection
 
 **Decision**: Expose paginated instruments, instrument history, import runs, and quality
-findings under `/api/v1`, all GET-only. Use PrimeVue DataTable at larger widths and
-stacked result/detail treatments on mobile.
+findings as GET-only REST snapshots under `/api/v1`. Use PrimeVue DataTable at larger
+widths and stacked result/detail treatments on mobile.
 
 **Rationale**: This proves data usability without exposing provider quota or mutation on
 a public unauthenticated deployment.
 
 **Alternatives considered**: Full charting/screening belongs to later features;
 browser-side provider calls leak the API token.
+
+## Decision 9: Durable outbox and standard-library SSE
+
+**Decision**: Write a monotonic, versioned `client_events` row in the same PostgreSQL
+transaction as every client-visible market-data change. Stream shared-scope events from
+`/api/v1/events` using standard-library SSE, replay after `Last-Event-ID`, send bounded
+heartbeats, and disconnect slow consumers so they can resume from durable storage.
+
+**Rationale**: Transactional outbox rows prevent a commit/event race and PostgreSQL is
+already the system of record. SSE is sufficient for one-way UI invalidation, works with
+browser reconnect semantics, and needs no broker or second service. REST remains the
+authoritative snapshot; compact events identify which read model changed rather than
+duplicating financial payloads.
+
+**Alternatives considered**: Polling violates the live-update baseline; in-memory-only
+pub/sub loses events during restart/disconnect; WebSockets add bidirectional complexity
+that this read-only feature does not need; Redis or a message broker violates the
+current operational architecture.

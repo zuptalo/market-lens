@@ -19,6 +19,15 @@ viewports, plus a 320px overflow/clipping check where applicable. Tasks must cov
 and keyboard interaction and intentional small-screen behavior for navigation, dialogs,
 menus, tables, and charts.
 
+**Live Delivery**: Every client-visible domain change MUST include failing-first tasks
+for a versioned authorized SSE event, durable publication/outbox behavior, Last-Event-ID
+replay, duplicate-safe clients, reconnection/offline state, and bounded slow consumers.
+
+**Identity and Notifications**: User-owned work MUST include backend authorization and
+cross-user isolation tests. Account, invitation, PWA, email, or Web Push work MUST
+include consent, expiry/revocation, minimal-payload, provider-outage, and supported
+browser/device acceptance tasks.
+
 **Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story.
 
 ## Format: `[ID] [P?] [Story] Description`
@@ -77,6 +86,8 @@ Examples of foundational tasks (adjust based on your project):
 - [ ] T007 Create base models/entities that all stories depend on
 - [ ] T008 Configure error handling and logging infrastructure
 - [ ] T009 Setup environment configuration management
+- [ ] TXXX Add transactional client-event outbox and authorized resumable SSE transport
+- [ ] TXXX Add backend ownership scoping and cross-user isolation fixtures
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -164,6 +175,9 @@ Examples of foundational tasks (adjust based on your project):
 - [ ] TXXX Performance optimization across all stories
 - [ ] TXXX [P] Additional unit tests in tests/unit/
 - [ ] TXXX Security hardening
+- [ ] TXXX Verify SSE reconnect/replay, duplicates, offline state, and slow consumers
+- [ ] TXXX Verify invitation expiry/revocation and cross-user event/data isolation
+- [ ] TXXX Verify PWA installation and consented email/Web Push degraded behavior
 - [ ] TXXX Verify responsive behavior at mobile, tablet, desktop, and 320px narrow width
 - [ ] TXXX Run quickstart.md validation
 

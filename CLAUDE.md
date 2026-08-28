@@ -10,7 +10,7 @@ Read them before planning or changing production code.
 
 ## Architecture
 
-- Backend: Go 1.26 modular monolith, standard-library REST/JSON HTTP server, pgx/PostgreSQL, embedded ordered SQL migrations, `slog`, and background work in-process.
+- Backend: Go 1.26 modular monolith, standard-library REST/JSON HTTP server, authorized resumable SSE, pgx/PostgreSQL, embedded ordered SQL migrations, `slog`, and background work in-process.
 - Frontend: Vue 3, strict TypeScript, Vite, Vue Router, PrimeVue 4, and project-level reusable components.
 - Production: one container builds the Vue app and serves it from the Go process; PostgreSQL is the only separate service.
 - Tests: Go tests, Vitest, Playwright, plus Docker build and Compose validation in CI.
@@ -29,6 +29,14 @@ Read them before planning or changing production code.
   as an ordered migration. Never use manual SQL, console edits, or ad-hoc database
   manipulation for deployment or repair, and never edit an applied migration.
 - Keep handlers thin and generic transport helpers in `server/internal/httpx`.
+- REST may load initial snapshots, but every client-visible committed domain change must
+  also publish a versioned, authorized, resumable SSE event through transactionally
+  coupled durable storage. Polling is not the primary live-update path.
+- Bootstrap exactly one first owner and close setup after success. Additional users join
+  only through owner-authorized, expiring, single-use verified-email invitations.
+  Enforce ownership in backend services/queries and prove cross-user data/event isolation.
+- Email and Web Push require granular opt-in, per-device revocation, minimal payloads,
+  unsubscribe controls, graceful provider outages, and supported Chrome/Edge PWA tests.
 - Preserve light, dark, and system themes and prefer PrimeVue primitives before custom widgets.
 - Design every user-facing element mobile-first and define its behavior on mobile,
   tablet, and desktop. Verify representative 360x800, 768x1024, and 1440x900

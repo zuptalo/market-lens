@@ -120,6 +120,32 @@
 - **Input and accessibility**: [Describe keyboard, touch, non-hover, orientation, zoom,
   and state-preservation expectations]
 
+### Live Update Behavior *(mandatory for client-visible data; otherwise state N/A)*
+
+- **Snapshot and events**: [Define initial REST state and the versioned SSE event types
+  emitted for every client-visible committed change]
+- **Reliability**: [Define authorization scope, event IDs, ordering, Last-Event-ID
+  resumption, duplicate handling, bounded buffering, and stale/offline behavior]
+- **Test evidence**: [Define automated reconnect, missed-event replay, duplicate,
+  slow-consumer, and cross-user event-isolation scenarios]
+
+### Identity, Ownership, and Permissions *(mandatory for user/account data; otherwise state N/A)*
+
+- **Bootstrap and invitations**: [Define first-owner creation, setup closure, verified
+  email invitation, expiry, single use, and roles]
+- **Ownership and authorization**: [Define shared versus private records and the backend
+  query/service checks that prevent cross-user access]
+- **Security evidence**: [Define session/recovery/revocation and cross-user tests]
+
+### PWA and Notification Behavior *(mandatory when applicable; otherwise state N/A)*
+
+- **Installability**: [Define mobile/tablet/desktop Chrome and Edge installation and
+  offline/degraded behavior]
+- **Consent and delivery**: [Define granular opt-in email/Web Push preferences, quiet or
+  frequency controls, minimal payloads, per-device revocation, and unsubscribe]
+- **Test evidence**: [Define denied/expired permissions, offline delivery, removed
+  devices, unavailable providers, and privacy tests]
+
 ### Key Entities *(include if feature involves data)*
 
 - **[Entity 1]**: [What it represents, key attributes without implementation]

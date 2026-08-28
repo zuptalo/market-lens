@@ -30,6 +30,18 @@
 768x1024, desktop 1440x900, and narrow 320px checks plus the automated Playwright
 scenarios; otherwise N/A]
 
+**Live Delivery**: [Identify REST snapshot and versioned SSE event contracts, durable
+outbox/transaction coupling, authorization scope, resumption, duplicate handling,
+slow-consumer behavior, and connected/reconnecting/offline tests; otherwise N/A]
+
+**Identity and Ownership**: [Identify owner bootstrap, invitation/role requirements,
+backend authorization boundaries, ownership columns/query scoping, and cross-user
+isolation tests; otherwise N/A]
+
+**PWA and Notifications**: [Identify installability plus consented email/Web Push
+delivery, per-device revocation, preferences, degraded mode, and browser/device tests;
+otherwise N/A]
+
 **Red-Green-Refactor Proof**: [Identify the first automated test, how its expected red
 failure will be observed before production code, and which suite proves green]
 
@@ -54,6 +66,11 @@ schema/data transformations, or N/A. Manual database steps are prohibited.]
 
 For user-facing work, this gate MUST reject plans that omit specified mobile, tablet,
 desktop, touch/non-hover, and narrow-viewport behavior.
+
+This gate MUST reject client-visible domain work without a versioned resumable SSE
+change contract. It MUST reject user-owned data without backend-enforced authorization
+and cross-user isolation tests, and notification/PWA work without explicit consent,
+revocation, privacy, and degraded-mode behavior.
 
 ## Project Structure
 

@@ -1,3 +1,14 @@
+<!--
+Sync Impact Report
+- Version change: 1.3.0 → 1.4.0
+- Modified principles: IV (SSE contracts), VII (live/PWA UX), VIII (delivery integrations)
+- Added principles: IX (identity/ownership/isolation), X (live updates/notifications)
+- Removed sections: none
+- Templates: ✅ plan-template.md; ✅ spec-template.md; ✅ tasks-template.md
+- Runtime guidance: ✅ AGENTS.md; ✅ CLAUDE.md; ✅ product vision; ✅ roadmap; ✅ spec registry
+- Follow-up: authentication, invitations, PWA, personal tracking/trading, and notification
+  delivery require separate reviewed feature specifications before implementation.
+-->
 # Market Lens Constitution
 
 ## Core principles
@@ -37,7 +48,12 @@ manual operational mutation, not ordinary runtime persistence.
 ### IV. Explicit, versioned contracts
 
 HTTP APIs use REST/JSON under `/api/v1`. Handlers validate input and return consistent
-JSON errors. Contracts remain synchronized with their specifications and tests.
+JSON errors. REST may provide initial snapshots, but every client-visible domain change
+must also be available through a versioned Server-Sent Events contract under `/api/v1`.
+SSE streams must support authorized scoping, event IDs, reconnection/resumption,
+ordering rules, duplicate-safe consumption, and bounded slow-consumer behavior. Polling
+must not be the primary mechanism for live UI state. Contracts remain synchronized with
+their specifications and tests.
 
 ### V. Correctness and reproducibility
 
@@ -84,6 +100,11 @@ readable without zoom, and orientation or viewport changes must not lose user st
 Horizontal scrolling is permitted only for intrinsically wide content when explicitly
 contained and documented; it must never be the accidental behavior of the page shell.
 
+Live views must expose connected, reconnecting, stale, and offline states without
+discarding user input or presenting stale data as current. Installable-app features
+must follow progressive-web-app standards, preserve accessible browser behavior, and be
+verified in supported mobile, tablet, and desktop installation modes.
+
 ### VIII. Self-hosted operational simplicity
 
 Production uses one Market Lens image plus PostgreSQL. Configuration comes from the
@@ -97,11 +118,49 @@ not secret. Credentials must never appear in workflow source, logs, build argume
 container layers, example configuration, or committed files. Jobs receive only the
 secrets they require.
 
+Email delivery, Web Push endpoints, and other external delivery mechanisms are
+integrations, not new Market Lens services. Each requires an explicit specification,
+bounded failure handling, secret-safe configuration, and a deployment mode in which the
+core application remains usable when that integration is unavailable.
+
+### IX. Secure identity, ownership, and isolation
+
+The first deployment must bootstrap exactly one owner through an explicit, time-bounded
+setup flow that permanently closes after successful creation. Additional users join
+only through owner-authorized, single-use, expiring invitations delivered to a verified
+email address. Authentication, recovery, session invalidation, invitation acceptance,
+and role changes must use reviewed standard mechanisms; custom cryptography is
+prohibited.
+
+Every user-owned record—including tracking preferences, trades, portfolios, alerts,
+devices, and notification subscriptions—must carry explicit ownership. Authorization
+is enforced in backend services and persistence queries, never through client-side
+filtering alone. Shared reference data and user-private data must be distinguished in
+contracts, logs, caches, events, exports, tests, and migrations. Automated tests must
+prove cross-user reads, writes, SSE events, and notifications cannot leak data.
+
+### X. Live updates and consented notifications
+
+Every committed domain change visible to a connected client must publish a durable,
+versioned, authorization-scoped event. Initial snapshots may use REST, while SSE is the
+minimum live-delivery contract. Event publication must be transactionally coupled to
+the state change or use a durable outbox so reconnecting clients cannot silently miss
+committed changes. Clients must tolerate duplicate delivery and resume from the last
+acknowledged event ID.
+
+Email and Web Push notifications require explicit per-user consent, granular event
+preferences, revocable per-device subscriptions, quiet/frequency controls, and a clear
+unsubscribe path. Notification payloads expose the minimum necessary private data.
+Signals such as a possible sell remain explainable strategy outputs—not guaranteed
+advice—and delivery code must not invent or reinterpret them. PWA notification behavior
+must be tested for supported Chrome and Edge installations on mobile, tablet, and
+desktop, including denied permission, expiry, offline delivery, and device removal.
+
 ## Governance
 
 This constitution guides specification planning and implementation review. Amendments
 must update affected templates and project instructions in the same change.
 
-**Version**: 1.3.0
+**Version**: 1.4.0
 **Ratified**: 2026-08-28  
 **Last amended**: 2026-08-28

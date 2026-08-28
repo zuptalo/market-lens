@@ -1,0 +1,526 @@
+openapi: 3.1.0
+info:
+  title: Market Lens Owner Access and Invitations API
+  version: 1.0.0
+  description: Invitation-only identity, passwordless member login, owner administration, sessions, and authorized SSE.
+servers:
+  - url: /api/v1
+tags:
+  - { name: Setup }
+  - { name: Authentication }
+  - { name: Account }
+  - { name: Owner administration }
+  - { name: Events }
+paths:
+  /setup/status:
+    get:
+      tags: [Setup]
+      operationId: getSetupStatus
+      responses:
+        '200':
+          description: Safe bootstrap state; never returns a capability or owner identity
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [setup_required]
+                properties:
+                  setup_required: { type: boolean }
+  /auth/owner/setup:
+    post:
+      tags: [Setup]
+      operationId: completeOwnerSetup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OwnerSetupRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/Authenticated' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '409': { $ref: '#/components/responses/SetupClosed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/owner/login:
+    post:
+      tags: [Authentication]
+      operationId: loginOwner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { $ref: '#/components/schemas/Email' }
+                password: { type: string, minLength: 1, maxLength: 1024, writeOnly: true }
+      responses:
+        '200': { $ref: '#/components/responses/Authenticated' }
+        '401': { $ref: '#/components/responses/GenericAuthenticationFailure' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/owner/recovery/request:
+    post:
+      tags: [Authentication]
+      operationId: requestOwnerRecovery
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties: { email: { $ref: '#/components/schemas/Email' } }
+      responses:
+        '202': { $ref: '#/components/responses/GenericEmailAccepted' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/owner/recovery/complete:
+    post:
+      tags: [Authentication]
+      operationId: completeOwnerRecovery
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [capability, password]
+              properties:
+                capability: { type: string, minLength: 40, maxLength: 512, writeOnly: true }
+                password: { type: string, minLength: 12, maxLength: 1024, writeOnly: true }
+      responses:
+        '204': { description: Credential replaced; caller must sign in normally }
+        '400': { $ref: '#/components/responses/InvalidCapability' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/member/code/request:
+    post:
+      tags: [Authentication]
+      operationId: requestMemberLoginCode
+      description: Always returns the same body for unknown, inactive, blocked, locked, and eligible emails.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties: { email: { $ref: '#/components/schemas/Email' } }
+      responses:
+        '202': { $ref: '#/components/responses/GenericEmailAccepted' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/member/code/verify:
+    post:
+      tags: [Authentication]
+      operationId: verifyMemberLoginCode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, code]
+              properties:
+                email: { $ref: '#/components/schemas/Email' }
+                code: { type: string, pattern: '^[0-9]{6}$', writeOnly: true }
+      responses:
+        '200': { $ref: '#/components/responses/Authenticated' }
+        '401': { $ref: '#/components/responses/GenericAuthenticationFailure' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/invitations/accept:
+    post:
+      tags: [Authentication]
+      operationId: acceptInvitation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [capability, email, display_name]
+              properties:
+                capability: { type: string, minLength: 40, maxLength: 512, writeOnly: true }
+                email: { $ref: '#/components/schemas/Email' }
+                display_name: { $ref: '#/components/schemas/DisplayName' }
+      responses:
+        '201': { $ref: '#/components/responses/Authenticated' }
+        '400': { $ref: '#/components/responses/InvalidCapability' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/logout:
+    post:
+      tags: [Authentication]
+      operationId: logout
+      security: [{ sessionCookie: [], csrfHeader: [] }]
+      responses:
+        '204': { description: Current session revoked and cookie cleared }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/CSRFRejected' }
+  /account:
+    get:
+      tags: [Account]
+      operationId: getCurrentAccount
+      security: [{ sessionCookie: [] }]
+      responses:
+        '200':
+          description: Current safe identity and authorization snapshot
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Account' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /account/sessions:
+    get:
+      tags: [Account]
+      operationId: listSessions
+      security: [{ sessionCookie: [] }]
+      responses:
+        '200':
+          description: Active and recently revoked sessions without bearer material
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Session' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    delete:
+      tags: [Account]
+      operationId: revokeAllSessions
+      security: [{ sessionCookie: [], csrfHeader: [] }]
+      responses:
+        '204': { description: Every session, including current, revoked }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/CSRFRejected' }
+  /account/sessions/{sessionId}:
+    delete:
+      tags: [Account]
+      operationId: revokeSession
+      security: [{ sessionCookie: [], csrfHeader: [] }]
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '204': { description: Session revoked; idempotent for owned session }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/CSRFRejected' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /owner/invitations:
+    get:
+      tags: [Owner administration]
+      operationId: listInvitations
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Owner-visible safe invitation and delivery state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InvitationPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/OwnerRequired' }
+    post:
+      tags: [Owner administration]
+      operationId: createInvitation
+      security: [{ sessionCookie: [], csrfHeader: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties: { email: { $ref: '#/components/schemas/Email' } }
+      responses:
+        '201':
+          description: Safe invitation state; capability is delivered only by email
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Invitation' }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/OwnerRequired' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /owner/invitations/{invitationId}/resend:
+    post:
+      tags: [Owner administration]
+      operationId: resendInvitation
+      security: [{ sessionCookie: [], csrfHeader: [] }]
+      parameters:
+        - $ref: '#/components/parameters/InvitationId'
+      responses:
+        '200':
+          description: New capability issued; every previous capability is invalid
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Invitation' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/OwnerRequired' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /owner/invitations/{invitationId}:
+    delete:
+      tags: [Owner administration]
+      operationId: revokeInvitation
+      security: [{ sessionCookie: [], csrfHeader: [] }]
+      parameters:
+        - $ref: '#/components/parameters/InvitationId'
+      responses:
+        '204': { description: Pending invitation revoked idempotently }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/OwnerRequired' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /owner/members:
+    get:
+      tags: [Owner administration]
+      operationId: listMembers
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Account/security metadata only; no private financial data
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MemberPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/OwnerRequired' }
+  /owner/members/{memberId}/unlock:
+    post:
+      tags: [Owner administration]
+      operationId: unlockMember
+      security: [{ sessionCookie: [], csrfHeader: [] }]
+      parameters:
+        - $ref: '#/components/parameters/MemberId'
+      responses:
+        '204': { description: Failure state cleared and outstanding codes revoked }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/OwnerRequired' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /owner/members/{memberId}/status:
+    patch:
+      tags: [Owner administration]
+      operationId: changeMemberStatus
+      security: [{ sessionCookie: [], csrfHeader: [] }]
+      parameters:
+        - $ref: '#/components/parameters/MemberId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [active, deactivated] }
+      responses:
+        '200':
+          description: Updated account/security metadata
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Member' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/OwnerRequired' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /events:
+    get:
+      tags: [Events]
+      operationId: streamAuthorizedEvents
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - name: Last-Event-ID
+          in: header
+          schema: { type: string, pattern: '^[0-9]+$' }
+      responses:
+        '200':
+          description: Shared plus authorized user/owner Server-Sent Events with bounded heartbeats
+          headers:
+            Cache-Control: { schema: { type: string, const: no-cache } }
+          content:
+            text/event-stream:
+              schema: { type: string }
+              examples:
+                changed:
+                  value: "id: 84\nevent: member.locked.v1\ndata: {\"version\":1,\"scope\":\"owner\",\"entity_type\":\"member\",\"entity_id\":\"00000000-0000-4000-8000-000000000001\",\"occurred_at\":\"2026-08-29T10:00:00Z\"}\n\n"
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: __Host-market_lens_session
+    csrfHeader:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+  parameters:
+    SessionId: { name: sessionId, in: path, required: true, schema: { type: string, format: uuid } }
+    InvitationId: { name: invitationId, in: path, required: true, schema: { type: string, format: uuid } }
+    MemberId: { name: memberId, in: path, required: true, schema: { type: string, format: uuid } }
+    Cursor: { name: cursor, in: query, schema: { type: string, maxLength: 512 } }
+    Limit: { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 25 } }
+  responses:
+    Authenticated:
+      description: Authenticated; sets a secure HttpOnly session cookie and returns the CSRF token only in this response
+      headers:
+        Set-Cookie: { schema: { type: string } }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/AuthenticationResult' }
+    GenericEmailAccepted:
+      description: Uniform response regardless of account/delivery eligibility
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [message]
+            properties:
+              message: { type: string, const: 'If this email is eligible, a message will arrive shortly.' }
+    GenericAuthenticationFailure:
+      description: Uniform invalid/unavailable authentication result
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InvalidCapability:
+      description: Invalid, expired, revoked, conflicting, or consumed capability; details are not distinguished
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InvalidRequest:
+      description: Invalid request shape or value
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    SetupClosed:
+      description: Setup is unavailable or already closed
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    RateLimited:
+      description: Generic limit response; Retry-After is intentionally coarse and does not identify a bucket/account
+      headers:
+        Retry-After: { schema: { type: integer, minimum: 1 } }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Missing, expired, revoked, or inactive authenticated session
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    OwnerRequired:
+      description: Active owner role required
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    CSRFRejected:
+      description: Missing or invalid CSRF proof
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Resource not found in the caller's authorized scope
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: State transition conflicts with current safe state
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+    Email:
+      type: string
+      format: email
+      maxLength: 320
+    DisplayName:
+      type: string
+      minLength: 1
+      maxLength: 120
+    OwnerSetupRequest:
+      type: object
+      required: [capability, email, password, display_name]
+      properties:
+        capability: { type: string, minLength: 40, maxLength: 512, writeOnly: true }
+        email: { $ref: '#/components/schemas/Email' }
+        password: { type: string, minLength: 12, maxLength: 1024, writeOnly: true }
+        display_name: { $ref: '#/components/schemas/DisplayName' }
+    Account:
+      type: object
+      required: [id, email, display_name, role, status, email_verified_at]
+      properties:
+        id: { type: string, format: uuid }
+        email: { $ref: '#/components/schemas/Email' }
+        display_name: { $ref: '#/components/schemas/DisplayName' }
+        role: { type: string, enum: [owner, member] }
+        status: { type: string, enum: [active, deactivated] }
+        email_verified_at: { type: string, format: date-time }
+    AuthenticationResult:
+      type: object
+      required: [account, csrf_token]
+      properties:
+        account: { $ref: '#/components/schemas/Account' }
+        csrf_token: { type: string, minLength: 32, writeOnly: true }
+    Session:
+      type: object
+      required: [id, current, device_label, created_at, last_seen_at, idle_expires_at, absolute_expires_at, revoked]
+      properties:
+        id: { type: string, format: uuid }
+        current: { type: boolean }
+        device_label: { type: string, maxLength: 160 }
+        created_at: { type: string, format: date-time }
+        last_seen_at: { type: string, format: date-time }
+        idle_expires_at: { type: string, format: date-time }
+        absolute_expires_at: { type: string, format: date-time }
+        revoked: { type: boolean }
+    DeliveryState:
+      type: string
+      enum: [pending, sending, sent, failed, abandoned]
+    Invitation:
+      type: object
+      required: [id, email, state, expires_at, delivery_state, resend_count, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        email: { $ref: '#/components/schemas/Email' }
+        state: { type: string, enum: [pending, accepted, revoked, expired] }
+        expires_at: { type: string, format: date-time }
+        accepted_at: { type: [string, 'null'], format: date-time }
+        delivery_state: { $ref: '#/components/schemas/DeliveryState' }
+        delivery_error: { type: [string, 'null'], enum: [null, temporary_failure, permanent_failure, abandoned] }
+        resend_count: { type: integer, minimum: 0 }
+        created_at: { type: string, format: date-time }
+    InvitationPage:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Invitation' } }
+        next_cursor: { type: [string, 'null'] }
+    Member:
+      type: object
+      required: [id, email, display_name, status, login_state, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        email: { $ref: '#/components/schemas/Email' }
+        display_name: { $ref: '#/components/schemas/DisplayName' }
+        status: { type: string, enum: [active, deactivated] }
+        login_state: { type: string, enum: [available, temporarily_blocked, administratively_locked] }
+        blocked_until: { type: [string, 'null'], format: date-time }
+        locked_at: { type: [string, 'null'], format: date-time }
+        active_session_count: { type: integer, minimum: 0 }
+        created_at: { type: string, format: date-time }
+    MemberPage:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Member' } }
+        next_cursor: { type: [string, 'null'] }

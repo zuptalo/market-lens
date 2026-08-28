@@ -81,6 +81,16 @@ Required rules: duplicate/out-of-order source row, invalid OHLC, non-positive pr
 negative/zero volume, missing session, provider gap, suspicious jump, and possible
 corporate-action discontinuity. Findings never invent/interpolate data.
 
+## ClientEvent
+
+Durable outbox row with database-generated monotonic `id`, event `type`, schema
+`version`, authorization `scope` (feature 002 uses `shared`), entity type/ID, compact
+JSON payload, `occurred_at`, and optional expiry/retention metadata. The row is inserted
+in the same transaction as the visible domain change. SSE exposes the numeric ID as the
+event ID and replays rows after `Last-Event-ID`; clients use the event as a read-model
+invalidation and remain duplicate-safe. Event rows are append-only and never contain
+provider credentials or future user-private values.
+
 ## Indexes
 
 - Instrument normalized ticker/name search, ISIN, exchange/country/currency/status.
@@ -88,6 +98,7 @@ corporate-action discontinuity. Findings never invent/interpolate data.
 - Runs `(started_at DESC)` and status.
 - Findings `(status, severity, session_date DESC)` and instrument.
 - Membership by universe/effective date.
+- Client events by monotonic ID and `(scope, id)` for authorized replay.
 
 ## Transaction Boundaries
 
@@ -96,3 +107,4 @@ corporate-action discontinuity. Findings never invent/interpolate data.
 - Revision, current update, findings, and counters share one transaction.
 - Advisory locks prevent overlapping provider/instrument/interval mutation.
 - Terminal run totals are derived from item rows.
+- Every client-visible mutation and its `ClientEvent` outbox row commit atomically.

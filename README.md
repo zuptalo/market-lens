@@ -10,7 +10,8 @@ future specifications.
 
 ## Technology stack
 
-- Go 1.26 modular monolith using `net/http`, structured `slog` logging, pgx, and embedded SQL migrations
+- Go 1.26 modular monolith using `net/http`, REST snapshots, durable resumable SSE,
+  structured `slog` logging, pgx, and embedded SQL migrations
 - PostgreSQL 18
 - Vue 3, TypeScript, Vite, Vue Router, and PrimeVue 4
 - Go tests, Vitest, and Playwright
@@ -92,6 +93,11 @@ redirection, Traefik-managed Let's Encrypt TLS, and two-minute Keel polling of t
 Actual Market Lens domain functionality and schema will be implemented from specs
 later; the baseline intentionally contains no market-data, strategy, backtest,
 portfolio, or trading models.
+
+The product direction includes exactly one first-owner bootstrap, owner-invited users,
+backend-enforced private-data isolation, per-user tracking/trading records, an
+installable Chrome/Edge PWA, and consented email/Web Push alerts. These cross-cutting
+capabilities require their own reviewed specifications before implementation.
 
 ## Product planning
 

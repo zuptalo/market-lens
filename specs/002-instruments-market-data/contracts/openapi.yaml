@@ -6,6 +6,26 @@ info:
 servers:
   - url: /api/v1
 paths:
+  /events:
+    get:
+      operationId: streamClientEvents
+      description: Streams shared feature changes after Last-Event-ID; REST remains the snapshot source.
+      parameters:
+        - name: Last-Event-ID
+          in: header
+          schema: { type: string, pattern: '^[0-9]+$' }
+      responses:
+        '200':
+          description: Versioned resumable Server-Sent Events with bounded heartbeats
+          headers:
+            Cache-Control: { schema: { type: string, const: no-cache } }
+          content:
+            text/event-stream:
+              schema: { type: string }
+              examples:
+                changed:
+                  value: "id: 42\nevent: import_run.changed.v1\ndata: {\"version\":1,\"scope\":\"shared\",\"entity_type\":\"import_run\",\"entity_id\":\"00000000-0000-4000-8000-000000000001\",\"occurred_at\":\"2026-08-28T10:00:00Z\"}\n\n"
+        '400': { $ref: '#/components/responses/BadRequest' }
   /instruments:
     get:
       operationId: listInstruments
