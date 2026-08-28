@@ -63,11 +63,26 @@ stops until the specification and test strategy provide a valid red test.
 Changes also keep Go tests, vet, frontend type checking, Vitest, relevant Playwright
 flows, the production build, and container configuration healthy.
 
-### VII. PrimeVue-first accessible UI
+### VII. PrimeVue-first accessible and responsive UI
 
 The Vue client prefers PrimeVue primitives and reusable project components. User-facing
 surfaces support system, light, and dark themes, keyboard use, semantic structure, and
 responsive layouts.
+
+Every user-facing element and workflow must be designed mobile-first and remain fully
+usable on mobile, tablet, and desktop. Feature specifications must define responsive
+behavior and acceptance criteria before UI implementation. At minimum, automated
+browser coverage must exercise representative 360x800 mobile, 768x1024 tablet, and
+1440x900 desktop viewports; layouts must also tolerate a 320 CSS-pixel-wide viewport
+without unintended horizontal page scrolling, clipped actions, overlapping content, or
+inaccessible controls.
+
+Navigation, forms, dialogs, menus, feedback, charts, and data-dense tables must have an
+intentional small-screen treatment. Interactions must not depend on hover or precise
+pointer input, primary touch targets should be comfortably operable, text must remain
+readable without zoom, and orientation or viewport changes must not lose user state.
+Horizontal scrolling is permitted only for intrinsically wide content when explicitly
+contained and documented; it must never be the accidental behavior of the page shell.
 
 ### VIII. Self-hosted operational simplicity
 
@@ -87,6 +102,6 @@ secrets they require.
 This constitution guides specification planning and implementation review. Amendments
 must update affected templates and project instructions in the same change.
 
-**Version**: 1.2.0  
+**Version**: 1.3.0
 **Ratified**: 2026-08-28  
 **Last amended**: 2026-08-28

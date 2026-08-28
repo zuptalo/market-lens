@@ -1,0 +1,89 @@
+# Single-node PostgreSQL for the self-hosted Market Lens deployment. Application
+# schema changes are performed only by the application's ordered migrations.
+apiVersion: v1
+kind: Service
+metadata:
+  name: market-lens-postgres
+  namespace: market-lens
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: market-lens-postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: market-lens-postgres
+  namespace: market-lens
+spec:
+  serviceName: market-lens-postgres
+  replicas: 1
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: market-lens-postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: market-lens-postgres
+    spec:
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres
+          image: postgres:18
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: market_lens
+            - name: POSTGRES_DB
+              value: market_lens
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: market-lens-secrets
+                  key: POSTGRES_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          startupProbe:
+            exec:
+              command: [pg_isready, -U, market_lens, -d, market_lens]
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            exec:
+              command: [pg_isready, -U, market_lens, -d, market_lens]
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: [pg_isready, -U, market_lens, -d, market_lens]
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 10Gi

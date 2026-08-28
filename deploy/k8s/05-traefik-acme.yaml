@@ -1,0 +1,21 @@
+# k3s Traefik is cluster-wide. This HelmChartConfig augments the bundled chart
+# with a persistent Let's Encrypt resolver that uses TLS-ALPN-01 on port 443.
+# It is suitable for clusters where 443 is public but port 80 is not forwarded.
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    additionalArguments:
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/data/acme.json"
+      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+    persistence:
+      enabled: true
+      name: data
+      accessMode: ReadWriteOnce
+      size: 128Mi
+      storageClass: local-path
+      path: /data

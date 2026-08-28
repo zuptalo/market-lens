@@ -13,5 +13,18 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI,
     timeout: 30_000,
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    {
+      name: 'mobile-chromium',
+      use: { ...devices['Desktop Chrome'], viewport: { width: 360, height: 800 }, hasTouch: true, isMobile: true },
+    },
+    {
+      name: 'tablet-chromium',
+      use: { ...devices['Desktop Chrome'], viewport: { width: 768, height: 1024 }, hasTouch: true },
+    },
+    {
+      name: 'desktop-chromium',
+      use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } },
+    },
+  ],
 });

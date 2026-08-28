@@ -30,6 +30,11 @@ Read them before planning or changing production code.
   manipulation for deployment or repair, and never edit an applied migration.
 - Keep handlers thin and generic transport helpers in `server/internal/httpx`.
 - Preserve light, dark, and system themes and prefer PrimeVue primitives before custom widgets.
+- Design every user-facing element mobile-first and define its behavior on mobile,
+  tablet, and desktop. Verify representative 360x800, 768x1024, and 1440x900
+  viewports, tolerate 320 CSS pixels without accidental page scrolling or clipped
+  controls, and never rely on hover-only interaction. Tables, charts, dialogs, menus,
+  and navigation require intentional small-screen behavior.
 - Do not introduce microservices, Redis, message brokers, Kubernetes, Python services, ML infrastructure, broker integrations, or market-data providers without an explicit future specification.
 - Never commit local `.env` files, generated builds, coverage, browser output, or database data.
 - Store sensitive CI/CD values only in GitHub Actions secrets and non-sensitive CI/CD

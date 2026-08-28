@@ -47,6 +47,11 @@ the specification or test approach before implementing it.
 - Keep `/api/v1/health` as liveness and `/api/v1/ready` as dependency readiness.
 - Keep handlers thin and generic transport helpers in `server/internal/httpx`.
 - Preserve system, light, and dark themes; prefer PrimeVue primitives before custom UI.
+- Design every user-facing element mobile-first and specify its mobile, tablet, and
+  desktop behavior. Verify representative 360x800, 768x1024, and 1440x900 viewports,
+  tolerate 320 CSS pixels without accidental page scrolling or clipped controls, and
+  never rely on hover-only interaction. Tables, charts, dialogs, menus, and navigation
+  require intentional small-screen behavior.
 - Do not introduce new services or integrations without an explicit specification.
 - Never commit `.env` files, generated builds, coverage, browser output, or database data.
 - Store sensitive CI/CD values only in GitHub Actions secrets. Store non-sensitive CI/CD

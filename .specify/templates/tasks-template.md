@@ -13,6 +13,12 @@ description: "Task list template for feature implementation"
 test task, and the test task MUST include running the test and recording that it fails
 for the expected behavioral reason before implementation begins.
 
+**Responsive UI**: Every user-facing story MUST include failing-first acceptance tasks
+for representative mobile (360x800), tablet (768x1024), and desktop (1440x900)
+viewports, plus a 320px overflow/clipping check where applicable. Tasks must cover touch
+and keyboard interaction and intentional small-screen behavior for navigation, dialogs,
+menus, tables, and charts.
+
 **Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story.
 
 ## Format: `[ID] [P?] [Story] Description`
@@ -158,6 +164,7 @@ Examples of foundational tasks (adjust based on your project):
 - [ ] TXXX Performance optimization across all stories
 - [ ] TXXX [P] Additional unit tests in tests/unit/
 - [ ] TXXX Security hardening
+- [ ] TXXX Verify responsive behavior at mobile, tablet, desktop, and 320px narrow width
 - [ ] TXXX Run quickstart.md validation
 
 ---

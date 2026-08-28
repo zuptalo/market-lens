@@ -26,6 +26,10 @@
 
 **Testing**: [e.g., pytest, XCTest, cargo test or NEEDS CLARIFICATION]
 
+**Responsive UI Verification**: [For user-facing work, identify mobile 360x800, tablet
+768x1024, desktop 1440x900, and narrow 320px checks plus the automated Playwright
+scenarios; otherwise N/A]
+
 **Red-Green-Refactor Proof**: [Identify the first automated test, how its expected red
 failure will be observed before production code, and which suite proves green]
 
@@ -47,6 +51,9 @@ schema/data transformations, or N/A. Manual database steps are prohibited.]
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
 [Gates determined based on constitution file]
+
+For user-facing work, this gate MUST reject plans that omit specified mobile, tablet,
+desktop, touch/non-hover, and narrow-viewport behavior.
 
 ## Project Structure
 

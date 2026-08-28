@@ -109,6 +109,17 @@
 - **Database migration proof**: [If persistent data changes, identify the migration test
   proving a clean database upgrades without manual steps, or state N/A]
 
+### Responsive UI Behavior *(mandatory for user-facing features; otherwise state N/A)*
+
+- **Mobile (320-767 CSS px)**: [Describe layout, navigation, actions, dense-data
+  treatment, touch behavior, and the 360x800 automated acceptance scenario]
+- **Tablet (768-1023 CSS px)**: [Describe layout and the 768x1024 automated acceptance
+  scenario]
+- **Desktop (1024+ CSS px)**: [Describe layout and the 1440x900 automated acceptance
+  scenario]
+- **Input and accessibility**: [Describe keyboard, touch, non-hover, orientation, zoom,
+  and state-preservation expectations]
+
 ### Key Entities *(include if feature involves data)*
 
 - **[Entity 1]**: [What it represents, key attributes without implementation]

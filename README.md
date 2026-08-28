@@ -84,6 +84,10 @@ Successful pushes to `main` publish the tested multi-platform container image as
 `ghcr.io/zuptalo/market-lens:latest`. See `docs/GITHUB-ACTIONS.md` for the image tags and
 the required variables/secrets policy.
 
+The production k3s manifests under `deploy/k8s/` provide PostgreSQL, HTTP-to-HTTPS
+redirection, Traefik-managed Let's Encrypt TLS, and two-minute Keel polling of the public `latest` image. See
+`deploy/k8s/README.md` for installation and operational details.
+
 Actual Market Lens domain functionality and schema will be implemented from specs
 later; the baseline intentionally contains no market-data, strategy, backtest,
 portfolio, or trading models.

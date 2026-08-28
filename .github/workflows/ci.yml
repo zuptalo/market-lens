@@ -69,6 +69,8 @@ jobs:
       - uses: actions/checkout@v5
       - name: Validate Compose configuration
         run: docker compose config
+      - name: Validate k3s deployment contract
+        run: deploy/k8s/test.sh
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
       - name: Log in to GitHub Container Registry

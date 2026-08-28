@@ -1,0 +1,106 @@
+# Cluster-wide Keel installation, kept identical to the proven Ring deployment.
+# Applying it is idempotent when Keel already exists in the cluster.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: keel
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: keel
+  namespace: keel
+  labels:
+    app: keel
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: keel
+rules:
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [watch, list]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, watch, list]
+  - apiGroups: ["", extensions, apps, batch]
+    resources:
+      - pods
+      - replicasets
+      - replicationcontrollers
+      - statefulsets
+      - deployments
+      - daemonsets
+      - jobs
+      - cronjobs
+    verbs: [get, delete, watch, list, update]
+  - apiGroups: [""]
+    resources: [configmaps, pods/portforward]
+    verbs: [get, create, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: keel
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: keel
+subjects:
+  - kind: ServiceAccount
+    name: keel
+    namespace: keel
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keel
+  namespace: keel
+  labels:
+    app: keel
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: keel
+  template:
+    metadata:
+      labels:
+        app: keel
+    spec:
+      serviceAccountName: keel
+      containers:
+        - name: keel
+          image: keelhq/keel:0.20.0
+          imagePullPolicy: IfNotPresent
+          command: [/bin/keel]
+          env:
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POLL
+              value: "true"
+            - name: NOTIFICATION_LEVEL
+              value: info
+          ports:
+            - name: http
+              containerPort: 9300
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 30
+            timeoutSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]

@@ -31,6 +31,12 @@ Keep the modular monolith boundary: domain packages may depend on shared transpo
 database infrastructure, but unrelated feature areas should communicate through narrow
 interfaces rather than shared mutable state.
 
+All user-facing changes are mobile-first. Specifications and reviews must describe and
+verify mobile, tablet, and desktop behavior, including representative 360x800, 768x1024,
+and 1440x900 Playwright viewports. Layouts must tolerate 320 CSS pixels without
+accidental page scrolling, clipped controls, or hover-only interactions. Give tables,
+charts, dialogs, menus, and navigation an intentional small-screen design.
+
 Never commit sensitive configuration. GitHub Actions secrets are required for sensitive
 CI/CD values; Actions variables are only for non-sensitive configuration. Do not put
 credentials in workflow YAML, build arguments, images, logs, or example files.
