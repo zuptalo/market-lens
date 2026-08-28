@@ -50,8 +50,12 @@ Commands print only run IDs and safe totals. Detailed status is read-only in the
 2. Open an instrument; verify latest session/native OHLCV, adjustment status, coverage,
    freshness, and warnings.
 3. Review run/item counts and sanitized failures in market-data status.
-4. Repeat the backfill; verify no duplicates and unchanged visible values.
-5. Import a fixture correction; verify one revision and the corrected current bar.
+4. Keep the view open while a fixture import finishes; verify SSE refreshes the affected
+   status/read model without periodic polling.
+5. Disconnect/reconnect with a saved event ID and verify missed events replay once
+   without losing search/filter/selection state.
+6. Repeat the backfill; verify no duplicates and unchanged visible values.
+7. Import a fixture correction; verify one revision and the corrected current bar.
 
 ## Full verification
 
@@ -64,3 +68,36 @@ docker compose config
 
 Playwright covers 360x800, 768x1024, and 1440x900; a 320x800 assertion rejects accidental
 page-level horizontal overflow.
+
+## Implementation evidence
+
+### US1 — instrument universe (2026-08-28)
+
+- The required baseline test first failed against `0001` because the `exchanges` domain
+  relation did not exist. After `0002`, both a clean database and an explicit database
+  already recording migration `0001` upgraded successfully.
+- `go test ./internal/db ./internal/instruments -count=1` passed twice against isolated
+  PostgreSQL schemas.
+- The migration audit proves 100 active `common_stock` memberships, exactly 25 each for
+  `XSTO`, `XCSE`, `XHEL`, and `XOSL`, with provider mappings and non-empty selection
+  provenance.
+- Synchronization tests prove same-ticker cross-MIC identity, stable UUIDs, idempotent
+  metadata updates, inactive historical retention, provider-identity conflict rejection,
+  and immutable sanitized terminal run records.
+
+### US2 — provider contract and EODHD adapter (2026-08-29)
+
+- Provider collection tests first failed because `CollectDaily` returned the explicit
+  not-implemented contract error. They now prove ordered/deduplicated pagination,
+  transient retry with provider `Retry-After`, cancellation, repeated-cursor safety, and
+  sanitized terminal failures.
+- Local-only EODHD adapter tests first failed at the same explicit not-implemented seam.
+  They now prove exchange-qualified Stockholm mapping, exact lexical decimals,
+  exchange-local dates, adjusted close, splits/dividends, request timeouts, and secret-
+  safe authentication failures without calling the provider.
+- `go test ./internal/marketdata ./internal/marketdata/eodhd -count=1` and `go test ./...`
+  pass. Live provider entitlement verification remains pending because no host
+  `EODHD_API_TOKEN` is configured.
+- Daily validation tests first failed at the explicit unimplemented validator and now
+  accept valid OHLCV/actions, reject bars outside authoritative exchange sessions, and
+  reject incomplete corporate actions with safe structured findings.
