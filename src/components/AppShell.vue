@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import Button from 'primevue/button';
+import Tag from 'primevue/tag';
 import { useTheme } from '@/composables/useTheme';
+import { buildVersion } from '@/utils/version';
 
 const { preference, cycleTheme } = useTheme();
 </script>
@@ -12,13 +14,21 @@ const { preference, cycleTheme } = useTheme();
         <span class="brand-mark" aria-hidden="true">ML</span>
         <span>Market Lens</span>
       </RouterLink>
-      <Button
-        severity="secondary"
-        variant="text"
-        :label="`Theme: ${preference}`"
-        aria-label="Change color theme"
-        @click="cycleTheme"
-      />
+      <div class="app-actions">
+        <Tag
+          class="app-version"
+          :value="buildVersion"
+          severity="secondary"
+          :aria-label="`Market Lens version ${buildVersion}`"
+        />
+        <Button
+          severity="secondary"
+          variant="text"
+          :label="`Theme: ${preference}`"
+          aria-label="Change color theme"
+          @click="cycleTheme"
+        />
+      </div>
     </header>
     <main class="app-content"><slot /></main>
   </div>

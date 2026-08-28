@@ -1,10 +1,14 @@
 import { expect, test } from '@playwright/test';
 
+const rawVersion = process.env.APP_VERSION || 'dev';
+const expectedVersion = /^\d+\.\d+\.\d+$/.test(rawVersion) ? `v${rawVersion}` : 'development';
+
 test('shows the Market Lens foundation shell', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Market Lens' })).toBeVisible();
   await expect(page.getByText('Stock research and strategy experimentation platform')).toBeVisible();
   await expect(page.getByText('Foundation stage')).toBeVisible();
+  await expect(page.getByText(expectedVersion, { exact: true })).toBeVisible();
 });
 
 test('keeps the foundation shell within a 320px viewport', async ({ page }) => {
@@ -16,4 +20,5 @@ test('keeps the foundation shell within a 320px viewport', async ({ page }) => {
   );
   expect(hasHorizontalOverflow).toBe(false);
   await expect(page.getByRole('heading', { name: 'Market Lens' })).toBeVisible();
+  await expect(page.getByText(expectedVersion, { exact: true })).toBeVisible();
 });

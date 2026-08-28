@@ -20,6 +20,8 @@ a { color: inherit; }
   background: color-mix(in srgb, canvas 92%, transparent);
 }
 .brand { display: inline-flex; align-items: center; gap: .75rem; font-weight: 700; text-decoration: none; }
+.app-actions { display: flex; align-items: center; justify-content: flex-end; gap: .5rem; }
+.app-version { white-space: nowrap; }
 .brand-mark {
   display: grid;
   place-items: center;
@@ -37,4 +39,7 @@ a { color: inherit; }
 .hero > p { margin: 0 0 2.5rem; max-width: 38rem; font-size: clamp(1.15rem, 3vw, 1.5rem); color: color-mix(in srgb, currentColor 70%, transparent); }
 .foundation-card { max-width: 42rem; }
 .foundation-card p { margin: 0; line-height: 1.7; }
-@media (max-width: 40rem) { .app-header { padding: 0 1rem; } }
+@media (max-width: 40rem) {
+  .app-header { height: auto; min-height: 4.5rem; flex-wrap: wrap; padding: .75rem 1rem; }
+  .app-actions { width: 100%; justify-content: space-between; }
+}
