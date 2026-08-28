@@ -37,7 +37,7 @@ and active no-bypass main protection, and a direct main update is rejected.
 - [x] T007 [US1] Add the `PR policy` branch/title validation job and stable display names to `.github/workflows/ci.yml`
 - [x] T008 [US1] Update contribution/title/squash rules in `CONTRIBUTING.md` and `.github/PULL_REQUEST_TEMPLATE.md`
 - [x] T009 [US1] Add `scripts/workflow-contract.test.sh` to `Makefile` and make all local contract assertions green
-- [ ] T010 [US1] Configure squash-only merge settings, automatic branch deletion, and active no-bypass `main` rules through `gh`; verify the returned repository/ruleset state
+- [x] T010 [US1] Configure squash-only merge settings, automatic branch deletion, and active no-bypass `main` rules through `gh`; verify the returned repository/ruleset state
 
 **Checkpoint**: User Story 1 is enforced independently of release publication.
 
@@ -92,7 +92,7 @@ shows `development`; Playwright passes at 360x800, 768x1024, 1440x900, and 320x8
 ## Phase 6: Ship and Resume Product Feature
 
 - [x] T023 Update `specs/003-release-versioning/spec.md`, `ROADMAP.md`, and `specs/README.md` to in-review and run `make verify`, Playwright, Docker, Compose, and k3s validation
-- [ ] T024 Commit/push `003-release-versioning`, create a conventionally titled PR through `gh`, and wait for every required check
+- [x] T024 Commit/push `003-release-versioning`, create a conventionally titled PR through `gh`, and wait for every required check
 - [ ] T025 Squash merge through `gh`, verify feature-branch deletion and protected linear `main`, then monitor automatic `v0.2.0` release and GHCR tags
 - [ ] T026 Mark feature 003 shipped in `specs/003-release-versioning/spec.md`, `ROADMAP.md`, and `specs/README.md` through the next protected PR if post-merge evidence requires a documentation update
 - [ ] T027 Create/switch to `002-instruments-market-data`, restore `.specify/feature.json` and the `AGENTS.md` active-plan pointer to feature 002, then run `/speckit-tasks`
