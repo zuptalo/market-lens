@@ -1,0 +1,13 @@
+{
+  "fixture": "synthetic-exchange-sessions-v1",
+  "license": "CC0-1.0 synthetic test data",
+  "mic": "XSTO",
+  "timezone": "Europe/Stockholm",
+  "sessions": [
+    {"date":"2024-03-28","status":"half_day","opens_at":"2024-03-28T08:00:00Z","closes_at":"2024-03-28T12:00:00Z"},
+    {"date":"2024-03-29","status":"closed"},
+    {"date":"2024-04-01","status":"closed"},
+    {"date":"2024-04-02","status":"open","opens_at":"2024-04-02T07:00:00Z","closes_at":"2024-04-02T15:30:00Z"},
+    {"date":"2024-04-03","status":"open","opens_at":"2024-04-03T07:00:00Z","closes_at":"2024-04-03T15:30:00Z"}
+  ]
+}

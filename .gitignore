@@ -3,6 +3,10 @@ node_modules/
 dist/
 dist-ssr/
 coverage/
+vendor/
+*.exe
+*.test
+*.out
 
 # Test and browser artifacts
 test-results/

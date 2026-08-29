@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-28
 
-**Status**: planned
+**Status**: in-review
 <!-- Market Lens spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: Establish the first financial-domain capability after the completed application foundation: maintain a curated universe of approximately 50–100 liquid Swedish and Nordic equities available to the user through Danske Bank, ingest about ten years of daily market history where available through a replaceable data source, validate and report data quality, and expose enough status and browsing capability to prove the stored market data is usable. This feature deliberately excludes feature calculation, strategies, signals, backtesting, portfolios, risk evaluation, paper trading, automated broker execution, hourly data, machine learning, news, and fundamentals.
@@ -103,6 +103,9 @@ verify the run summary distinguishes accepted, corrected, flagged, and rejected 
    market-data status, **Then** the affected instruments and date range can be identified
    and the operator receives a safe host-side retry command that does not expose provider
    credentials in the browser.
+5. **Given** an instrument, bar, import run, item, or quality finding changes after the
+   view loaded, **When** the change commits, **Then** the view receives a versioned SSE
+   event and refreshes the affected read model without polling as its primary mechanism.
 
 ---
 
@@ -225,6 +228,21 @@ are visible at each required viewport.
 - **FR-026**: This feature MUST NOT calculate research features, generate investment
   recommendations, execute backtests or trades, value portfolios, or claim that the
   curated universe is guaranteed to match current broker availability.
+- **FR-027**: Every committed instrument, membership, daily-bar, import-run/item, and
+  quality-finding change visible to a client MUST create a durable versioned event in
+  the same transaction as the state change.
+- **FR-028**: The system MUST expose shared market-data changes through
+  `/api/v1/events` as Server-Sent Events with monotonic event IDs, typed versioned
+  envelopes, heartbeat behavior, bounded slow-consumer handling, and `Last-Event-ID`
+  replay without exposing provider credentials or private future-user data.
+- **FR-029**: The browser MUST use REST for initial snapshots and SSE for live changes,
+  tolerate duplicate delivery, refresh only affected read models, reconnect with the
+  last processed event ID, and visibly distinguish connected, reconnecting, stale, and
+  offline state. Polling MUST NOT be the primary live-update path.
+- **FR-030**: Feature 002 events MUST be explicitly classified as shared reference-data
+  events. The transport and event schema MUST accept an authorization scope so the later
+  identity feature can enforce user-private event isolation without replacing the
+  contract.
 
 ### Test-First Proof *(mandatory)*
 
@@ -261,6 +279,32 @@ are visible at each required viewport.
   do not depend on hover. Status and quality meaning is conveyed by text in addition to
   color. System, light, and dark themes remain supported, browser zoom does not hide
   controls, and viewport changes do not discard entered state.
+
+### Live Update Behavior
+
+- **Snapshot and events**: REST loads instrument/history/import/finding snapshots;
+  durable SSE events announce committed `instrument.changed`, `daily_bar.changed`,
+  `import_run.changed`, `import_item.changed`, and `quality_finding.changed` read-model
+  invalidations using a versioned envelope.
+- **Reliability**: Event IDs are monotonic and replayable with `Last-Event-ID`. Clients
+  ignore already processed IDs, reconnect with bounded backoff, refresh affected data,
+  and show stale/offline state when replay is unavailable. Slow consumers are
+  disconnected safely and resume durably rather than forcing unbounded memory.
+- **Test evidence**: Go integration/contract tests prove transactional event creation,
+  ordered replay, heartbeats, disconnect/cancellation, and absence of secrets. Vitest
+  and Playwright prove duplicate-safe refresh, reconnect/resume, live completion under
+  ten seconds, and viewport/theme state retention.
+
+### Identity, Ownership, and Permissions
+
+N/A for feature-owned records: instruments and daily market data are shared reference
+data. The SSE contract carries an explicit shared scope and must be composable with the
+separate owner/authentication/invitation feature before private user data is exposed.
+
+### PWA and Notification Behavior
+
+N/A for this feature. PWA installation and email/Web Push delivery require separate
+reviewed specifications; feature 002 emits domain events but sends no user notification.
 
 ### Key Entities *(include if feature involves data)*
 
@@ -309,6 +353,9 @@ are visible at each required viewport.
   horizontal scrolling at 320 CSS pixels.
 - **SC-008**: No screen or exported status describes daily end-of-session data as a
   real-time quote, and every displayed latest value includes its trading session.
+- **SC-009**: A connected client observes every committed feature-002 change through SSE
+  within 2 seconds under normal local conditions, resumes all missed events after a
+  tested disconnect, and performs no periodic polling while the stream is healthy.
 
 ## Assumptions
 
@@ -318,11 +365,10 @@ are visible at each required viewport.
 - The single user curates or approves the initial universe; without a Danske Bank broker
   integration, the application cannot guarantee current purchasability and will label
   that limitation clearly.
-- The current foundation has no user authentication while a separate deployment spec
-  targets a public hostname. This feature therefore exposes read-only browser and HTTP
-  views only. Initial backfills and retries require authenticated host access and use the
-  same validated application workflow; browser-based administrative mutations require a
-  separately reviewed authentication specification.
+- The current foundation has no user authentication. Feature 002 exposes only shared
+  read-only snapshots/events and host-side mutations; deployment for browser access
+  beyond the first-owner bootstrap waits for the separately reviewed owner,
+  authentication, invitation, and authorization feature.
 - The initial universe favors liquid common equities across Sweden, Denmark, Norway, and
   Finland; funds, exchange-traded products, derivatives, and other security types are
   outside the initial curated set even though instrument identity can represent future

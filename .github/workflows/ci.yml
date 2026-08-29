@@ -46,6 +46,22 @@ jobs:
   backend:
     name: Backend
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: market_lens
+          POSTGRES_PASSWORD: market_lens
+          POSTGRES_DB: market_lens_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U market_lens -d market_lens_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://market_lens:market_lens@127.0.0.1:5432/market_lens_test?sslmode=disable
     defaults:
       run:
         working-directory: server

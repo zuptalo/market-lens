@@ -1,6 +1,6 @@
 # Implementation Plan: Instruments and Daily Market Data
 
-**Branch**: `main` | **Date**: 2026-08-28 | **Spec**: [spec.md](spec.md)
+**Branch**: `002-instruments-market-data` | **Date**: 2026-08-28 | **Spec**: [spec.md](spec.md)
 
 **Input**: Feature specification from `specs/002-instruments-market-data/spec.md`
 
@@ -9,9 +9,9 @@
 Add the first financial-domain vertical slice to the existing Go/Vue modular monolith:
 a migration-seeded Nordic equity universe, exchange-aware identities and calendars, a
 provider-neutral daily-market-data importer with EODHD as the first adapter, immutable
-import and correction provenance, read-only REST inspection APIs, an accessible
-responsive PrimeVue market-data view, an in-process daily update job, and host-side
-backfill/retry commands. Feature calculation, signals, charts, backtesting, FX,
+import and correction provenance, read-only REST snapshots plus durable resumable SSE
+change events, an accessible responsive PrimeVue market-data view, an in-process daily
+update job, and host-side backfill/retry commands. Feature calculation, signals, charts, backtesting, FX,
 portfolios, authentication, and browser-accessible administrative mutations remain out
 of scope.
 
@@ -37,6 +37,19 @@ empty/error states, and import status at 360x800, 768x1024, and 1440x900. A dedi
 non-hover interaction, orientation/state retention, and all three themes are covered by
 component or browser tests.
 
+**Live Delivery**: REST loads initial snapshots. A PostgreSQL `client_events` outbox is
+written in the same transaction as every client-visible feature change and streamed by
+standard-library SSE at `/api/v1/events`. Tests cover monotonic IDs, versioned shared
+scope, `Last-Event-ID` replay, duplicate-safe clients, cancellation/heartbeats, bounded
+slow consumers, reconnecting/stale/offline UI, and secret-safe payloads.
+
+**Identity and Ownership**: Feature 002 data is shared reference data and its events use
+an explicit shared scope. The transport accepts an authorization scope but private data,
+owner bootstrap, invitations, and roles are owned by a separate prerequisite feature.
+
+**PWA and Notifications**: N/A. This feature emits domain-change events but does not
+install a PWA or send email/Web Push notifications.
+
 **Red-Green-Refactor Proof**: Start with a PostgreSQL integration test proving that two
 listings sharing ticker text on different MICs persist and resolve independently. Run it
 against migration `0001` and capture the expected missing-domain behavior, then add
@@ -48,13 +61,15 @@ CLI, then UI.
 
 - `0002_instruments.sql`: exchanges, instruments, provider mappings, research universe,
   memberships, constraints, and search indexes.
-- `0003_market_data.sql`: exchange sessions, import runs/items, current daily bars,
-  immutable bar revisions, corporate actions, and quality findings.
-- `0004_nordic_universe.sql`: reviewed initial exchanges and exactly 100 instrument/
+- `0003_nordic_universe.sql`: reviewed initial exchanges and exactly 100 instrument/
   reference rows. Subsequent corrections use new forward migrations.
+- `0004_market_data.sql`: exchange sessions, import runs/items, current daily bars,
+  immutable bar revisions, corporate actions, and quality findings.
 - `0005_nordic_calendars.sql`: documented exchange sessions for the ten-year backfill
   window plus the next complete year. Annual extensions and corrections use forward
   migrations.
+- `0006_client_events.sql`: durable monotonic event outbox and replay indexes for shared
+  feature-002 changes.
 
 Migration integration tests exercise both a clean database and an upgrade from `0001`,
 including identity, uniqueness, referential, and range constraints.
@@ -70,7 +85,8 @@ return a 10-year daily series for one instrument within 2 seconds on the target
 self-hosted deployment; ingest 100 instruments × 10 years within 30 minutes subject to
 provider throttling; show final run status within 10 seconds of completion.
 
-**Constraints**: Deterministic/idempotent imports; no ticker-only identity; no future
+**Constraints**: Deterministic/idempotent imports; durable transaction-coupled SSE
+events with no primary polling; no ticker-only identity; no future
 data inference; no invented bars; API token never reaches logs/browser/database; bounded
 provider concurrency and retries; graceful worker shutdown; read-only browser API until
 authentication is separately specified; 320 CSS-pixel tolerance.
@@ -88,7 +104,7 @@ market-data/status frontend view plus instrument summary route.
 | Specification-driven | `spec.md` bounds this financial domain slice with independently testable scenarios. | PASS |
 | Modular monolith | New packages remain inside the existing Go process; no services or queues are added. | PASS |
 | Migration-only evolution | All schema, universe, exchange, and calendar reference data are ordered migrations. Runtime imports use reviewed application code. | PASS |
-| Versioned contracts | Read-only routes remain under `/api/v1`; OpenAPI contract and tests are planned. | PASS |
+| Versioned contracts | Read-only snapshots and resumable shared-scope SSE remain under `/api/v1`; OpenAPI/event contracts and tests are planned. | PASS |
 | Correctness/reproducibility | Session dates, calendars, numeric representation, source hashes, revisions, correction rules, and missing-data rules are explicit. | PASS |
 | Test-driven development | Each implementation slice has a named behavioral red test and green suite. | PASS |
 | Responsive accessible UI | Mobile/tablet/desktop/320 behavior, touch, keyboard, themes, and non-color status semantics are specified. | PASS |
@@ -125,9 +141,13 @@ server/
     │   ├── router.go
     │   ├── instruments.go
     │   └── marketdata.go
+    │   └── events.go
     ├── config/config.go
     ├── db/
-    │   └── migrations/0002_...0005_*.sql
+    │   └── migrations/0002_...0006_*.sql
+    ├── events/
+    │   ├── repository.go
+    │   └── service.go
     ├── instruments/
     │   ├── model.go
     │   ├── repository.go
@@ -177,8 +197,10 @@ decode/validate/respond, and generic response helpers remain in `server/internal
 5. **Operations**: Add `marketdata backfill`, `marketdata update`, and `marketdata retry`
    subcommands plus the context-bound daily scheduler. The CLI and scheduler call the
    same service; neither executes SQL directly.
-6. **Read-only API and UI**: Add paginated instruments, instrument history, import status,
-   and quality endpoints; then implement mobile-first PrimeVue views and states.
+6. **Read-only API, events, and UI**: Add paginated instruments, instrument history,
+   import status, and quality snapshots; add transaction-coupled outbox writes and a
+   resumable shared-scope SSE stream; then implement mobile-first PrimeVue views and
+   connected/reconnecting/stale/offline states without primary polling.
 7. **Verification**: Relevant Go/Vitest/Playwright suites, `make verify`, production
    build, Docker build, Compose configuration, and a fixture-provider end-to-end import.
 
@@ -190,7 +212,8 @@ decode/validate/respond, and generic response helpers remain in `server/internal
 | Identity | Internal UUID plus exchange/MIC-qualified listing; ticker is searchable but never globally unique; ISIN is not assumed unique across listings. |
 | Calendar authority | Versioned application-owned session rows derived from official Nasdaq Nordic and Euronext Oslo calendars. Provider holiday data may assist future updates but is not the historical authority. |
 | Adjustment model | Store raw OHLCV, provider adjusted close, discrete split/dividend/symbol-change records, source hash, and immutable prior revisions. Never synthesize adjusted OHLC. |
-| Import control | Host-side subcommands and internal scheduling only; browser/API mutation waits for an authentication spec. |
+| Import control | Host-side subcommands and internal scheduling only; browser/API mutation waits for the owner/authentication/invitation spec. |
+| Live delivery | Durable PostgreSQL outbox plus standard-library SSE; REST supplies snapshots, `Last-Event-ID` supplies replay, and clients refresh affected read models. |
 | Concurrency | One advisory lock per provider/instrument/interval; different instruments may import with a small bounded worker pool. |
 | Initial universe | Exactly 100 user-reviewed common-equity listings: 25 current primary large-cap benchmark constituents from each of Stockholm, Copenhagen, Helsinki, and Oslo. The migration records its selection date/source; “Danske-purchasable” remains user-curated metadata, not an automated broker claim. |
 

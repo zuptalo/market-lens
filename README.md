@@ -2,15 +2,16 @@
 
 [![Market Lens CI](https://github.com/zuptalo/market-lens/actions/workflows/ci.yml/badge.svg)](https://github.com/zuptalo/market-lens/actions/workflows/ci.yml)
 
-Market Lens is intended to be a self-hosted application for stock research,
-backtesting, signal generation, portfolio analysis, and paper trading. The project is
-currently at the **foundation/bootstrap stage**: reusable application plumbing is in
-place, while financial domain functionality will be defined and implemented from
-future specifications.
+Market Lens is a self-hosted application for stock research, strategy experimentation,
+portfolio analysis, and paper trading. The current product slice provides a curated
+100-instrument Nordic universe, reproducible daily market-data imports, quality and
+import health, read-only inspection, and durable resumable live updates. Strategies,
+backtests, portfolios, and trading remain governed by later specifications.
 
 ## Technology stack
 
-- Go 1.26 modular monolith using `net/http`, structured `slog` logging, pgx, and embedded SQL migrations
+- Go 1.26 modular monolith using `net/http`, REST snapshots, durable resumable SSE,
+  structured `slog` logging, pgx, and embedded SQL migrations
 - PostgreSQL 18
 - Vue 3, TypeScript, Vite, Vue Router, and PrimeVue 4
 - Go tests, Vitest, and Playwright
@@ -27,7 +28,8 @@ make start
 ```
 
 This starts PostgreSQL, the Go API on <http://localhost:8080>, and Vite on
-<http://localhost:5173>. Verify the API with:
+<http://localhost:5173>. Before launching, it stops existing listeners on the configured
+backend port (`PORT`, default 8080) and Vite port 5173. Verify the API with:
 
 ```sh
 curl http://localhost:8080/api/v1/health
@@ -64,6 +66,23 @@ docker compose config
 
 Playwright requires Chromium once per machine: `npx playwright install chromium`.
 
+## Market-data operations
+
+Market-data mutations are host-only. Configure an EOD Historical Data All World token
+in an ignored host environment file, then run the shared importer from `server/`:
+
+```sh
+go run ./cmd/market-lens marketdata backfill --universe nordic-liquid-v1 --years 10
+go run ./cmd/market-lens marketdata update --universe nordic-liquid-v1 --days 7
+go run ./cmd/market-lens marketdata retry --run '<run-uuid>'
+```
+
+The commands print only a run ID and safe aggregate totals. The browser and `/api/v1`
+expose read-only instrument, price, import, quality, and resumable SSE contracts; they
+never receive the provider token. See [market-data operations](docs/MARKET-DATA.md) for
+configuration, scheduling, provider limitations, calendar maintenance, and acceptance
+inspection.
+
 ## Repository structure
 
 ```text
@@ -89,9 +108,14 @@ The production k3s manifests under `deploy/k8s/` provide PostgreSQL, HTTP-to-HTT
 redirection, Traefik-managed Let's Encrypt TLS, and two-minute Keel polling of the public `latest` image. See
 `deploy/k8s/README.md` for installation and operational details.
 
-Actual Market Lens domain functionality and schema will be implemented from specs
-later; the baseline intentionally contains no market-data, strategy, backtest,
-portfolio, or trading models.
+Market-data domain functionality and schema are governed by Feature 002. Strategy,
+backtest, portfolio, and trading models are intentionally absent until their own
+reviewed specifications authorize them.
+
+The product direction includes exactly one first-owner bootstrap, owner-invited users,
+backend-enforced private-data isolation, per-user tracking/trading records, an
+installable Chrome/Edge PWA, and consented email/Web Push alerts. These cross-cutting
+capabilities require their own reviewed specifications before implementation.
 
 ## Product planning
 

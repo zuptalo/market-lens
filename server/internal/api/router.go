@@ -15,10 +15,16 @@ type Database interface {
 }
 
 type Dependencies struct {
-	Database       Database
-	AllowedOrigins []string
-	StaticDir      string
-	Version        string
+	Database        Database
+	AllowedOrigins  []string
+	StaticDir       string
+	Version         string
+	MarketData      MarketDataReader
+	Instruments     InstrumentReader
+	Events          EventReader
+	EventScope      string
+	EventHeartbeat  time.Duration
+	EventBatchLimit int
 }
 
 func NewRouter(deps Dependencies) http.Handler {
@@ -37,6 +43,19 @@ func NewRouter(deps Dependencies) http.Handler {
 		}
 		httpx.JSON(w, http.StatusOK, map[string]string{"status": "ready"})
 	})
+	if deps.MarketData != nil {
+		mux.HandleFunc("GET /api/v1/market-data/imports", listImportRunsHandler(deps.MarketData))
+		mux.HandleFunc("GET /api/v1/market-data/imports/{id}", getImportRunHandler(deps.MarketData))
+		mux.HandleFunc("GET /api/v1/market-data/quality-findings", listQualityFindingsHandler(deps.MarketData))
+	}
+	if deps.Instruments != nil {
+		mux.HandleFunc("GET /api/v1/instruments", listInstrumentsHandler(deps.Instruments))
+		mux.HandleFunc("GET /api/v1/instruments/{id}", getInstrumentHandler(deps.Instruments))
+		mux.HandleFunc("GET /api/v1/instruments/{id}/prices", listInstrumentPricesHandler(deps.Instruments))
+	}
+	if deps.Events != nil {
+		mux.HandleFunc("GET /api/v1/events", eventsHandler(deps.Events, deps.EventScope, deps.EventHeartbeat, deps.EventBatchLimit))
+	}
 
 	if deps.StaticDir != "" {
 		mux.Handle("/", spaHandler(deps.StaticDir))

@@ -6,6 +6,30 @@ info:
 servers:
   - url: /api/v1
 paths:
+  /events:
+    get:
+      operationId: streamClientEvents
+      description: Streams shared feature changes after Last-Event-ID; REST remains the snapshot source.
+      parameters:
+        - name: Last-Event-ID
+          in: header
+          schema: { type: string, pattern: '^[0-9]+$' }
+        - name: last_event_id
+          in: query
+          description: Browser-compatible alternative to the Last-Event-ID header.
+          schema: { type: integer, format: int64, minimum: 0 }
+      responses:
+        '200':
+          description: Versioned resumable Server-Sent Events with bounded heartbeats
+          headers:
+            Cache-Control: { schema: { type: string, const: no-cache } }
+          content:
+            text/event-stream:
+              schema: { type: string }
+              examples:
+                changed:
+                  value: "id: 42\nevent: import_run.changed.v1\ndata: {\"version\":1,\"scope\":\"shared\",\"entity_type\":\"import_run\",\"entity_id\":\"00000000-0000-4000-8000-000000000001\",\"occurred_at\":\"2026-08-28T10:00:00Z\"}\n\n"
+        '400': { $ref: '#/components/responses/BadRequest' }
   /instruments:
     get:
       operationId: listInstruments
@@ -24,7 +48,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/InstrumentPage' }
         '400': { $ref: '#/components/responses/BadRequest' }
-  /instruments/{instrumentId}:
+  /instruments/{id}:
     get:
       operationId: getInstrument
       parameters:
@@ -36,7 +60,8 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/InstrumentDetail' }
         '404': { $ref: '#/components/responses/NotFound' }
-  /instruments/{instrumentId}/prices:
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /instruments/{id}/prices:
     get:
       operationId: listDailyPrices
       parameters:
@@ -58,8 +83,7 @@ paths:
       operationId: listImportRuns
       parameters:
         - { name: status, in: query, schema: { $ref: '#/components/schemas/ImportStatus' } }
-        - { $ref: '#/components/parameters/Cursor' }
-        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/SnapshotLimit' }
       responses:
         '200':
           description: Import runs newest first
@@ -67,17 +91,18 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ImportRunPage' }
         '400': { $ref: '#/components/responses/BadRequest' }
-  /market-data/imports/{runId}:
+  /market-data/imports/{id}:
     get:
       operationId: getImportRun
       parameters:
-        - { name: runId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { $ref: '#/components/parameters/Id' }
       responses:
         '200':
           description: Run, per-instrument outcomes, and safe host retry command
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ImportRunDetail' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
   /market-data/quality-findings:
     get:
@@ -86,11 +111,10 @@ paths:
         - { name: instrument_id, in: query, schema: { type: string, format: uuid } }
         - { name: status, in: query, schema: { type: string, enum: [open, resolved, accepted_limitation] } }
         - { name: severity, in: query, schema: { type: string, enum: [warning, error] } }
-        - { $ref: '#/components/parameters/Cursor' }
-        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/SnapshotLimit' }
       responses:
         '200':
-          description: Paginated findings
+          description: Bounded quality-finding snapshot
           content:
             application/json:
               schema:
@@ -98,11 +122,11 @@ paths:
                 required: [items]
                 properties:
                   items: { type: array, items: { $ref: '#/components/schemas/QualityFinding' } }
-                  next_cursor: { type: [string, 'null'] }
         '400': { $ref: '#/components/responses/BadRequest' }
 components:
   parameters:
-    InstrumentId: { name: instrumentId, in: path, required: true, schema: { type: string, format: uuid } }
+    InstrumentId: { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    Id: { name: id, in: path, required: true, schema: { type: string, format: uuid } }
     Query: { name: q, in: query, schema: { type: string, maxLength: 120 } }
     Exchange: { name: exchange, in: query, schema: { type: string, maxLength: 4 } }
     Country: { name: country, in: query, schema: { type: string, minLength: 2, maxLength: 2 } }
@@ -110,6 +134,7 @@ components:
     Active: { name: active, in: query, schema: { type: boolean } }
     Cursor: { name: cursor, in: query, schema: { type: string, maxLength: 512 } }
     Limit: { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+    SnapshotLimit: { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
   responses:
     BadRequest:
       description: Invalid request
@@ -198,9 +223,15 @@ components:
         accepted: { type: integer, minimum: 0 }
         rejected: { type: integer, minimum: 0 }
         flagged: { type: integer, minimum: 0 }
+    SafeError:
+      type: object
+      required: [code, summary]
+      properties:
+        code: { type: string }
+        summary: { type: string }
     ImportRun:
       type: object
-      required: [id, kind, provider, status, started_at, counts]
+      required: [id, kind, provider, status, started_at, counts, app_version]
       properties:
         id: { type: string, format: uuid }
         kind: { type: string, enum: [universe_sync, backfill, daily_update, retry] }
@@ -211,40 +242,50 @@ components:
         requested_from: { type: [string, 'null'], format: date }
         requested_to: { type: [string, 'null'], format: date }
         counts: { $ref: '#/components/schemas/Counts' }
-        error_summary: { type: [string, 'null'] }
+        parent_run_id: { type: string, format: uuid }
+        error: { $ref: '#/components/schemas/SafeError' }
+        app_version: { type: string }
     ImportRunPage:
       type: object
       required: [items]
       properties:
         items: { type: array, items: { $ref: '#/components/schemas/ImportRun' } }
-        next_cursor: { type: [string, 'null'] }
     ImportRunDetail:
-      allOf:
-        - { $ref: '#/components/schemas/ImportRun' }
-        - type: object
-          required: [items]
-          properties:
-            items:
-              type: array
-              items:
-                type: object
-                required: [instrument_id, status, attempts]
-                properties:
-                  instrument_id: { type: string, format: uuid }
-                  status: { $ref: '#/components/schemas/ImportStatus' }
-                  attempts: { type: integer, minimum: 0 }
-                  error_summary: { type: [string, 'null'] }
-            retry_command: { type: [string, 'null'] }
+      type: object
+      required: [run, items, retry_command]
+      properties:
+        run: { $ref: '#/components/schemas/ImportRun' }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ImportItem' }
+        retry_command: { type: string }
+    ImportItem:
+      type: object
+      required: [run_id, instrument_id, requested_from, requested_to, status, counts, attempts]
+      properties:
+        run_id: { type: string, format: uuid }
+        instrument_id: { type: string, format: uuid }
+        requested_from: { type: string, format: date }
+        requested_to: { type: string, format: date }
+        status: { $ref: '#/components/schemas/ImportStatus' }
+        counts: { $ref: '#/components/schemas/Counts' }
+        attempts: { type: integer, minimum: 0 }
+        started_at: { type: string, format: date-time }
+        finished_at: { type: string, format: date-time }
+        error: { $ref: '#/components/schemas/SafeError' }
     QualityFinding:
       type: object
-      required: [id, instrument_id, rule, severity, disposition, status, created_at]
+      required: [id, instrument_id, run_id, rule, severity, disposition, detail, status, created_at]
       properties:
         id: { type: string, format: uuid }
         instrument_id: { type: string, format: uuid }
         session_date: { type: [string, 'null'], format: date }
+        run_id: { type: string, format: uuid }
         rule: { type: string }
         severity: { type: string, enum: [warning, error] }
         disposition: { type: string, enum: [flagged, rejected] }
         status: { type: string, enum: [open, resolved, accepted_limitation] }
         detail: { type: string }
         created_at: { type: string, format: date-time }
+        resolved_at: { type: string, format: date-time }
+        resolving_run_id: { type: string, format: uuid }

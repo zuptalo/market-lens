@@ -14,6 +14,10 @@ const { preference, cycleTheme } = useTheme();
         <span class="brand-mark" aria-hidden="true">ML</span>
         <span>Market Lens</span>
       </RouterLink>
+      <nav class="primary-nav" aria-label="Primary navigation">
+        <RouterLink to="/">Overview</RouterLink>
+        <RouterLink to="/markets">Market data</RouterLink>
+      </nav>
       <div class="app-actions">
         <Tag
           class="app-version"

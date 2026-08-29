@@ -2,7 +2,7 @@
 
 - **Status**: Directional product baseline
 - **Last reviewed**: 2026-08-28
-- **Primary user**: One self-hosting investor initially
+- **Primary users**: One bootstrapping owner plus owner-invited household/team users
 - **Primary deployment**: One Market Lens application image plus PostgreSQL
 - **Initial market**: Liquid Swedish and Nordic equities purchasable through Danske Bank
 - **Initial execution**: Research, backtesting, and paper trading
@@ -30,6 +30,9 @@ experimenting with investment strategies before risking capital. It should:
 6. Run the same strategy, risk, and accounting logic through paper trading.
 7. Track portfolio performance, exposures, drawdown, and decisions reproducibly.
 8. Permit ML-assisted signals only after deterministic foundations are trusted.
+9. Keep connected clients current through resumable server-sent change events.
+10. Let each user privately track holdings/trades and opt into explainable email and
+    installed-app push alerts.
 
 The product does not promise profitable trades or certainty about future prices.
 Profitability is an experimental result, not a software acceptance criterion.
@@ -73,6 +76,8 @@ execution must consume the same strategy behavior rather than fork implementatio
   product service or a Kubernetes requirement for users.
 - No Kafka, RabbitMQ, Redis, Elasticsearch, microservices, or permanent production
   Python service without a later specification proving the need.
+- REST/JSON provides versioned snapshots; a PostgreSQL-backed event outbox and
+  authorized resumable SSE provide live changes from the same Go process.
 
 ## Instruments and market data
 
@@ -215,6 +220,11 @@ Expected view outcomes retained for future specifications:
   examples such as Swedish Large Caps, Momentum Candidates, Possible Buys, and Owned
   Elsewhere.
 
+The browser client becomes an installable PWA for supported Chrome and Edge mobile,
+tablet, and desktop environments. Live views show connected, reconnecting, stale, and
+offline states and restore missed committed changes without losing user input or view
+state.
+
 Initial language is English, base currency SEK, with consistent formatting such as
 `154 321,50 SEK`, `+4,21%`, and `-2,18%`. System, light, and dark themes are first-class.
 
@@ -228,10 +238,46 @@ Every UI spec defines mobile/tablet/desktop behavior and tests representative 36
 dialogs, menus, and navigation get intentional small-screen treatment; nothing depends
 on hover.
 
+## Identity, ownership, and collaboration
+
+First deployment uses a time-bounded bootstrap flow to create exactly one owner and then
+permanently closes bootstrap. The owner can invite additional users by verified email
+through expiring single-use invitations and assign reviewed roles. Shared instruments,
+market history, and strategy definitions remain distinct from private user data.
+
+The first owner uses a strong credential with verified-email recovery. Invited members
+never create passwords: after accepting an invitation, they sign in on any device by
+entering their email and a single-use six-digit code delivered to it. Codes expire after
+10 minutes and newer codes invalidate older ones. Three consecutive wrong submissions
+cause a durable 15-minute block; ten wrong submissions within a rolling 24-hour window
+administratively lock the member until the owner explicitly unlocks them. Request and
+verification throttling must resist email enumeration, distributed guessing, and abuse
+that deliberately tries to lock another person's account.
+
+Every watchlist, tracking rule, recorded holding/trade, portfolio, alert preference,
+device, and notification subscription belongs to a user. Backend authorization and SQL
+scope every private read, mutation, export, SSE event, and notification. Suggestions
+such as a possible sell originate only from a versioned explainable strategy and the
+user's authorized data; they are not guarantees or autonomous trades.
+
+## Live delivery and notifications
+
+REST may load an initial snapshot, but every client-visible committed domain change is
+also recorded durably and delivered through versioned authorized SSE. Event IDs,
+Last-Event-ID replay, ordering, duplicate-safe clients, bounded slow consumers, and
+cross-user isolation are required. Polling is fallback diagnostics, not the primary
+live-update mechanism.
+
+Users may opt into granular email and Web Push notifications. Preferences include event
+types, frequency/quiet controls, and per-device revocation. Payloads contain minimum
+private information and link back to the authenticated explanation. Provider outages do
+not make the core research application unavailable.
+
 ## Operations, security, and observability
 
-REST/JSON remains under `/api/v1`, with validation, consistent errors, pagination, and
-no database details. `/api/v1/health` is liveness and `/api/v1/ready` readiness.
+REST/JSON and SSE remain under `/api/v1`, with validation, consistent errors, pagination,
+versioned events, and no database details. `/api/v1/health` is liveness and
+`/api/v1/ready` readiness.
 Production serves `/api/*` from Go and falls back to embedded `index.html` for SPA routes.
 
 In-process observable work includes instrument sync, daily and future hourly/FX imports,
@@ -240,8 +286,10 @@ status, counts, and sanitized errors and stop with application context.
 
 The app is private/self-hosted and should not be public by default. Credentials come
 from secret mechanisms and never enter source, logs, images, build arguments, or browser
-code. The optional public k3s deployment makes reviewed single-user authentication a
-prerequisite for browser mutations and private portfolio/trading data. No custom crypto.
+code. The optional public k3s deployment makes reviewed authentication a prerequisite
+for browser access beyond the first-owner bootstrap. Owner invitations, roles, private
+portfolio/trading data, SSE, and notifications require server-side authorization and
+cross-user isolation. No custom crypto.
 
 ## Testing and release evidence
 
@@ -267,12 +315,14 @@ never autonomous authority, and must beat deterministic baselines out of sample.
 
 ## Deferred areas and explicit V1 non-goals
 
-Fundamentals, earnings, valuation, statements, estimates, news, sentiment, macro/sector
-feeds, and email/push/messaging notifications enter through later provider abstractions
-and specs.
+Fundamentals, earnings, valuation, statements, estimates, news, sentiment, and
+macro/sector feeds enter through later provider abstractions and specs. Email/Web Push,
+PWA installation, identity/invitations, and personal tracking remain separately
+specified cross-cutting milestones even though their architectural requirements are now
+part of the product baseline.
 
 V1 excludes high-frequency/intraday scalping; options; crypto; margin/leverage; short
-selling; automatic Danske execution; social trading; multi-user SaaS; mandatory
+selling; automatic Danske execution; public multi-tenant SaaS; mandatory
 Kubernetes; microservices/distributed messaging; LLM autonomous trades; deep neural
 networks; and automatic investment of the user's primary savings.
 

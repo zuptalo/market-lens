@@ -8,7 +8,8 @@ code. `CLAUDE.md` contains the equivalent project guidance for Claude-based tool
 ## Architecture
 
 - Backend: Go 1.26 modular monolith, standard-library REST/JSON, pgx/PostgreSQL,
-  embedded ordered SQL migrations, `slog`, and in-process background work.
+  embedded ordered SQL migrations, `slog`, in-process background work, and authorized
+  resumable SSE for client-visible changes.
 - Frontend: Vue 3, strict TypeScript, Vite, Vue Router, PrimeVue 4, and reusable
   project-level components.
 - Production: one application image serving the built Vue client from Go, with
@@ -46,6 +47,15 @@ the specification or test approach before implementing it.
 
 - Keep `/api/v1/health` as liveness and `/api/v1/ready` as dependency readiness.
 - Keep handlers thin and generic transport helpers in `server/internal/httpx`.
+- REST may load initial snapshots, but every client-visible committed domain change must
+  also be delivered through a versioned, authorized, resumable SSE contract backed by
+  transactionally coupled durable events. Polling is not the primary live-update path.
+- Bootstrap exactly one first owner, close setup after success, and add users only
+  through owner-authorized expiring single-use email invitations. Enforce ownership and
+  authorization in backend services and queries; test cross-user data and event isolation.
+- Email and Web Push require explicit granular consent, per-device revocation, minimal
+  private payloads, unsubscribe controls, and graceful provider-outage behavior. PWA
+  behavior must cover supported Chrome/Edge mobile, tablet, and desktop installations.
 - Preserve system, light, and dark themes; prefer PrimeVue primitives before custom UI.
 - Design every user-facing element mobile-first and specify its mobile, tablet, and
   desktop behavior. Verify representative 360x800, 768x1024, and 1440x900 viewports,
@@ -63,7 +73,9 @@ proportion to the change. Never disable a failing check to hide a regression.
 
 <!-- SPECKIT START -->
 For durable cross-session context, read `docs/product-vision.md`, `ROADMAP.md`, and
-`specs/README.md`. The current Release Versioning and Protected Delivery feature is
-governed by `specs/003-release-versioning/spec.md`; read its `plan.md` and supporting
-artifacts for technology choices, structure, commands, contracts, and boundaries.
+`specs/README.md`. The current Instruments and Daily Market Data implementation is
+governed by `specs/002-instruments-market-data/spec.md`; resume from the next incomplete
+task in its `tasks.md` and read its `plan.md` and supporting artifacts for technology
+choices, structure, commands, contracts, and boundaries. Owner Access and Invitations is
+fully designed and task-ready under `specs/004-owner-access/`.
 <!-- SPECKIT END -->

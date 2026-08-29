@@ -1,0 +1,15 @@
+{
+  "fixture": "synthetic-malformed-daily-history-v1",
+  "license": "CC0-1.0 synthetic test data",
+  "provider_symbol": "NORD.XSTO",
+  "bars": [
+    {"case":"out_of_order","date":"2024-04-03","open":"51.00000000","high":"52.00000000","low":"50.00000000","close":"51.50000000","volume":1000},
+    {"case":"duplicate","date":"2024-04-02","open":"50.00000000","high":"51.00000000","low":"49.50000000","close":"50.50000000","volume":1000},
+    {"case":"duplicate","date":"2024-04-02","open":"50.00000000","high":"51.00000000","low":"49.50000000","close":"50.50000000","volume":1000},
+    {"case":"impossible_ohlc","date":"2024-04-04","open":"55.00000000","high":"54.00000000","low":"50.00000000","close":"51.00000000","volume":1000},
+    {"case":"non_positive_price","date":"2024-04-05","open":"0.00000000","high":"1.00000000","low":"0.00000000","close":"1.00000000","volume":1000},
+    {"case":"negative_volume","date":"2024-04-08","open":"50.00000000","high":"51.00000000","low":"49.00000000","close":"50.00000000","volume":-1},
+    {"case":"zero_volume","date":"2024-04-09","open":"50.00000000","high":"51.00000000","low":"49.00000000","close":"50.00000000","volume":0},
+    {"case":"suspicious_jump","date":"2024-04-10","open":"100.00000000","high":"105.00000000","low":"99.00000000","close":"104.00000000","volume":1000}
+  ]
+}

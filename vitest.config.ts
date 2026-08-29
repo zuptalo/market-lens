@@ -1,17 +1,10 @@
-/// <reference types="vitest" />
 import { defineConfig } from 'vitest/config';
+import vue from '@vitejs/plugin-vue';
 import path from 'node:path';
 
 export default defineConfig({
-  define: { __APP_VERSION__: JSON.stringify('dev') },
+  plugins: [vue()],
+  define: { __APP_VERSION__: JSON.stringify('test') },
   resolve: { alias: { '@': path.resolve(__dirname, './src') } },
-  test: {
-    environment: 'node',
-    include: ['src/**/*.test.ts'],
-    coverage: {
-      provider: 'v8',
-      reporter: ['text', 'json-summary', 'html'],
-      include: ['src/utils/**/*.ts'],
-    },
-  },
+  test: { environment: 'jsdom', include: ['src/**/*.test.ts'] },
 });
