@@ -23,6 +23,25 @@ Primary sources: [supported exchanges](https://eodhd.com/list-of-stock-markets),
 backfill; unofficial scraping lacks a stable contract/provenance; direct exchange feeds
 increase cost and integration complexity. A CSV provider remains test-only.
 
+### Configured-account entitlement evidence (2026-08-29)
+
+A secret-safe live audit used the configured free-account token without printing or
+persisting it in the repository. The exchange-symbol and date-ranged EOD endpoints both
+returned HTTP 200 for one representative curated listing on each target venue:
+
+| MIC | Provider symbol | Resolution | Daily-history evidence |
+|---|---|---|---|
+| XSTO | `INVE-B.ST` | Resolved | 23 rows, 2026-07-29 through 2026-08-28 |
+| XCSE | `NOVO-B.CO` | Resolved | 23 rows, 2026-07-29 through 2026-08-28 |
+| XHEL | `NOKIA.HE` | Resolved | 23 rows, 2026-07-29 through 2026-08-28 |
+| XOSL | `EQNR.OL` | Resolved | 23 rows, 2026-07-29 through 2026-08-28 |
+
+This confirms symbol resolution and recent daily-history access across all four Nordic
+exchanges. The free entitlement does not prove the approximately ten-year requirement
+or the 100-instrument acceptance scale. Continue deterministic development with local
+fixtures; activate the paid All World EOD entitlement before the controlled live
+full-universe audit in T063.
+
 ## Decision 2: Backfill by instrument
 
 **Decision**: Use one date-ranged EOD request per instrument for initial backfill and

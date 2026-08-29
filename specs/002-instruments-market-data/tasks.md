@@ -18,7 +18,7 @@ system/light/dark theme behavior.
 **Purpose**: Confirm the provider assumption and establish deterministic test support
 before financial-domain production code begins.
 
-- [ ] T001 Verify the configured EODHD account can resolve and retrieve daily history for representative Stockholm, Copenhagen, Helsinki, and Oslo listings, and record entitlement/endpoint evidence without credentials in `specs/002-instruments-market-data/research.md`
+- [x] T001 Verify the configured EODHD account can resolve and retrieve daily history for representative Stockholm, Copenhagen, Helsinki, and Oslo listings, and record entitlement/endpoint evidence without credentials in `specs/002-instruments-market-data/research.md`
 - [x] T002 [P] Add license-safe representative provider, calendar, correction, corporate-action, and malformed-record fixtures under `server/internal/marketdata/testdata/`
 - [x] T003 [P] Add disposable PostgreSQL integration-test lifecycle helpers in `server/internal/testdb/testdb.go` and `server/internal/testdb/testdb_test.go`, and provide the isolated CI PostgreSQL service through `.github/workflows/ci.yml`
 - [x] T004 Update feature 002 to in-progress in `specs/002-instruments-market-data/spec.md`, `ROADMAP.md`, and `specs/README.md` when the first valid red production-behavior test is recorded
@@ -90,9 +90,9 @@ calendar-correct sessions, source provenance, and deterministic counts.
 - [x] T020 [P] [US2] Add provider contract tests for instrument resolution, ordered daily bars/actions, pagination overlap, cancellation, rate limiting, retries, and secret-safe failures in `server/internal/marketdata/provider_test.go`; run and record the expected red behavior
 - [x] T021 [P] [US2] Add EODHD request/mapping tests using only a local HTTP test server for Nordic symbol mapping, decimals, exchange-local dates, adjusted close, actions, timeouts, and sanitized errors in `server/internal/marketdata/eodhd/client_test.go`; run and record the expected red behavior
 - [x] T022 [P] [US2] Add valid-bar/session/action validation unit tests in `server/internal/marketdata/validate_test.go`; run and record the expected red behavior
-- [ ] T023 [US2] Add import integration tests for first write, identical replay, overlapping pages, corrected bars with immutable revisions, adjustment/action provenance, transactional per-instrument scopes, and advisory-lock conflicts in `server/internal/marketdata/service_integration_test.go`; run and record the expected red behavior
-- [ ] T024 [P] [US2] Add command tests proving `marketdata backfill` and `marketdata update` parse bounded scopes, use the shared service, respect cancellation, and emit only run IDs/safe totals in `server/cmd/market-lens/main_test.go`; run and record the expected red behavior
-- [ ] T025 [P] [US2] Add scheduler tests for disabled mode, configured exchange-zone time, one execution per session, shared-service delegation, and graceful shutdown in `server/internal/scheduler/marketdata_test.go`; run and record the expected red behavior
+- [x] T023 [US2] Add import integration tests for first write, identical replay, overlapping pages, corrected bars with immutable revisions, adjustment/action provenance, transactional per-instrument scopes, and advisory-lock conflicts in `server/internal/marketdata/service_integration_test.go`; run and record the expected red behavior
+- [x] T024 [P] [US2] Add command tests proving `marketdata backfill` and `marketdata update` parse bounded scopes, use the shared service, respect cancellation, and emit only run IDs/safe totals in `server/cmd/market-lens/main_test.go`; run and record the expected red behavior
+- [x] T025 [P] [US2] Add scheduler tests for disabled mode, configured exchange-zone time, one execution per session, shared-service delegation, and graceful shutdown in `server/internal/scheduler/marketdata_test.go`; run and record the expected red behavior
 
 ### Implementation for User Story 2
 
@@ -101,11 +101,11 @@ calendar-correct sessions, source provenance, and deterministic counts.
 - [x] T028 [US2] Define the replaceable provider contract and normalized provider records in `server/internal/marketdata/provider.go`
 - [x] T029 [US2] Implement the standard-library EODHD HTTP adapter with bounded retry/backoff, cancellation, pagination normalization, and secret sanitization in `server/internal/marketdata/eodhd/client.go`
 - [x] T030 [US2] Implement exact OHLCV, session, and source-action validation for accepted records in `server/internal/marketdata/validate.go`
-- [ ] T031 [US2] Implement explicit-SQL import/run/bar/revision/action repositories, source hashing, transactional upserts, and PostgreSQL advisory locking in `server/internal/marketdata/repository.go`
-- [ ] T032 [US2] Implement bounded per-instrument backfill/incremental orchestration, idempotency, correction history, partial-scope accounting, and cancellation in `server/internal/marketdata/service.go`
-- [ ] T033 [US2] Implement `marketdata backfill` and `marketdata update` host subcommands through the shared import service in `server/cmd/market-lens/main.go`
-- [ ] T034 [US2] Implement the context-bound in-process daily update schedule through the shared import service in `server/internal/scheduler/marketdata.go` and wire it at application startup in `server/cmd/market-lens/main.go`
-- [ ] T035 [US2] Run US2 provider, migration, import, command, and scheduler suites twice against identical fixtures and record deterministic green evidence in `specs/002-instruments-market-data/quickstart.md`
+- [x] T031 [US2] Implement explicit-SQL import/run/bar/revision/action repositories, source hashing, transactional upserts, and PostgreSQL advisory locking in `server/internal/marketdata/repository.go`
+- [x] T032 [US2] Implement bounded per-instrument backfill/incremental orchestration, idempotency, correction history, partial-scope accounting, and cancellation in `server/internal/marketdata/service.go`
+- [x] T033 [US2] Implement `marketdata backfill` and `marketdata update` host subcommands through the shared import service in `server/cmd/market-lens/main.go`
+- [x] T034 [US2] Implement the context-bound in-process daily update schedule through the shared import service in `server/internal/scheduler/marketdata.go` and wire it at application startup in `server/cmd/market-lens/main.go`
+- [x] T035 [US2] Run US2 provider, migration, import, command, and scheduler suites twice against identical fixtures and record deterministic green evidence in `specs/002-instruments-market-data/quickstart.md`
 
 **Checkpoint**: Daily market history is reproducible without UI or strategy behavior.
 
@@ -122,22 +122,22 @@ valid bars survive, and failed scopes expose a sanitized host-side retry command
 
 ### Failing tests for User Story 3
 
-- [ ] T036 [P] [US3] Extend validation tests with impossible OHLC, non-positive prices, negative/zero volume, duplicates, ordering, expected-session gaps, suspicious jumps, and action discontinuities in `server/internal/marketdata/validate_test.go`; run and record the expected red behavior
-- [ ] T037 [US3] Add integration tests for succeeded/partial/failed run transitions, atomic item counts, sanitized failures, unresolved findings, last-valid-value retention, scoped retry lineage, and transaction-coupled durable client events in `server/internal/marketdata/health_integration_test.go`; run and record the expected red behavior
-- [ ] T038 [P] [US3] Add read-only HTTP contract tests for `/api/v1/market-data/imports`, run detail, quality-finding filters/error envelopes, and `/api/v1/events` SSE IDs/version/shared scope/heartbeat/Last-Event-ID replay/cancellation/slow-consumer behavior in `server/internal/api/marketdata_test.go` and `server/internal/api/events_test.go`; run and record the expected red behavior
-- [ ] T039 [P] [US3] Add CLI tests proving `marketdata retry --run` reconstructs only failed scopes and never prints credentials/raw provider errors in `server/cmd/market-lens/main_test.go`; run and record the expected red behavior
-- [ ] T040 [P] [US3] Add frontend service/component tests for recent-run snapshots, duplicate-safe SSE refresh within 10 seconds, Last-Event-ID reconnect, connected/reconnecting/stale/offline state, counts, safe errors, retry command copying, warnings/errors with text plus color, loading, and failure states in `src/services/marketData.test.ts` and `src/components/finance/MarketDataStatus.test.ts`; run and record the expected red behavior
-- [ ] T041 [US3] Add Playwright failed/partial-import live-update and reconnect journeys at 360x800, 768x1024, and 1440x900 plus keyboard/touch, themes, state retention, no healthy-stream polling, and 320x800 overflow checks in `e2e/market-data.spec.ts`; run and record the expected missing-UI red behavior
+- [x] T036 [P] [US3] Extend validation tests with impossible OHLC, non-positive prices, negative/zero volume, duplicates, ordering, expected-session gaps, suspicious jumps, and action discontinuities in `server/internal/marketdata/validate_test.go`; run and record the expected red behavior
+- [x] T037 [US3] Add integration tests for succeeded/partial/failed run transitions, atomic item counts, sanitized failures, unresolved findings, last-valid-value retention, scoped retry lineage, and transaction-coupled durable client events in `server/internal/marketdata/health_integration_test.go`; run and record the expected red behavior
+- [x] T038 [P] [US3] Add read-only HTTP contract tests for `/api/v1/market-data/imports`, run detail, quality-finding filters/error envelopes, and `/api/v1/events` SSE IDs/version/shared scope/heartbeat/Last-Event-ID replay/cancellation/slow-consumer behavior in `server/internal/api/marketdata_test.go` and `server/internal/api/events_test.go`; run and record the expected red behavior
+- [x] T039 [P] [US3] Add CLI tests proving `marketdata retry --run` reconstructs only failed scopes and never prints credentials/raw provider errors in `server/cmd/market-lens/main_test.go`; run and record the expected red behavior
+- [x] T040 [P] [US3] Add frontend service/component tests for recent-run snapshots, duplicate-safe SSE refresh within 10 seconds, Last-Event-ID reconnect, connected/reconnecting/stale/offline state, counts, safe errors, retry command copying, warnings/errors with text plus color, loading, and failure states in `src/services/marketData.test.ts` and `src/components/finance/MarketDataStatus.test.ts`; run and record the expected red behavior
+- [x] T041 [US3] Add Playwright failed/partial-import live-update and reconnect journeys at 360x800, 768x1024, and 1440x900 plus keyboard/touch, themes, state retention, no healthy-stream polling, and 320x800 overflow checks in `e2e/market-data.spec.ts`; run and record the expected missing-UI red behavior
 
 ### Implementation for User Story 3
 
-- [ ] T042 [US3] Implement non-destructive rejection/finding rules and calendar-aware gap/discontinuity classification in `server/internal/marketdata/validate.go`
-- [ ] T043 [US3] Add `0006_client_events.sql` and implement run/item transition accounting, safe error normalization, finding persistence/filtering, failed-scope reconstruction, and transaction-coupled shared event outbox writes in `server/internal/marketdata/repository.go`, `server/internal/marketdata/service.go`, and `server/internal/events/repository.go`
-- [ ] T044 [US3] Implement `marketdata retry` through the shared service in `server/cmd/market-lens/main.go`
-- [ ] T045 [US3] Implement thin import-run/detail and quality-finding handlers plus authorized-scope resumable SSE in `server/internal/api/marketdata.go` and `server/internal/api/events.go`, register them in `server/internal/api/router.go`, and keep generic transport behavior in `server/internal/httpx/`
-- [ ] T046 [US3] Implement typed read-only snapshots, duplicate-safe EventSource/reconnect handling, and accessible status/quality/live-connection presentation in `src/types/marketData.ts`, `src/services/marketData.ts`, `src/components/finance/MarketDataStatus.vue`, and `src/components/finance/QualityBadge.vue`
-- [ ] T047 [US3] Integrate the responsive market-data status section, SSE-driven refresh that exposes final outcomes within 10 seconds without primary polling, connected/reconnecting/stale/offline state, and explicit safe host retry instructions in `src/views/MarketsView.vue` and `src/router/index.ts`
-- [ ] T048 [US3] Make the US3 Go, Vitest, and Playwright suites green and record rejection/flag/retry evidence in `specs/002-instruments-market-data/quickstart.md`
+- [x] T042 [US3] Implement non-destructive rejection/finding rules and calendar-aware gap/discontinuity classification in `server/internal/marketdata/validate.go`
+- [x] T043 [US3] Add `0006_client_events.sql` and implement run/item transition accounting, safe error normalization, finding persistence/filtering, failed-scope reconstruction, and transaction-coupled shared event outbox writes in `server/internal/marketdata/repository.go`, `server/internal/marketdata/service.go`, and `server/internal/events/repository.go`
+- [x] T044 [US3] Implement `marketdata retry` through the shared service in `server/cmd/market-lens/main.go`
+- [x] T045 [US3] Implement thin import-run/detail and quality-finding handlers plus authorized-scope resumable SSE in `server/internal/api/marketdata.go` and `server/internal/api/events.go`, register them in `server/internal/api/router.go`, and keep generic transport behavior in `server/internal/httpx/`
+- [x] T046 [US3] Implement typed read-only snapshots, duplicate-safe EventSource/reconnect handling, and accessible status/quality/live-connection presentation in `src/types/marketData.ts`, `src/services/marketData.ts`, `src/components/finance/MarketDataStatus.vue`, and `src/components/finance/QualityBadge.vue`
+- [x] T047 [US3] Integrate the responsive market-data status section, SSE-driven refresh that exposes final outcomes within 10 seconds without primary polling, connected/reconnecting/stale/offline state, and explicit safe host retry instructions in `src/views/MarketsView.vue` and `src/router/index.ts`
+- [x] T048 [US3] Make the US3 Go, Vitest, and Playwright suites green and record rejection/flag/retry evidence in `specs/002-instruments-market-data/quickstart.md`
 
 **Checkpoint**: Bad or incomplete data cannot silently masquerade as trustworthy data.
 

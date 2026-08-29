@@ -101,3 +101,41 @@ page-level horizontal overflow.
 - Daily validation tests first failed at the explicit unimplemented validator and now
   accept valid OHLCV/actions, reject bars outside authoritative exchange sessions, and
   reject incomplete corporate actions with safe structured findings.
+
+### US2 — reproducible import, commands, and scheduler (2026-08-29)
+
+- Import integration tests first reached the explicit unimplemented persistence/service
+  seam after successful migration setup. They now prove first write, overlapping-page
+  deduplication, identical replay, immutable corrected-bar revisions, adjusted-close and
+  split provenance, independent per-instrument transactions, sanitized partial failure,
+  PostgreSQL advisory-lock conflicts, bounded workers, and cancellation.
+- Command tests first failed at the explicit unimplemented command seam. They now prove
+  bounded `backfill`/`update` scopes, active-universe target loading, shared-service
+  delegation, cancellation, and output limited to the run ID and safe totals.
+- Scheduler tests first failed at the explicit unimplemented schedule seam. They now
+  prove disabled mode, configured `Europe/Stockholm` execution time, once-per-local-
+  session execution, shared-service delegation, and context-bound shutdown.
+- `go test ./internal/db ./internal/marketdata ./internal/marketdata/eodhd ./internal/scheduler ./cmd/market-lens -count=2`
+  passed against isolated PostgreSQL schemas and local-only HTTP fixtures.
+
+### US3 — observable import health and recovery (2026-08-29)
+
+- Validation tests first failed on missing duplicate, ordering, zero-volume, expected-
+  session gap, suspicious-jump, and corporate-action discontinuity classifications.
+  The completed rules reject unsafe records without replacing the last valid bar and
+  persist safe open findings for operator review.
+- PostgreSQL integration tests prove atomic run/item counts, sanitized partial and failed
+  outcomes, immutable correction history, failed-scope-only retry with parent lineage,
+  real read-model queries, and transaction-coupled append-only shared client events.
+- CLI and HTTP contract tests prove safe retry output, bounded read filters, consistent
+  JSON errors, numeric SSE IDs, `Last-Event-ID` replay, heartbeats, cancellation, and
+  bounded event batches without credentials or raw provider errors.
+- Vitest proves typed snapshots, duplicate-safe invalidations, reconnect from the last
+  event ID, explicit connected/reconnecting/stale/offline states, accessible counts and
+  severity text, safe errors, loading/failure states, and retry command copying.
+- Playwright passed all six market-data journeys at 360x800, 768x1024, and 1440x900,
+  including keyboard/touch use, three themes, state retention, SSE-only refresh, reconnect
+  resume, and a 320x800 no-horizontal-overflow assertion.
+- `make verify` passed with PostgreSQL integration enabled; the focused Go feature suite
+  passed twice. `docker build -t market-lens:local .` and `docker compose config --quiet`
+  also passed.

@@ -112,10 +112,10 @@ func TestMarketDataMigrationsUpgradeAnExplicitBaseline(t *testing.T) {
 		t.Fatal(err)
 	}
 	var versions int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations WHERE version BETWEEN 1 AND 5`).Scan(&versions); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations WHERE version BETWEEN 1 AND 6`).Scan(&versions); err != nil {
 		t.Fatal(err)
 	}
-	if versions != 5 {
-		t.Fatalf("applied migration versions = %d, want 5", versions)
+	if versions != 6 {
+		t.Fatalf("applied migration versions = %d, want 6", versions)
 	}
 }

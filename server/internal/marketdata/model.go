@@ -259,3 +259,10 @@ type QualityFinding struct {
 	ResolvedAt     *time.Time
 	ResolvingRunID *instruments.UUID
 }
+
+type FindingFilter struct {
+	InstrumentID *instruments.UUID
+	Status       FindingStatus
+	Severity     FindingSeverity
+	Limit        int
+}
