@@ -13,7 +13,7 @@ test before production code changes.
 | ID | Feature | Lifecycle | Plan | Tasks | Dependencies | Notes |
 |---|---|---|---|---|---|---|
 | 001 | [k3s deployment](001-k3s-deployment/spec.md) | In progress | Not generated in current workflow | Not generated | Foundation | Optional deployment track, not a prerequisite for product milestones. |
-| 002 | [Instruments and daily market data](002-instruments-market-data/spec.md) | In review | [Complete](002-instruments-market-data/plan.md) | [In progress](002-instruments-market-data/tasks.md) | Foundation | Local implementation and acceptance are complete; protected delivery and post-release evidence remain. |
+| 002 | [Instruments and daily market data](002-instruments-market-data/spec.md) | Shipped | [Complete](002-instruments-market-data/plan.md) | [Complete](002-instruments-market-data/tasks.md) | Foundation | Shipped as immutable release `v0.3.0` with the required GHCR aliases. |
 | 003 | [Release versioning and protected delivery](003-release-versioning/spec.md) | Shipped | [Complete](003-release-versioning/plan.md) | [In progress](003-release-versioning/tasks.md) | Foundation | Shipped as immutable release `v0.2.0`; lifecycle record will merge with feature 002. |
 | 004 | [Owner access and invitations](004-owner-access/spec.md) | Planned | Not generated | Not generated | Foundation | Required before browser access beyond bootstrap and before any private user data or authorized private SSE. |
 

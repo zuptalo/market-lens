@@ -235,3 +235,16 @@ page-level horizontal overflow.
 - `go test ./internal/db -count=2` passed the clean and baseline migration paths twice.
   `TestFixtureImportAcceptanceAtCuratedUniverseScale` also passed twice, proving the
   provider-neutral 100-instrument import remains deterministic and duplicate-safe.
+
+### Protected delivery and release (2026-08-29)
+
+- Pull request `#2`, titled `feat(market-data): add instruments and daily history`,
+  passed Backend, Frontend, End-to-end, Container validation, PR policy, GitGuardian,
+  and the aggregate `Required checks` gate before squash merge to main commit
+  `ff53563da8534ecac3b12e766cca792d99ed566f`.
+- The automatic release workflow repeated the post-merge verification, published an
+  attested multi-platform image, verified every required image alias, and published the
+  non-draft, non-prerelease, immutable GitHub release `v0.3.0`.
+- `0.3.0`, `0.3`, `0`, `sha-ff53563da8534ecac3b12e766cca792d99ed566f`, and
+  `latest` independently resolved to manifest digest
+  `sha256:49e06e7f4768cad2f061b2824567e2c7e8caa494988fbe75d137e5c6960a8b4f`.
