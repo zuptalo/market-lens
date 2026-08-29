@@ -98,6 +98,22 @@ describe('market-data snapshots', () => {
     fetcher.mockResolvedValueOnce({ ok: false, json: async () => ({ error: 'token=secret raw provider failure' }) });
     await expect(fetchRecentImports(fetcher)).rejects.toThrow('Unable to load recent market-data imports.');
   });
+
+  it('never stores raw provider secrets from a successful snapshot payload', async () => {
+    const fetcher = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ items: [{
+        id: '22000000-0000-4000-8000-000000000001', kind: 'backfill', provider: 'fixture', status: 'failed',
+        started_at: '2026-08-29T08:00:00Z', finished_at: '2026-08-29T08:01:00Z',
+        counts: { processed: 0, accepted: 0, rejected: 0, flagged: 0 },
+        error_summary: 'unauthorized api_token=ml-secret-t062-never-expose',
+      }] }),
+    });
+
+    const runs = await fetchRecentImports(fetcher);
+    expect(JSON.stringify(runs)).not.toContain('ml-secret-t062-never-expose');
+    expect(runs[0].errorSummary).toBe('Market-data import failed.');
+  });
 });
 
 describe('market-data live updates', () => {

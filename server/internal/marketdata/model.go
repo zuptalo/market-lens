@@ -180,6 +180,26 @@ type SafeError struct {
 	Summary string
 }
 
+var canonicalSafeErrors = map[string]string{
+	"provider_error":          "Market-data provider request failed.",
+	"cancelled":               "Market-data request was cancelled.",
+	"provider_timeout":        "Market-data provider request timed out.",
+	"provider_rate_limited":   "Market-data provider rate limit was reached.",
+	"provider_authentication": "Market-data provider authentication failed.",
+	"storage_error":           "Market-data storage request failed.",
+	"validation_error":        "Market-data validation failed.",
+	"import_conflict":         "Market-data import scope is already active.",
+}
+
+// NormalizeSafeError converts an internal safe-error value to a canonical public form.
+// Transport and logging boundaries must not trust summaries supplied by callers.
+func NormalizeSafeError(value SafeError) SafeError {
+	if summary, exists := canonicalSafeErrors[value.Code]; exists {
+		return SafeError{Code: value.Code, Summary: summary}
+	}
+	return SanitizeError(value.Summary)
+}
+
 func SanitizeError(raw string, _ ...string) SafeError {
 	lower := strings.ToLower(raw)
 	result := SafeError{Code: "provider_error", Summary: "Market-data provider request failed."}

@@ -174,8 +174,25 @@ export async function fetchRecentImports(fetcher: Fetcher = fetch, signal?: Abor
     startedAt: run.started_at,
     finishedAt: run.finished_at ?? null,
     counts: run.counts,
-    errorSummary: run.error_summary ?? run.error?.summary ?? null,
+    errorSummary: safeImportErrorSummary(run.error_summary ?? run.error?.summary ?? null),
   }));
+}
+
+const publicImportErrorSummaries = new Set([
+  'Market-data provider request failed.',
+  'Market-data request was cancelled.',
+  'Market-data provider request timed out.',
+  'Market-data provider rate limit was reached.',
+  'Market-data provider authentication failed.',
+  'Market-data storage request failed.',
+  'Market-data validation failed.',
+  'Market-data import scope is already active.',
+  'One instrument failed safely.',
+]);
+
+function safeImportErrorSummary(value: string | null): string | null {
+  if (value === null) return null;
+  return publicImportErrorSummaries.has(value) ? value : 'Market-data import failed.';
 }
 
 interface LiveOptions {

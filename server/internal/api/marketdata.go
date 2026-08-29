@@ -224,7 +224,8 @@ func errorDTO(safe *marketdata.SafeError) *safeErrorResponse {
 	if safe == nil {
 		return nil
 	}
-	return &safeErrorResponse{Code: safe.Code, Summary: safe.Summary}
+	normalized := marketdata.NormalizeSafeError(*safe)
+	return &safeErrorResponse{Code: normalized.Code, Summary: normalized.Summary}
 }
 
 func writeMarketDataError(w http.ResponseWriter, err error) {

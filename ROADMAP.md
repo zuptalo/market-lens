@@ -23,7 +23,7 @@ without a reviewed feature spec and valid red test.
 | 0 | Application foundation | Shipped | Repository baseline | — | Go/Vue app, migrations, embedded SPA, health/readiness, themes, tests, Docker/Compose, and CI. |
 | Ops-A | Optional public k3s deployment | In progress | [`001-k3s-deployment`](specs/001-k3s-deployment/spec.md) | Foundation | Same image runs on target k3s with PostgreSQL, TLS, and image rollout; not a product prerequisite. |
 | Release-A | Protected versioned delivery | Shipped | [`003-release-versioning`](specs/003-release-versioning/spec.md) and [plan](specs/003-release-versioning/plan.md) | Foundation | PR-only squash delivery, automatic SemVer/GHCR releases, protected main, and visible runtime version. |
-| 1 | Instruments and daily market data | In progress | [`002-instruments-market-data`](specs/002-instruments-market-data/spec.md) and [plan](specs/002-instruments-market-data/plan.md) | Foundation | 100 Nordic listings, about ten years of daily OHLCV, action context, quality findings, observable imports, read-only inspection, and durable resumable SSE updates. |
+| 1 | Instruments and daily market data | In review | [`002-instruments-market-data`](specs/002-instruments-market-data/spec.md) and [plan](specs/002-instruments-market-data/plan.md) | Foundation | 100 Nordic listings, about ten years of daily OHLCV, action context, quality findings, observable imports, read-only inspection, and durable resumable SSE updates. |
 | Security-A | Owner bootstrap, authentication, and invitations | Planned | [`004-owner-access`](specs/004-owner-access/spec.md) | Foundation; required before browser access beyond bootstrap and all private data | Exactly one first owner, secure sessions/recovery, roles, and expiring single-use verified-email invitations with cross-user isolation. |
 | Experience-A | Installable PWA and device lifecycle | Backlog | Not yet specified | Security-A; SSE foundation | Chrome/Edge installability on mobile/tablet/desktop, offline/stale behavior, devices, and permission lifecycle. |
 | 2 | Instrument exploration and financial charts | Backlog | Not yet specified | Milestone 1 | Search/browse, instrument detail, responsive candlestick/volume history, overlays, and basic statistics. |
@@ -39,9 +39,10 @@ without a reviewed feature spec and valid red test.
 
 ## Current focus
 
-Instruments and daily market data is the current product feature. Generate and review
-its dependency-ordered tasks, then implement each behavior test-first on the
-`002-instruments-market-data` branch.
+Instruments and daily market data is the current product feature. Its implementation and
+local acceptance matrix are complete on `002-instruments-market-data`; protected pull-
+request review, required checks, release verification, and final shipped-state evidence
+remain.
 
 The market-data backend/provider work may continue independently, but its browser/SSE
 delivery cannot be declared deployable until the owner-bootstrap, authentication,

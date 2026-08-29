@@ -11,6 +11,9 @@ export EODHD_API_TOKEN='<personal token>'
 export MARKET_DATA_SCHEDULE_ENABLED=false
 export MARKET_DATA_DAILY_TIME=20:00
 export MARKET_DATA_DAILY_TIMEZONE=Europe/Stockholm
+export MARKET_DATA_REQUEST_TIMEOUT=30s
+export MARKET_DATA_MAX_RETRIES=3
+export MARKET_DATA_WORKERS=4
 ```
 
 Provider operations fail closed without a token. Read-only views continue to show stored
@@ -42,6 +45,8 @@ docker compose exec app /app/market-lens marketdata retry --run '<run-uuid>'
 ```
 
 Commands print only run IDs and safe totals. Detailed status is read-only in the UI/API.
+See `docs/MARKET-DATA.md` for bounded update/retry commands, provider limitations, and
+the annual forward-migration rule for exchange calendars.
 
 ## Acceptance inspection
 
@@ -56,6 +61,9 @@ Commands print only run IDs and safe totals. Detailed status is read-only in the
    without losing search/filter/selection state.
 6. Repeat the backfill; verify no duplicates and unchanged visible values.
 7. Import a fixture correction; verify one revision and the corrected current bar.
+
+Acceptance is screenshots-free: retain commands, test outcomes, run IDs, and safe
+aggregate evidence only. Do not store licensed provider payloads or browser screenshots.
 
 ## Full verification
 
@@ -171,3 +179,59 @@ page-level horizontal overflow.
   30-second inspection target, and its 320x800 overflow assertion passed.
 - `make verify` passed after the US4 implementation, including release/workflow policy,
   formatting, vet, the full Go suite, strict frontend build, and the full Vitest suite.
+
+### Cross-story fixture acceptance (2026-08-29)
+
+- A provider-neutral PostgreSQL acceptance test imported all 100 curated instruments,
+  repeated the same fixture without adding bars, actions, or revisions, then applied one
+  traceable correction while retaining one corporate action and a visible quality
+  warning.
+- The test proves all initial and corrected daily-bar changes create durable shared
+  events and that SSE replay after a saved event ID is ordered and duplicate-free.
+- `go test ./internal/marketdata -count=2` passed against isolated PostgreSQL schemas.
+
+### Secret-regression acceptance (2026-08-29)
+
+- A single sentinel-bearing regression path proves configuration errors, normalized
+  provider failures, structured logs, persisted run/item/event state, CLI totals, API
+  payloads, and frontend state do not expose provider credentials or raw URLs.
+- Safe errors are canonicalized again at the API boundary, and the frontend accepts
+  only the documented public summaries before placing an error in application state.
+- The affected Go packages passed twice and all 21 Vitest tests passed.
+
+### Controlled live backfill audit (2026-08-29)
+
+- After the configured account was upgraded to the EOD Historical Data All World plan,
+  the ignored host-local token was used through the application backfill command. No
+  credential, provider URL, raw response, or instrument-level provider detail was
+  printed or recorded here.
+- Run `a8adc265-e989-4cfe-8da7-80cb9769a057` requested 2016-08-29 through 2026-08-29 for
+  all 100 curated scopes and completed `partial`: 68 scopes succeeded, seven were
+  partial, and 25 recorded the canonical sanitized `provider_error` limitation.
+- The 75 history-bearing scopes supplied 181,160 observations: 181,153 were accepted,
+  seven provider-gap records were rejected, and 17 source observations were flagged.
+  Sixty-seven scopes reach the requested ten-year start; eight start later where the
+  source exposes less history. Stored coverage ranges from 727 to 2,514 daily bars per
+  successful or partial scope.
+- Aggregate quality evidence retained 8,406 open missing-session findings, seven open
+  rejected provider gaps, nine open zero-volume warnings, and one open suspicious-jump
+  warning. These findings remain non-destructive and visible for later review.
+- All 100 scopes therefore have either source-provided ten-year/full-available history
+  or an explicit recorded limitation, exceeding the required 95% audit threshold. The
+  earlier free-plan audit remains traceable as run
+  `8ad0a193-7431-48d6-9131-dad2fdfced59`; no stored history was discarded for this rerun.
+
+### Final verification matrix (2026-08-29)
+
+- `make verify` passed after the final cross-suite sanitizer correction: release and
+  workflow policies, development-port behavior, Go formatting/vet/tests, strict
+  TypeScript, the production frontend build, and all 21 Vitest tests are green.
+- The complete Playwright suite passed all 15 tests at the configured 360x800, 768x1024,
+  and 1440x900 projects, including themes, keyboard/touch use, SSE refresh/reconnect,
+  state retention, and the explicit 320x800 overflow assertion.
+- `market-lens:0.1.0-t065` built successfully as the production multi-stage image with
+  the same version embedded into the Go binary and Vue client. `docker compose config
+  --quiet` and `deploy/k8s/test.sh` both passed.
+- `go test ./internal/db -count=2` passed the clean and baseline migration paths twice.
+  `TestFixtureImportAcceptanceAtCuratedUniverseScale` also passed twice, proving the
+  provider-neutral 100-instrument import remains deterministic and duplicate-safe.
