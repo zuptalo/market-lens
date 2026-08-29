@@ -28,7 +28,8 @@ make start
 ```
 
 This starts PostgreSQL, the Go API on <http://localhost:8080>, and Vite on
-<http://localhost:5173>. Verify the API with:
+<http://localhost:5173>. Before launching, it stops existing listeners on the configured
+backend port (`PORT`, default 8080) and Vite port 5173. Verify the API with:
 
 ```sh
 curl http://localhost:8080/api/v1/health
