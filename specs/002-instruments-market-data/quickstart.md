@@ -139,3 +139,35 @@ page-level horizontal overflow.
 - `make verify` passed with PostgreSQL integration enabled; the focused Go feature suite
   passed twice. `docker build -t market-lens:local .` and `docker compose config --quiet`
   also passed.
+
+### US4 — inspection query red tests (2026-08-29)
+
+- Repository/service tests now specify case-insensitive ticker, company-name, and ISIN
+  search; MIC/country/currency/active filters; exchange-qualified results; insertion-
+  stable cursor pagination; and latest-bar, coverage, freshness, unresolved-quality,
+  and empty-history summaries.
+- The focused test run fails at the intended missing query boundary: `SearchFilter`,
+  paginated `SearchPage`, and the inspection query service do not exist yet. Migration
+  setup and fixture execution are not the cause of the red result.
+- HTTP contract tests fail at the missing instrument read models/reader routes; frontend
+  service tests fail at the missing typed search/detail/history functions and search
+  coordinator; component tests fail at the absent identity component and search controls.
+- The focused desktop Playwright journey reaches `/markets` and times out waiting for
+  the specified accessible instrument searchbox, proving the browser red result is the
+  missing inspection UI rather than route or fixture setup.
+
+### US4 — read-only instrument inspection green evidence (2026-08-29)
+
+- Explicit SQL now provides case-insensitive exchange-qualified search, all specified
+  filters, insertion-stable keyset pagination, latest stored daily bar, coverage,
+  observation freshness, unresolved warning/error counts, and newest-first price pages.
+- The UI consistently says “Latest known daily value” and displays its exchange-local
+  session, native currency, source, and observation time; neither API nor UI describes
+  daily end-of-session data as real-time, satisfying SC-008.
+- Focused Go packages passed twice against isolated PostgreSQL schemas. All 20 Vitest
+  tests passed, strict TypeScript and the production Vite build passed, and all 15
+  Playwright tests passed across 360x800, 768x1024, and 1440x900. The search/select/back
+  journey completed in under 3 seconds per viewport, comfortably within SC-006's
+  30-second inspection target, and its 320x800 overflow assertion passed.
+- `make verify` passed after the US4 implementation, including release/workflow policy,
+  formatting, vet, the full Go suite, strict frontend build, and the full Vitest suite.

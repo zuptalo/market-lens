@@ -675,6 +675,108 @@ func (r *Repository) ListQualityFindings(ctx context.Context, filter FindingFilt
 	return findings, rows.Err()
 }
 
+func (r *Repository) InstrumentSummary(ctx context.Context, instrumentID instruments.UUID) (instruments.MarketDataSummary, error) {
+	var summary instruments.MarketDataSummary
+	var first, last *string
+	if err := r.pool.QueryRow(ctx, `SELECT min(session_date)::text,max(session_date)::text,count(*)
+		FROM daily_price_bars WHERE instrument_id=$1`, instrumentID.String()).Scan(
+		&first, &last, &summary.Coverage.BarCount); err != nil {
+		return instruments.MarketDataSummary{}, fmt.Errorf("load instrument coverage: %w", err)
+	}
+	if first != nil {
+		var err error
+		if summary.Coverage.FirstSession, err = instruments.ParseSessionDate(*first); err != nil {
+			return instruments.MarketDataSummary{}, err
+		}
+		if summary.Coverage.LastSession, err = instruments.ParseSessionDate(*last); err != nil {
+			return instruments.MarketDataSummary{}, err
+		}
+	}
+	var bar instruments.DailyBar
+	var session string
+	err := r.pool.QueryRow(ctx, `SELECT session_date::text,open::text,high::text,low::text,close::text,
+		adjusted_close::text,volume,currency,provider,last_observed_at FROM daily_price_bars
+		WHERE instrument_id=$1 ORDER BY session_date DESC LIMIT 1`, instrumentID.String()).Scan(
+		&session, &bar.Open, &bar.High, &bar.Low, &bar.Close, &bar.AdjustedClose, &bar.Volume,
+		&bar.Currency, &bar.Provider, &bar.ObservedAt)
+	if err == nil {
+		if bar.SessionDate, err = instruments.ParseSessionDate(session); err != nil {
+			return instruments.MarketDataSummary{}, err
+		}
+		if err := normalizeInspectionBar(&bar); err != nil {
+			return instruments.MarketDataSummary{}, err
+		}
+		summary.LatestBar = &bar
+		summary.Freshness = bar.ObservedAt
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return instruments.MarketDataSummary{}, fmt.Errorf("load latest instrument bar: %w", err)
+	}
+	if err := r.pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE severity='warning'),
+		count(*) FILTER (WHERE severity='error') FROM data_quality_findings
+		WHERE instrument_id=$1 AND status='open'`, instrumentID.String()).Scan(
+		&summary.Quality.OpenWarnings, &summary.Quality.OpenErrors); err != nil {
+		return instruments.MarketDataSummary{}, fmt.Errorf("load instrument quality summary: %w", err)
+	}
+	return summary, nil
+}
+
+func (r *Repository) InstrumentPrices(ctx context.Context, instrumentID instruments.UUID, filter instruments.PriceFilter) (instruments.PricePage, error) {
+	rows, err := r.pool.Query(ctx, `SELECT session_date::text,open::text,high::text,low::text,close::text,
+		adjusted_close::text,volume,currency,provider,last_observed_at FROM daily_price_bars
+		WHERE instrument_id=$1 AND ($2='' OR session_date >= $2::date) AND ($3='' OR session_date <= $3::date)
+		AND ($4='' OR session_date < $4::date) ORDER BY session_date DESC LIMIT $5`, instrumentID.String(),
+		filter.From.String(), filter.To.String(), filter.Cursor, filter.Limit+1)
+	if err != nil {
+		return instruments.PricePage{}, fmt.Errorf("list instrument prices: %w", err)
+	}
+	defer rows.Close()
+	items := make([]instruments.DailyBar, 0, filter.Limit+1)
+	for rows.Next() {
+		var bar instruments.DailyBar
+		var session string
+		if err := rows.Scan(&session, &bar.Open, &bar.High, &bar.Low, &bar.Close, &bar.AdjustedClose,
+			&bar.Volume, &bar.Currency, &bar.Provider, &bar.ObservedAt); err != nil {
+			return instruments.PricePage{}, err
+		}
+		if bar.SessionDate, err = instruments.ParseSessionDate(session); err != nil {
+			return instruments.PricePage{}, err
+		}
+		if err := normalizeInspectionBar(&bar); err != nil {
+			return instruments.PricePage{}, err
+		}
+		items = append(items, bar)
+	}
+	if err := rows.Err(); err != nil {
+		return instruments.PricePage{}, err
+	}
+	page := instruments.PricePage{Items: items}
+	if len(items) > filter.Limit {
+		page.Items = items[:filter.Limit]
+		page.NextCursor = page.Items[len(page.Items)-1].SessionDate.String()
+	}
+	return page, nil
+}
+
+func normalizeInspectionBar(bar *instruments.DailyBar) error {
+	values := []*instruments.Decimal{&bar.Open, &bar.High, &bar.Low, &bar.Close}
+	for _, value := range values {
+		parsed, err := ParseDecimal(value.String())
+		if err != nil {
+			return err
+		}
+		*value = instruments.Decimal(parsed.String())
+	}
+	if bar.AdjustedClose != nil {
+		parsed, err := ParseDecimal(*bar.AdjustedClose)
+		if err != nil {
+			return err
+		}
+		value := parsed.String()
+		bar.AdjustedClose = &value
+	}
+	return nil
+}
+
 func decimalValue(value *Decimal) any {
 	if value == nil {
 		return nil

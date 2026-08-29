@@ -71,6 +71,24 @@ a { color: inherit; }
 .run-error, .status-error { color: #a51d2d; font-weight: 650; }
 .retry-row { justify-content: flex-start; flex-wrap: wrap; margin-top: 1rem; }
 .empty-state { padding: 1.25rem; border: 1px dashed color-mix(in srgb, currentColor 20%, transparent); border-radius: .8rem; }
+.instrument-browser, .instrument-identity { min-width: 0; }
+.instrument-filters { display: grid; grid-template-columns: minmax(12rem, 2fr) repeat(4, minmax(8rem, 1fr)); gap: .75rem; }
+.instrument-filters label { display: grid; gap: .35rem; min-width: 0; font-size: .82rem; font-weight: 700; }
+.instrument-filters input, .instrument-filters select { width: 100%; min-height: 2.75rem; padding: .55rem .7rem; border: 1px solid color-mix(in srgb, currentColor 22%, transparent); border-radius: .6rem; background: canvas; color: inherit; font: inherit; }
+.instrument-results { display: grid; gap: .65rem; margin: 1rem 0 0; padding: 0; list-style: none; }
+.instrument-results a { display: grid; grid-template-columns: minmax(10rem, 2fr) minmax(8rem, 1fr) minmax(10rem, 1fr); gap: .75rem; padding: 1rem; border: 1px solid color-mix(in srgb, currentColor 14%, transparent); border-radius: .8rem; text-decoration: none; }
+.instrument-results a:hover, .instrument-results a:focus-visible { border-color: #0f766e; background: color-mix(in srgb, #0f766e 8%, transparent); }
+.instrument-detail-view, .instrument-identity { display: grid; gap: 1.5rem; }
+.back-link { width: fit-content; font-weight: 700; }
+.instrument-identity h2 { margin: .25rem 0; font-size: clamp(2rem, 6vw, 3.5rem); }
+.identity-meta { display: flex; flex-wrap: wrap; gap: .5rem 1rem; color: color-mix(in srgb, currentColor 68%, transparent); }
+.latest-known { padding: clamp(1rem, 3vw, 1.5rem); border: 1px solid color-mix(in srgb, currentColor 14%, transparent); border-radius: 1rem; }
+.latest-known h3 { margin: .25rem 0; }
+.latest-close { font-size: clamp(1.8rem, 6vw, 3rem); font-weight: 800; }
+.ohlcv-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: .6rem; }
+.ohlcv-grid div { min-width: 0; padding: .75rem; border-radius: .65rem; background: color-mix(in srgb, currentColor 6%, transparent); }
+.ohlcv-grid dt { font-size: .75rem; color: color-mix(in srgb, currentColor 65%, transparent); }
+.ohlcv-grid dd { margin: .25rem 0 0; overflow-wrap: anywhere; font-weight: 700; }
 @media (max-width: 40rem) {
   .app-header { height: auto; min-height: 4.5rem; flex-wrap: wrap; padding: .75rem 1rem; }
   .primary-nav { order: 3; width: 100%; overflow-x: auto; }
@@ -78,4 +96,11 @@ a { color: inherit; }
   .app-content { padding: 2rem 1rem; }
   .status-heading, .run-summary { align-items: flex-start; flex-direction: column; }
   .run-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .instrument-filters, .instrument-results a { grid-template-columns: 1fr; }
+  .ohlcv-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (min-width: 40.01rem) and (max-width: 64rem) {
+  .instrument-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .instrument-filters label:first-child { grid-column: 1 / -1; }
+  .ohlcv-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }

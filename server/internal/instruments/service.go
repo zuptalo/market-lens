@@ -13,6 +13,8 @@ import (
 var (
 	ErrIdentityConflict = errors.New("instrument identity conflicts with existing data")
 	ErrInvalidSync      = errors.New("instrument synchronization request is invalid")
+	ErrInvalidQuery     = errors.New("instrument query is invalid")
+	ErrNotFound         = errors.New("instrument not found")
 )
 
 type SyncListing struct {
@@ -58,6 +60,92 @@ type Service struct {
 
 func NewService(repository *Repository) *Service {
 	return &Service{repository: repository}
+}
+
+type MarketDataReader interface {
+	InstrumentSummary(context.Context, UUID) (MarketDataSummary, error)
+	InstrumentPrices(context.Context, UUID, PriceFilter) (PricePage, error)
+}
+
+type QueryService struct {
+	repository *Repository
+	marketData MarketDataReader
+}
+
+func NewQueryService(repository *Repository, marketData MarketDataReader) *QueryService {
+	return &QueryService{repository: repository, marketData: marketData}
+}
+
+func (s *QueryService) Search(ctx context.Context, filter SearchFilter) (SearchPage, error) {
+	filter.Query = strings.TrimSpace(filter.Query)
+	filter.MIC = strings.ToUpper(strings.TrimSpace(filter.MIC))
+	filter.Country = strings.ToUpper(strings.TrimSpace(filter.Country))
+	filter.Currency = strings.ToUpper(strings.TrimSpace(filter.Currency))
+	if filter.Limit == 0 {
+		filter.Limit = 50
+	}
+	if len(filter.Query) > 120 || !validCode(filter.MIC, 4) || !validCode(filter.Country, 2) ||
+		!validCode(filter.Currency, 3) || filter.Limit < 1 || filter.Limit > 200 || len(filter.Cursor) > 512 {
+		return SearchPage{}, ErrInvalidQuery
+	}
+	page, err := s.repository.SearchPage(ctx, filter)
+	if errors.Is(err, errInvalidSearchCursor) {
+		return SearchPage{}, fmt.Errorf("%w: %v", ErrInvalidQuery, err)
+	}
+	if err != nil {
+		return SearchPage{}, err
+	}
+	return page, nil
+}
+
+func (s *QueryService) Inspect(ctx context.Context, id UUID) (Inspection, error) {
+	identity, err := s.repository.GetResult(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Inspection{}, ErrNotFound
+	}
+	if err != nil {
+		return Inspection{}, err
+	}
+	summary, err := s.marketData.InstrumentSummary(ctx, id)
+	if err != nil {
+		return Inspection{}, err
+	}
+	return Inspection{Identity: identity, MarketDataSummary: summary}, nil
+}
+
+func (s *QueryService) Prices(ctx context.Context, id UUID, filter PriceFilter) (PricePage, error) {
+	if filter.Limit == 0 {
+		filter.Limit = 50
+	}
+	if filter.Limit < 1 || filter.Limit > 200 || (filter.From != "" && filter.To != "" && filter.From > filter.To) {
+		return PricePage{}, ErrInvalidQuery
+	}
+	if filter.Cursor != "" {
+		if _, err := ParseSessionDate(filter.Cursor); err != nil {
+			return PricePage{}, ErrInvalidQuery
+		}
+	}
+	if _, err := s.repository.GetResult(ctx, id); errors.Is(err, pgx.ErrNoRows) {
+		return PricePage{}, ErrNotFound
+	} else if err != nil {
+		return PricePage{}, err
+	}
+	return s.marketData.InstrumentPrices(ctx, id, filter)
+}
+
+func validCode(value string, length int) bool {
+	if value == "" {
+		return true
+	}
+	if len(value) != length {
+		return false
+	}
+	for _, character := range value {
+		if (character < 'A' || character > 'Z') && (character < '0' || character > '9') {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Service) SyncUniverse(ctx context.Context, request SyncRequest) (SyncResult, error) {

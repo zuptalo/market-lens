@@ -154,21 +154,21 @@ coverage, warnings, state retention, and responsive accessibility.
 
 ### Failing tests for User Story 4
 
-- [ ] T049 [P] [US4] Add repository/service tests for case-insensitive ticker/name/ISIN search, MIC/country/currency/active filters, cursor stability, latest bar, coverage, freshness, warning counts, and empty history in `server/internal/instruments/query_test.go`; run and record the expected red behavior
-- [ ] T050 [P] [US4] Add read-only HTTP contract tests for `/api/v1/instruments`, instrument detail, and daily prices including validation, pagination, not-found, and decimal JSON behavior in `server/internal/api/instruments_test.go`; run and record the expected red behavior
-- [ ] T051 [P] [US4] Add frontend API/service tests for typed instrument search, detail, history, cancellation, stale-response suppression, and empty/error results in `src/services/marketData.test.ts`; run and record the expected red behavior
-- [ ] T052 [P] [US4] Add component tests for exchange-qualified identity, latest-known session wording, native-currency decimals, coverage/freshness, accessible filters, warning disclosure, and empty/loading/error states in `src/components/finance/InstrumentIdentity.test.ts` and `src/views/MarketsView.test.ts`; run and record the expected red behavior
-- [ ] T053 [US4] Extend Playwright with the complete search/select/back journey, URL/state retention, orientation change, all three themes, keyboard/touch operation, required viewports, and 320x800 overflow checks in `e2e/market-data.spec.ts`; run and record the expected red behavior
+- [x] T049 [P] [US4] Add repository/service tests for case-insensitive ticker/name/ISIN search, MIC/country/currency/active filters, cursor stability, latest bar, coverage, freshness, warning counts, and empty history in `server/internal/instruments/query_test.go`; run and record the expected red behavior
+- [x] T050 [P] [US4] Add read-only HTTP contract tests for `/api/v1/instruments`, instrument detail, and daily prices including validation, pagination, not-found, and decimal JSON behavior in `server/internal/api/instruments_test.go`; run and record the expected red behavior
+- [x] T051 [P] [US4] Add frontend API/service tests for typed instrument search, detail, history, cancellation, stale-response suppression, and empty/error results in `src/services/marketData.test.ts`; run and record the expected red behavior
+- [x] T052 [P] [US4] Add component tests for exchange-qualified identity, latest-known session wording, native-currency decimals, coverage/freshness, accessible filters, warning disclosure, and empty/loading/error states in `src/components/finance/InstrumentIdentity.test.ts` and `src/views/MarketsView.test.ts`; run and record the expected red behavior
+- [x] T053 [US4] Extend Playwright with the complete search/select/back journey, URL/state retention, orientation change, all three themes, keyboard/touch operation, required viewports, and 320x800 overflow checks in `e2e/market-data.spec.ts`; run and record the expected red behavior
 
 ### Implementation for User Story 4
 
-- [ ] T054 [US4] Implement explicit-SQL search/filter/cursor, latest-bar, coverage, freshness, and quality-summary queries in `server/internal/instruments/repository.go` and `server/internal/marketdata/repository.go`
-- [ ] T055 [US4] Implement query validation and inspection composition in `server/internal/instruments/service.go` without describing daily bars as real-time quotes
-- [ ] T056 [US4] Implement thin instrument list/detail/history handlers in `server/internal/api/instruments.go` and register the OpenAPI routes in `server/internal/api/router.go`
-- [ ] T057 [US4] Complete frontend response types and abortable read-only API access in `src/types/marketData.ts` and `src/services/marketData.ts`
-- [ ] T058 [US4] Implement reusable accessible `InstrumentIdentity` and latest-known/coverage presentation in `src/components/finance/InstrumentIdentity.vue`
-- [ ] T059 [US4] Implement mobile-first search/filter/results/detail/empty/error flows in `src/views/MarketsView.vue` and `src/views/InstrumentMarketDataView.vue`, preserving state through `src/router/index.ts`
-- [ ] T060 [US4] Make the US4 Go, Vitest, and Playwright suites green and verify SC-006/SC-008 language and timing in `specs/002-instruments-market-data/quickstart.md`
+- [x] T054 [US4] Implement explicit-SQL search/filter/cursor, latest-bar, coverage, freshness, and quality-summary queries in `server/internal/instruments/repository.go` and `server/internal/marketdata/repository.go`
+- [x] T055 [US4] Implement query validation and inspection composition in `server/internal/instruments/service.go` without describing daily bars as real-time quotes
+- [x] T056 [US4] Implement thin instrument list/detail/history handlers in `server/internal/api/instruments.go` and register the OpenAPI routes in `server/internal/api/router.go`
+- [x] T057 [US4] Complete frontend response types and abortable read-only API access in `src/types/marketData.ts` and `src/services/marketData.ts`
+- [x] T058 [US4] Implement reusable accessible `InstrumentIdentity` and latest-known/coverage presentation in `src/components/finance/InstrumentIdentity.vue`
+- [x] T059 [US4] Implement mobile-first search/filter/results/detail/empty/error flows in `src/views/MarketsView.vue` and `src/views/InstrumentMarketDataView.vue`, preserving state through `src/router/index.ts`
+- [x] T060 [US4] Make the US4 Go, Vitest, and Playwright suites green and verify SC-006/SC-008 language and timing in `specs/002-instruments-market-data/quickstart.md`
 
 **Checkpoint**: The stored universe and history are inspectable end to end at every
 required viewport.

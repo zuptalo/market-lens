@@ -1,4 +1,12 @@
-import type { ConnectionState, ImportRunSummary } from '@/types/marketData';
+import type {
+  ConnectionState,
+  DailyBarSummary,
+  ImportRunSummary,
+  InstrumentDetail,
+  InstrumentPage,
+  InstrumentSummary,
+  PricePage,
+} from '@/types/marketData';
 
 export interface LiveEvent {
   lastEventId: string;
@@ -12,6 +20,134 @@ export interface LiveEventSource {
 }
 
 export type Fetcher = (input: string, init?: RequestInit) => Promise<Pick<Response, 'ok' | 'json'>>;
+
+export interface InstrumentSearchParams {
+  query?: string;
+  mic?: string;
+  country?: string;
+  currency?: string;
+  active?: boolean;
+  cursor?: string;
+  limit?: number;
+}
+
+export interface PriceSearchParams {
+  from?: string;
+  to?: string;
+  cursor?: string;
+  limit?: number;
+}
+
+interface InstrumentWire {
+  id: string;
+  isin: string;
+  ticker: string;
+  name: string;
+  exchange: { mic: string; name: string; timezone: string };
+  currency: string;
+  country: string;
+  instrument_type: 'common_stock';
+  active: boolean;
+  purchasability_status: InstrumentSummary['purchasabilityStatus'];
+}
+
+interface DailyBarWire {
+  session_date: string;
+  open: string;
+  high: string;
+  low: string;
+  close: string;
+  adjusted_close?: string | null;
+  volume: number;
+  currency: string;
+  provider: string;
+  observed_at: string;
+}
+
+interface InstrumentDetailWire extends InstrumentWire {
+  latest_bar?: DailyBarWire | null;
+  history: { first_session?: string | null; last_session?: string | null; bar_count: number };
+  quality_summary: { open_warnings: number; open_errors: number };
+}
+
+export async function fetchInstruments(params: InstrumentSearchParams = {}, fetcher: Fetcher = fetch, signal?: AbortSignal): Promise<InstrumentPage> {
+  const query = new URLSearchParams();
+  if (params.query) query.set('q', params.query);
+  if (params.mic) query.set('exchange', params.mic);
+  if (params.country) query.set('country', params.country);
+  if (params.currency) query.set('currency', params.currency);
+  if (params.active !== undefined) query.set('active', String(params.active));
+  if (params.cursor) query.set('cursor', params.cursor);
+  if (params.limit !== undefined) query.set('limit', String(params.limit));
+  const response = await fetcher(`/api/v1/instruments?${query.toString()}`, { signal });
+  if (!response.ok) throw new Error('Unable to load instruments.');
+  const body = await response.json() as { items?: InstrumentWire[]; next_cursor?: string | null };
+  if (!Array.isArray(body.items)) throw new Error('Unable to load instruments.');
+  return { items: body.items.map(instrumentFromWire), nextCursor: body.next_cursor ?? null };
+}
+
+export async function fetchInstrument(id: string, fetcher: Fetcher = fetch, signal?: AbortSignal): Promise<InstrumentDetail> {
+  const response = await fetcher(`/api/v1/instruments/${encodeURIComponent(id)}`, { signal });
+  if (!response.ok) throw new Error('Unable to load instrument market data.');
+  const body = await response.json() as InstrumentDetailWire;
+  return {
+    ...instrumentFromWire(body),
+    latestBar: body.latest_bar ? barFromWire(body.latest_bar) : null,
+    history: { firstSession: body.history.first_session ?? null, lastSession: body.history.last_session ?? null, barCount: body.history.bar_count },
+    qualitySummary: { openWarnings: body.quality_summary.open_warnings, openErrors: body.quality_summary.open_errors },
+  };
+}
+
+export async function fetchDailyPrices(id: string, params: PriceSearchParams = {}, fetcher: Fetcher = fetch, signal?: AbortSignal): Promise<PricePage> {
+  const query = new URLSearchParams();
+  if (params.from) query.set('from', params.from);
+  if (params.to) query.set('to', params.to);
+  if (params.cursor) query.set('cursor', params.cursor);
+  if (params.limit !== undefined) query.set('limit', String(params.limit));
+  const response = await fetcher(`/api/v1/instruments/${encodeURIComponent(id)}/prices?${query.toString()}`, { signal });
+  if (!response.ok) throw new Error('Unable to load instrument history.');
+  const body = await response.json() as { items?: DailyBarWire[]; next_cursor?: string | null };
+  if (!Array.isArray(body.items)) throw new Error('Unable to load instrument history.');
+  return { items: body.items.map(barFromWire), nextCursor: body.next_cursor ?? null };
+}
+
+export class InstrumentSearchClient {
+  private controller?: AbortController;
+  private sequence = 0;
+
+  constructor(private readonly fetcher: Fetcher, private readonly onResult: (page: InstrumentPage) => void) {}
+
+  async search(params: InstrumentSearchParams): Promise<void> {
+    this.controller?.abort();
+    const controller = new AbortController();
+    this.controller = controller;
+    const sequence = ++this.sequence;
+    try {
+      const page = await fetchInstruments(params, this.fetcher, controller.signal);
+      if (sequence === this.sequence && !controller.signal.aborted) this.onResult(page);
+    } catch (error) {
+      if (!controller.signal.aborted) throw error;
+    }
+  }
+
+  cancel(): void {
+    this.sequence += 1;
+    this.controller?.abort();
+    this.controller = undefined;
+  }
+}
+
+function instrumentFromWire(item: InstrumentWire): InstrumentSummary {
+  return { id: item.id, isin: item.isin, ticker: item.ticker, name: item.name, exchange: item.exchange,
+    currency: item.currency, country: item.country, instrumentType: item.instrument_type, active: item.active,
+    purchasabilityStatus: item.purchasability_status };
+}
+
+function barFromWire(bar: DailyBarWire): DailyBarSummary {
+  return { sessionDate: bar.session_date, open: bar.open, high: bar.high, low: bar.low, close: bar.close,
+    adjustedClose: bar.adjusted_close ?? null, volume: bar.volume, currency: bar.currency,
+    provider: bar.provider, observedAt: bar.observed_at };
+}
 
 interface ImportRunWire {
   id: string;

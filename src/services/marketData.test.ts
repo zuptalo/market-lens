@@ -1,10 +1,77 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  MarketDataLive,
-  fetchRecentImports,
+	InstrumentSearchClient,
+	MarketDataLive,
+	fetchDailyPrices,
+	fetchInstrument,
+	fetchInstruments,
+	fetchRecentImports,
   type LiveEvent,
   type LiveEventSource,
 } from './marketData';
+
+describe('instrument snapshots', () => {
+  it('maps typed search, detail, history, and empty results', async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [{
+        id: '33000000-0000-4000-8000-000000000001', isin: 'SE0000000100', ticker: 'ALFA',
+        name: 'Alpha AB', exchange: { mic: 'XSTO', name: 'Nasdaq Stockholm', timezone: 'Europe/Stockholm' },
+        currency: 'SEK', country: 'SE', instrument_type: 'common_stock', active: true,
+        purchasability_status: 'unverified',
+      }], next_cursor: 'next' }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({
+        id: '33000000-0000-4000-8000-000000000001', isin: 'SE0000000100', ticker: 'ALFA', name: 'Alpha AB',
+        exchange: { mic: 'XSTO', name: 'Nasdaq Stockholm', timezone: 'Europe/Stockholm' }, currency: 'SEK',
+        country: 'SE', instrument_type: 'common_stock', active: true, purchasability_status: 'unverified',
+        latest_bar: { session_date: '2026-08-28', open: '100.125', high: '102.5', low: '99.75', close: '101.25', adjusted_close: null, volume: 1234, currency: 'SEK', provider: 'fixture', observed_at: '2026-08-29T18:30:00Z' },
+        history: { first_session: '2026-08-27', last_session: '2026-08-28', bar_count: 2 },
+        quality_summary: { open_warnings: 1, open_errors: 0 },
+      }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [], next_cursor: null }) });
+
+    const page = await fetchInstruments({ query: 'al fa', mic: 'XSTO', active: true, limit: 20 }, fetcher);
+    expect(fetcher).toHaveBeenNthCalledWith(1, '/api/v1/instruments?q=al+fa&exchange=XSTO&active=true&limit=20', expect.objectContaining({ signal: undefined }));
+    expect(page.items[0]).toMatchObject({ ticker: 'ALFA', exchange: { mic: 'XSTO' } });
+    expect(page.nextCursor).toBe('next');
+
+    const detail = await fetchInstrument(page.items[0].id, fetcher);
+    expect(detail.latestBar).toMatchObject({ sessionDate: '2026-08-28', close: '101.25' });
+    expect(detail.history).toEqual({ firstSession: '2026-08-27', lastSession: '2026-08-28', barCount: 2 });
+    expect(detail.qualitySummary.openWarnings).toBe(1);
+
+    const history = await fetchDailyPrices(page.items[0].id, { from: '2026-08-01', to: '2026-08-28' }, fetcher);
+    expect(history.items).toEqual([]);
+  });
+
+  it('cancels superseded searches and suppresses stale responses', async () => {
+    const pending: Array<{ signal?: AbortSignal; resolve: (value: unknown) => void }> = [];
+    const fetcher = vi.fn((_url: string, init?: RequestInit) => new Promise((resolve) => {
+      pending.push({ signal: init?.signal ?? undefined, resolve });
+    })) as never;
+    const results: string[][] = [];
+    const client = new InstrumentSearchClient(fetcher, (page) => results.push(page.items.map((item) => item.ticker)));
+
+    const first = client.search({ query: 'old' });
+    const second = client.search({ query: 'new' });
+    expect(pending[0].signal?.aborted).toBe(true);
+    pending[1].resolve({ ok: true, json: async () => ({ items: [{
+      id: '33000000-0000-4000-8000-000000000002', isin: 'SE0000000200', ticker: 'NEW', name: 'New AB',
+      exchange: { mic: 'XSTO', name: 'Nasdaq Stockholm', timezone: 'Europe/Stockholm' }, currency: 'SEK',
+      country: 'SE', instrument_type: 'common_stock', active: true, purchasability_status: 'unverified',
+    }] }) });
+    await second;
+    pending[0].resolve({ ok: true, json: async () => ({ items: [] }) });
+    await first;
+    expect(results).toEqual([['NEW']]);
+
+    client.cancel();
+  });
+
+  it('returns safe errors for failed instrument requests', async () => {
+    const fetcher = vi.fn().mockResolvedValue({ ok: false, json: async () => ({ error: 'token=secret' }) });
+    await expect(fetchInstrument('33000000-0000-4000-8000-000000000001', fetcher)).rejects.toThrow('Unable to load instrument market data.');
+  });
+});
 
 describe('market-data snapshots', () => {
   it('loads typed recent runs and rejects unsafe error payloads', async () => {

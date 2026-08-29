@@ -116,3 +116,87 @@ type UniverseMembership struct {
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }
+
+type SearchFilter struct {
+	Query    string
+	MIC      string
+	Country  string
+	Currency string
+	Active   *bool
+	Cursor   string
+	Limit    int
+}
+
+type SearchResult struct {
+	Instrument
+	Exchange Exchange
+}
+
+type SearchPage struct {
+	Items      []SearchResult
+	NextCursor string
+}
+
+type SessionDate string
+
+func ParseSessionDate(value string) (SessionDate, error) {
+	parsed, err := time.Parse("2006-01-02", value)
+	if err != nil || parsed.Format("2006-01-02") != value {
+		return "", errors.New("session date must be a valid YYYY-MM-DD date")
+	}
+	return SessionDate(value), nil
+}
+
+func (date SessionDate) String() string { return string(date) }
+
+type Decimal string
+
+func (decimal Decimal) String() string { return string(decimal) }
+
+type DailyBar struct {
+	SessionDate   SessionDate
+	Open          Decimal
+	High          Decimal
+	Low           Decimal
+	Close         Decimal
+	AdjustedClose *string
+	Volume        int64
+	Currency      string
+	Provider      string
+	ObservedAt    time.Time
+}
+
+type HistoryCoverage struct {
+	FirstSession SessionDate
+	LastSession  SessionDate
+	BarCount     int64
+}
+
+type QualitySummary struct {
+	OpenWarnings int64
+	OpenErrors   int64
+}
+
+type MarketDataSummary struct {
+	LatestBar *DailyBar
+	Freshness time.Time
+	Coverage  HistoryCoverage
+	Quality   QualitySummary
+}
+
+type Inspection struct {
+	Identity SearchResult
+	MarketDataSummary
+}
+
+type PriceFilter struct {
+	From   SessionDate
+	To     SessionDate
+	Cursor string
+	Limit  int
+}
+
+type PricePage struct {
+	Items      []DailyBar
+	NextCursor string
+}

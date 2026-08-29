@@ -217,7 +217,9 @@ func run() error {
 
 	handler := api.NewRouter(api.Dependencies{
 		Database: pool, AllowedOrigins: cfg.AllowedOrigins, StaticDir: cfg.StaticDir, Version: version,
-		MarketData: marketdata.NewRepository(pool), Events: clientevents.NewRepository(pool), EventScope: "shared",
+		MarketData:  marketdata.NewRepository(pool),
+		Instruments: instruments.NewQueryService(instruments.NewRepository(pool), marketdata.NewRepository(pool)),
+		Events:      clientevents.NewRepository(pool), EventScope: "shared",
 	})
 	server := &http.Server{
 		Addr: ":" + cfg.Port, Handler: handler,

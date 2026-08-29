@@ -110,3 +110,55 @@ test('shows failed import accessibly in every theme and does not overflow at 320
   expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
   await expect(page.getByTestId('copy-retry')).toBeVisible();
 });
+
+test('searches, inspects, and returns with instrument state across responsive input modes', async ({ page, isMobile }) => {
+  const instrumentID = '33000000-0000-4000-8000-000000000001';
+  await page.route('**/api/v1/market-data/imports?*', (route) => route.fulfill({ json: { items: [] } }));
+  await page.route('**/api/v1/instruments?*', (route) => route.fulfill({ json: { items: [{
+    id: instrumentID, isin: 'SE0000000100', ticker: 'ALFA', name: 'Alpha AB',
+    exchange: { mic: 'XSTO', name: 'Nasdaq Stockholm', timezone: 'Europe/Stockholm' },
+    currency: 'SEK', country: 'SE', instrument_type: 'common_stock', active: true,
+    purchasability_status: 'unverified',
+  }], next_cursor: null } }));
+  await page.route(`**/api/v1/instruments/${instrumentID}`, (route) => route.fulfill({ json: {
+    id: instrumentID, isin: 'SE0000000100', ticker: 'ALFA', name: 'Alpha AB',
+    exchange: { mic: 'XSTO', name: 'Nasdaq Stockholm', timezone: 'Europe/Stockholm' },
+    currency: 'SEK', country: 'SE', instrument_type: 'common_stock', active: true,
+    purchasability_status: 'unverified',
+    latest_bar: { session_date: '2026-08-28', open: '100.125', high: '102.5', low: '99.75', close: '101.25', adjusted_close: null, volume: 1234, currency: 'SEK', provider: 'fixture', observed_at: '2026-08-29T18:30:00Z' },
+    history: { first_session: '2026-08-27', last_session: '2026-08-28', bar_count: 2 },
+    quality_summary: { open_warnings: 1, open_errors: 0 },
+  } }));
+  await page.route(`**/api/v1/instruments/${instrumentID}/prices?*`, (route) => route.fulfill({ json: { items: [], next_cursor: null } }));
+
+  await page.goto('/markets');
+  const search = page.getByRole('searchbox', { name: 'Search instruments' });
+  await search.fill('ALFA');
+  await page.getByLabel('Exchange').selectOption('XSTO');
+  await expect(page).toHaveURL(/q=ALFA/);
+  const result = page.getByRole('link', { name: /Alpha AB.*ALFA.*XSTO/i });
+  if (isMobile) await result.tap(); else await result.press('Enter');
+
+  await expect(page).toHaveURL(new RegExp(`/markets/${instrumentID}`));
+  await expect(page.getByRole('heading', { name: 'Alpha AB' })).toBeVisible();
+  await expect(page.getByText('Latest known daily value')).toBeVisible();
+  await expect(page.getByText('Session 2026-08-28')).toBeVisible();
+  await expect(page.getByText('101.25 SEK')).toBeVisible();
+  await expect(page.getByText(/1 open warning/i)).toBeVisible();
+
+  for (let theme = 0; theme < 3; theme += 1) {
+    await expect(page.getByRole('heading', { name: 'Alpha AB' })).toBeVisible();
+    await page.getByRole('button', { name: 'Change color theme' }).click();
+  }
+  const viewport = page.viewportSize();
+  if (viewport && viewport.width === 768) {
+    await page.setViewportSize({ width: 1024, height: 768 });
+    await expect(page.getByRole('heading', { name: 'Alpha AB' })).toBeVisible();
+  }
+
+  await page.getByRole('link', { name: 'Back to instruments' }).click();
+  await expect(search).toHaveValue('ALFA');
+  await expect(page.getByLabel('Exchange')).toHaveValue('XSTO');
+  await page.setViewportSize({ width: 320, height: 800 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
+});
