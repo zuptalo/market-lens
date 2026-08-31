@@ -212,7 +212,7 @@ on reconnection exactly once.
   volatility measure per instrument, computed from stored sessions only, and MUST state
   when there are too few stored sessions to compute one rather than showing zero.
 - **FR-008**: Users MUST be able to choose which optional columns are displayed, and that
-  choice MUST persist for them across visits.
+  choice MUST persist across visits on the device where it was made.
 
 **Instrument detail and charts**
 
@@ -315,14 +315,14 @@ on reconnection exactly once.
   membership; it relies entirely on the owner and invitation model already delivered.
 - **Ownership and authorization**: All instrument, price, corporate-action, and
   quality-finding data is shared reference data readable by every authenticated, active
-  user. The only per-user state this feature introduces is the person's own column
-  selection, which is private to them and scoped by the backend like any other private
-  record. No data in this feature is readable by an unauthenticated caller, and owner
-  administration grants no additional access here.
+  user. This feature stores no private record on the server: the only per-person state is
+  the optional-column selection, which is a display preference held in browser storage on
+  the device that made it. No data in this feature is readable by an unauthenticated
+  caller, and owner administration grants no additional access here.
 - **Security evidence**: Automated proof that every read requires an active session, that
   an unknown and an unauthorized instrument identifier produce identical responses, that
-  one user's column selection is never visible to another, and that a deactivated or
-  revoked session loses access to these views immediately.
+  no request in this feature carries or returns another person's data, and that a
+  deactivated or revoked session loses access to these views immediately.
 
 ### PWA and Notification Behavior *(mandatory when applicable; otherwise state N/A)*
 
@@ -341,8 +341,8 @@ requires nor changes them.
   defined by its window length, and undefined where insufficient prior sessions exist.
 - **Chart annotation**: A corporate action or quality finding anchored to the session it
   affects, carrying enough detail to explain a discontinuity.
-- **Column preference**: One user's chosen set of optional list columns. Private to that
-  user.
+- **Column preference**: One person's chosen set of optional list columns. A display
+  preference held on the device, not a server record.
 
 ## Success Criteria *(mandatory)*
 

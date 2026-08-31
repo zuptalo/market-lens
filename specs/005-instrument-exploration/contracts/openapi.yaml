@@ -1,0 +1,229 @@
+openapi: 3.1.0
+info:
+  title: Market Lens Instrument Exploration API
+  version: 1.0.0
+  description: >
+    Browsing the curated universe and reading one instrument's stored daily history.
+    Every operation is shared reference data behind the authenticated boundary established
+    by feature 004. Nothing here is private to a user and nothing here writes.
+servers:
+  - url: /api/v1
+x-market-lens-access-boundary:
+  authenticated:
+    - /instruments
+    - /instruments/{id}
+    - /instruments/{id}/prices
+    - /instruments/{id}/history
+  rule: >
+    Every operation requires an active session. An instrument identifier that does not
+    exist and one the caller may not read produce identical responses.
+x-market-lens-events:
+  consumed:
+    - daily_bar.changed.v1
+    - quality_finding.changed.v1
+    - import_run.changed.v1
+    - import_item.changed.v1
+  produced:
+    - name: corporate_action.changed.v1
+      scope: shared
+      version: 1
+      description: >
+        Written in the same transaction that upserts a corporate action during an import.
+        Payload carries instrument_id and ex_date.
+tags:
+  - { name: Instruments }
+paths:
+  /instruments:
+    get:
+      tags: [Instruments]
+      operationId: listInstruments
+      summary: List the curated universe with price, statistics, and freshness
+      description: >
+        Sorting is applied across the whole result set in the database, not to the returned
+        page, and is made total by the instrument identifier so equal values keep a stable
+        order. Every derived statistic is null rather than zero when too few stored
+        sessions exist to compute it.
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 120 }, description: Matches name, ticker, or ISIN }
+        - { name: mic, in: query, schema: { type: string, pattern: '^[A-Z0-9]{4}$' } }
+        - { name: country, in: query, schema: { type: string, pattern: '^[A-Z]{2}$' } }
+        - { name: sector, in: query, schema: { type: string, maxLength: 120 } }
+        - { name: status, in: query, schema: { type: string, enum: [active, inactive] } }
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [name, ticker, exchange, sector, country, latest_close, change_percent, return_20, return_90, volatility, freshness]
+            default: name
+        - { name: order, in: query, schema: { type: string, enum: [asc, desc], default: asc } }
+        - { name: cursor, in: query, schema: { type: string, maxLength: 512 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+      responses:
+        '200':
+          description: One page of the universe under the requested filters and ordering
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/InstrumentListingRow' }
+                  next_cursor: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+  /instruments/{id}/history:
+    get:
+      tags: [Instruments]
+      operationId: getInstrumentHistory
+      summary: Read one instrument's stored daily history for charting
+      description: >
+        Returns the stored bars in the requested window together with everything needed to
+        display them honestly: the sessions the exchange was open for and no bar exists,
+        the corporate actions and quality findings touching the window, whether the series
+        is raw or provider-adjusted, and the instrument's full stored coverage regardless
+        of the requested window. No value is interpolated or forward-filled.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - name: sessions
+          in: query
+          description: >
+            Window length counted in stored exchange sessions, ending at the most recent
+            stored session unless `to` is given. Sessions, never calendar days, because a
+            calendar window means a different number of observations per exchange.
+          schema: { type: integer, minimum: 2, maximum: 5000, default: 250 }
+        - { name: to, in: query, schema: { type: string, format: date }, description: Last session to include }
+      responses:
+        '200':
+          description: The requested history window
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HistoryWindow' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404':
+          description: >
+            No such instrument, or none the caller may read. The two are deliberately
+            indistinguishable.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+components:
+  responses:
+    BadRequest:
+      description: A parameter was outside its documented bounds
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthenticated:
+      description: No active session
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string, description: Safe for display; never names internal state }
+    InstrumentListingRow:
+      type: object
+      required: [id, ticker, name, exchange, currency, status, freshness]
+      properties:
+        id: { type: string, format: uuid }
+        ticker: { type: string }
+        name: { type: string }
+        isin: { type: string }
+        exchange:
+          type: object
+          required: [mic, name]
+          properties:
+            mic: { type: string }
+            name: { type: string }
+        sector: { type: string }
+        industry: { type: string }
+        country: { type: string }
+        currency: { type: string }
+        status: { type: string, enum: [active, inactive] }
+        latest_session: { type: [string, 'null'], format: date }
+        latest_close: { type: [string, 'null'], description: Decimal string in the listing currency }
+        change_absolute: { type: [string, 'null'] }
+        change_percent: { type: [number, 'null'] }
+        return_20: { type: [number, 'null'], description: Null when fewer than 21 stored sessions exist }
+        return_90: { type: [number, 'null'], description: Null when fewer than 91 stored sessions exist }
+        volatility: { type: [number, 'null'], description: Annualised from 20 session returns; null when fewer than 21 exist }
+        stored_sessions: { type: integer }
+        freshness:
+          type: object
+          required: [state]
+          properties:
+            state: { type: string, enum: [current, stale, no_history] }
+            sessions_behind: { type: [integer, 'null'], description: Open sessions since the latest stored bar }
+    HistoryWindow:
+      type: object
+      required: [instrument, coverage, requested_from, requested_to, bars, missing_sessions, series_basis, actions, findings]
+      properties:
+        instrument: { $ref: '#/components/schemas/InstrumentListingRow' }
+        coverage:
+          type: object
+          required: [first_session, last_session, stored_sessions]
+          properties:
+            first_session: { type: [string, 'null'], format: date }
+            last_session: { type: [string, 'null'], format: date }
+            stored_sessions: { type: integer }
+        requested_from: { type: [string, 'null'], format: date }
+        requested_to: { type: [string, 'null'], format: date }
+        bars:
+          type: array
+          description: Ascending by session. Contains only stored observations.
+          items:
+            type: object
+            required: [session_date, open, high, low, close, volume]
+            properties:
+              session_date: { type: string, format: date }
+              open: { type: string }
+              high: { type: string }
+              low: { type: string }
+              close: { type: string }
+              adjusted_close: { type: [string, 'null'] }
+              volume: { type: integer }
+        missing_sessions:
+          type: array
+          description: >
+            Sessions the exchange was open for with no stored bar, from the exchange
+            calendar. A day the exchange was closed never appears here.
+          items: { type: string, format: date }
+        series_basis: { type: string, enum: [raw, provider_adjusted] }
+        provider: { type: [string, 'null'] }
+        observed_at: { type: [string, 'null'], format: date-time }
+        actions:
+          type: array
+          items:
+            type: object
+            required: [id, action_type, ex_date]
+            properties:
+              id: { type: string, format: uuid }
+              action_type: { type: string, enum: [split, reverse_split, dividend, symbol_change, delisting] }
+              ex_date: { type: string, format: date }
+              ratio: { type: [string, 'null'] }
+              amount: { type: [string, 'null'] }
+              currency: { type: [string, 'null'] }
+              old_symbol: { type: [string, 'null'] }
+              new_symbol: { type: [string, 'null'] }
+        findings:
+          type: array
+          items:
+            type: object
+            required: [id, rule, status]
+            properties:
+              id: { type: string, format: uuid }
+              rule: { type: string }
+              status: { type: string }
+              session_date: { type: [string, 'null'], format: date }
+              detail: { type: [string, 'null'] }
