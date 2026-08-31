@@ -106,9 +106,16 @@ jobs:
           context: .
           platforms: linux/amd64
           push: false
+          load: true
+          tags: market-lens:surface-test
           build-args: VERSION=dev
           cache-from: type=gha,scope=market-lens-image
           cache-to: type=gha,mode=max,scope=market-lens-image
+      # Runs the artifact rather than only building it. The browser suite serves the client
+      # through vite preview, whose index.html fallback answers every path, so it cannot see
+      # how the real Go router treats an unauthenticated visitor.
+      - name: Validate the production surface
+        run: IMAGE=market-lens:surface-test scripts/production-surface.test.sh
 
   required:
     name: Required checks

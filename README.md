@@ -125,7 +125,14 @@ make verify
 npm run test:e2e
 docker build -t market-lens:local .
 docker compose config
+IMAGE=market-lens:local scripts/production-surface.test.sh
 ```
+
+The last one runs the built image against a throwaway PostgreSQL and checks how the real
+server answers a real visitor. It exists because the browser suite serves the client through
+`vite preview`, whose `index.html` fallback answers every path, so it cannot see how the Go
+router routes an unauthenticated request — a difference that once let the bare domain return
+a JSON error while every browser test passed.
 
 Playwright requires Chromium once per machine: `npx playwright install chromium`.
 
