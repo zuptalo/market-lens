@@ -34,9 +34,17 @@ func (v *recordingVerifier) VerifySMTP(_ context.Context, config SMTPSetupConfig
 }
 
 // Mail fixtures are built here from named constants rather than written as a host, username
-// and password sitting next to each other in each test. That triple is the shape a secret
-// scanner reasonably flags, and in a repository that stores real provider credentials it is
-// worth not writing at all - GitGuardian flagged one of these on the first pull request.
+// and password sitting next to each other in each test.
+//
+// GitGuardian flagged one of these on the pull request that introduced them. Centralising the
+// values behind this helper did NOT clear the finding, and it was never going to: the detector
+// looks for a host, a username and a password appearing together, which is a shape any test of
+// SMTP configuration must contain somewhere. It was resolved on the GitGuardian dashboard as a
+// test credential instead.
+//
+// So if that check fails again on a fixture, resolve it there rather than reshaping the code -
+// reshaping only moves the literals around. Keeping them centralised is still worth doing on
+// its own merits, in a repository whose subject is storing real provider credentials.
 const (
 	fixtureMailHost = "smtp.example.test"
 	fixtureMailFrom = "access@example.test"
@@ -44,6 +52,7 @@ const (
 )
 
 // fixtureMailSecret keeps the value out of the literal that carries the host and username.
+// It is a fixture, never a credential: nothing here reaches a real mail server.
 func fixtureMailSecret(label string) string { return label + "-never-persist-plaintext" }
 
 func mailFixture(mutate func(*SMTPUpdate)) *SMTPUpdate {
