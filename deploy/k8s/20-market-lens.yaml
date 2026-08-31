@@ -9,6 +9,10 @@ data:
   STATIC_DIR: /app/web
   ALLOWED_ORIGINS: "https://${APP_HOST}"
   AUTH_SECURE_COOKIES: "true"
+  # The daily market-data import. Non-sensitive: the API key it uses is the one the owner
+  # configures through the settings screen and which lives encrypted in the database, so
+  # enabling the schedule here adds no secret to the deployment.
+  MARKET_DATA_SCHEDULE_ENABLED: "true"
 ---
 apiVersion: v1
 kind: Service

@@ -156,3 +156,79 @@ func session(t *testing.T, value string) marketdata.SessionDate {
 	}
 	return result
 }
+
+// The API token is resolved for each request rather than captured once.
+//
+// A self-hosted installation stores its market-data key in the database and changes it from
+// the settings screen. If the client held whatever the token was at construction, a rotated
+// key would keep failing until somebody restarted the process — and the symptom would look
+// like a broken importer rather than a stale token.
+func TestTheTokenIsResolvedPerRequestSoARotatedKeyTakesEffect(t *testing.T) {
+	seen := make([]string, 0, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.URL.Query().Get("api_token"))
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer server.Close()
+
+	current := "first-key"
+	client, err := New(Config{
+		BaseURL:    server.URL,
+		HTTPClient: server.Client(),
+		TokenSource: func(context.Context) (string, error) {
+			return current, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := client.Resolve(context.Background(),
+		marketdata.ResolveRequest{ProviderSymbol: "ERIC-B.ST", MIC: "XSTO"}); err == nil || err != nil {
+		// The response is deliberately empty; only the token sent matters here.
+		_ = err
+	}
+	current = "rotated-key"
+	if _, err := client.Resolve(context.Background(),
+		marketdata.ResolveRequest{ProviderSymbol: "ERIC-B.ST", MIC: "XSTO"}); err == nil || err != nil {
+		_ = err
+	}
+
+	if len(seen) != 2 || seen[0] != "first-key" || seen[1] != "rotated-key" {
+		t.Fatalf("tokens sent = %#v; the second request must carry the rotated key", seen)
+	}
+}
+
+// A token source that cannot answer must fail the request rather than send an empty token to
+// the provider as though it were real.
+func TestAnUnavailableTokenFailsTheRequestWithoutCallingTheProvider(t *testing.T) {
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		called = true
+	}))
+	defer server.Close()
+
+	client, err := New(Config{
+		BaseURL:    server.URL,
+		HTTPClient: server.Client(),
+		TokenSource: func(context.Context) (string, error) {
+			return "", errors.New("market-data credentials are not available")
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Resolve(context.Background(),
+		marketdata.ResolveRequest{ProviderSymbol: "ERIC-B.ST", MIC: "XSTO"}); err == nil {
+		t.Fatal("an unavailable token produced no error")
+	}
+	if called {
+		t.Fatal("the provider was called without a token")
+	}
+}
+
+func TestAClientNeedsEitherATokenOrASourceForOne(t *testing.T) {
+	if _, err := New(Config{BaseURL: "https://example.test"}); err == nil {
+		t.Fatal("a client was built with no way to obtain a token")
+	}
+}
