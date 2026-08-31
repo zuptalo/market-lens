@@ -282,3 +282,57 @@ func TestCredentialRequirementFollowsStoredCiphertextNotTheEnvironment(t *testin
 		t.Fatal("an installation holding encrypted provider credentials reported none")
 	}
 }
+
+// The market-data importer needs the same access to its credential that mail already has.
+//
+// Without this the owner can configure and validate an EODHD key through the settings screen,
+// see it reported as stored, and still have nothing import — because the importer read its
+// token from an environment variable that a self-hosted deployment has no reason to set.
+func TestCredentialRepositoryReturnsTheDecryptedEODHDKeyForImporting(t *testing.T) {
+	pool := testdb.Open(t)
+	ctx := context.Background()
+	if err := db.Migrate(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	seedCredentialOwner(t, ctx, pool)
+	cipher, err := NewCipher(bytes.Repeat([]byte{0x64}, 32), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, time.August, 30, 12, 0, 0, 0, time.UTC)
+	insertCredentialSet(t, ctx, pool, cipher, now)
+	repository := NewRepository(pool)
+
+	key, err := repository.EODHDAPIKey(ctx, cipher)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if key != "secret" {
+		t.Fatalf("EODHD key = %q, expected the stored plaintext", key)
+	}
+
+	// A wrong key must fail closed rather than yield an empty token that would be sent to the
+	// provider as though it were real.
+	wrongKey, err := NewCipher(bytes.Repeat([]byte{0x65}, 32), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.EODHDAPIKey(ctx, wrongKey); err == nil {
+		t.Fatal("the EODHD key decrypted under the wrong cipher")
+	}
+}
+
+func TestCredentialRepositoryEODHDKeyIsUnavailableBeforeSetup(t *testing.T) {
+	pool := testdb.Open(t)
+	ctx := context.Background()
+	if err := db.Migrate(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	cipher, err := NewCipher(bytes.Repeat([]byte{0x66}, 32), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewRepository(pool).EODHDAPIKey(ctx, cipher); err == nil {
+		t.Fatal("an EODHD key was available before owner setup stored one")
+	}
+}

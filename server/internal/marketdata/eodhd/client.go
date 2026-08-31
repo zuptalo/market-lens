@@ -24,20 +24,32 @@ const (
 )
 
 type Config struct {
-	BaseURL    string
-	APIToken   string
-	HTTPClient *http.Client
+	BaseURL  string
+	APIToken string
+	// TokenSource resolves the API token for each request. A self-hosted installation stores
+	// its market-data key in the database and changes it from the settings screen, so the
+	// token has to be read when it is used: capturing it once at construction would leave a
+	// rotated key failing until the process restarted, and the symptom would look like a
+	// broken importer rather than a stale token. APIToken remains for callers that genuinely
+	// have a fixed one, such as tests and the credential validator.
+	TokenSource func(context.Context) (string, error)
+	HTTPClient  *http.Client
 }
 
 type Client struct {
-	baseURL    *url.URL
-	apiToken   string
-	httpClient *http.Client
+	baseURL     *url.URL
+	tokenSource func(context.Context) (string, error)
+	httpClient  *http.Client
 }
 
 func New(config Config) (*Client, error) {
-	if strings.TrimSpace(config.APIToken) == "" {
-		return nil, errors.New("EODHD API token is required")
+	source := config.TokenSource
+	if source == nil {
+		token := strings.TrimSpace(config.APIToken)
+		if token == "" {
+			return nil, errors.New("EODHD API token is required")
+		}
+		source = func(context.Context) (string, error) { return token, nil }
 	}
 	if config.BaseURL == "" {
 		config.BaseURL = defaultBaseURL
@@ -52,7 +64,7 @@ func New(config Config) (*Client, error) {
 	if config.HTTPClient == nil {
 		config.HTTPClient = http.DefaultClient
 	}
-	return &Client{baseURL: baseURL, apiToken: config.APIToken, httpClient: config.HTTPClient}, nil
+	return &Client{baseURL: baseURL, tokenSource: source, httpClient: config.HTTPClient}, nil
 }
 
 func (*Client) Name() string { return "eodhd" }
@@ -136,15 +148,24 @@ func (c *Client) Daily(ctx context.Context, request marketdata.DailyRequest) (ma
 }
 
 func (c *Client) getJSON(ctx context.Context, path string, query url.Values, destination any) error {
+	// Resolved here rather than held on the client, so a key rotated through the settings
+	// screen takes effect on the next request. A source that cannot answer fails the request
+	// instead of sending an empty token the provider would reject as though it were wrong.
+	token, err := c.tokenSource(ctx)
+	if err != nil || strings.TrimSpace(token) == "" {
+		return providerError("provider_credentials",
+			"Market-data credentials are unavailable.", true, 0)
+	}
+
 	endpoint := *c.baseURL
 	endpoint.Path += path
 	values := cloneValues(query)
-	values.Set("api_token", c.apiToken)
+	values.Set("api_token", token)
 	values.Set("fmt", "json")
 	endpoint.RawQuery = values.Encode()
 
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
-	if err != nil {
+	request, requestErr := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if requestErr != nil {
 		return providerError("provider_request", "Market-data provider request is invalid.", false, 0)
 	}
 	response, err := c.httpClient.Do(request)

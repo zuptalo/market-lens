@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -225,6 +226,43 @@ type SMTPSettings struct {
 
 // SMTPSettings decrypts the stored transactional-email configuration. It fails closed so a
 // wrong or rotated key never yields partial configuration that would silently misdeliver mail.
+// EODHDAPIKey returns the stored market-data API key in plaintext.
+//
+// The importer resolves its token through this at the moment it imports, exactly as mail
+// resolves its SMTP password at the moment it sends. Reading it once at startup would mean a
+// key rotated through the settings screen did not take effect until the process restarted,
+// which is the kind of surprise that gets diagnosed as "the importer is broken".
+func (repository *Repository) EODHDAPIKey(ctx context.Context, cipher *Cipher) (string, error) {
+	if cipher == nil {
+		return "", errors.New("the market-data API key requires a credential cipher")
+	}
+	var record Record
+	err := repository.pool.QueryRow(ctx, `SELECT id::text,kind,ciphertext,payload_version,key_version
+		FROM external_service_credentials WHERE kind=$1`, string(KindEODHDAPI)).Scan(
+		&record.Metadata.ID, &record.Metadata.Kind, &record.Ciphertext,
+		&record.Metadata.PayloadVersion, &record.Metadata.KeyVersion)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", errors.New("market-data credentials are not available")
+	}
+	if err != nil {
+		return "", err
+	}
+	plaintext, err := cipher.Open(record.Metadata, record.Ciphertext)
+	if err != nil {
+		return "", errors.New("market-data credentials could not be decrypted")
+	}
+	var payload struct {
+		APIKey string `json:"api_key"`
+	}
+	if err := json.Unmarshal(plaintext, &payload); err != nil {
+		return "", errors.New("stored market-data credentials are malformed")
+	}
+	if strings.TrimSpace(payload.APIKey) == "" {
+		return "", errors.New("stored market-data credentials hold no API key")
+	}
+	return payload.APIKey, nil
+}
+
 func (repository *Repository) SMTPSettings(ctx context.Context, cipher *Cipher) (SMTPSettings, error) {
 	if cipher == nil {
 		return SMTPSettings{}, errors.New("SMTP settings require a credential cipher")

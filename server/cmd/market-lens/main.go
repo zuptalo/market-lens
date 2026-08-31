@@ -424,6 +424,33 @@ func newSetupCredentialValidator(requestTimeout time.Duration) (*eodhd.Credentia
 // newCredentialCipher returns nil when no credential key is configured. That is a supported
 // state: a deployment given only DATABASE_URL must start and serve sign-in, and the
 // operations that actually need the key refuse individually, naming it.
+// marketDataTokenSource resolves the EODHD API token when a request needs it.
+//
+// The key an owner configures and verifies through the settings screen is stored encrypted in
+// the database, and until now nothing fed it to the importer: the client was built from
+// EODHD_API_TOKEN, which a self-hosted deployment has no reason to set. An installation could
+// therefore show its market-data credential as stored and validated and still import nothing.
+//
+// The environment variable remains as a fallback so a development machine can point at a key
+// without a database round trip, but the stored credential wins, because that is the one the
+// owner can actually see and change.
+func marketDataTokenSource(pool *pgxpool.Pool, externalConfig config.ExternalCredentialConfig,
+	envToken string) func(context.Context) (string, error) {
+	repository := credentials.NewRepository(pool)
+	return func(ctx context.Context) (string, error) {
+		cipher, err := newCredentialCipher(externalConfig)
+		if err == nil && cipher != nil {
+			if key, keyErr := repository.EODHDAPIKey(ctx, cipher); keyErr == nil {
+				return key, nil
+			}
+		}
+		if strings.TrimSpace(envToken) != "" {
+			return envToken, nil
+		}
+		return "", errors.New("no market-data API key is configured")
+	}
+}
+
 func newCredentialCipher(externalConfig config.ExternalCredentialConfig) (*credentials.Cipher, error) {
 	if !externalConfig.Configured {
 		return nil, nil
@@ -671,8 +698,8 @@ func run() error {
 			return errors.New("configured market-data provider is not supported")
 		}
 		provider, err := eodhd.New(eodhd.Config{
-			APIToken:   cfg.MarketData.APIToken,
-			HTTPClient: &http.Client{Timeout: cfg.MarketData.RequestTimeout},
+			TokenSource: marketDataTokenSource(pool, cfg.ExternalCredentials, cfg.MarketData.APIToken),
+			HTTPClient:  &http.Client{Timeout: cfg.MarketData.RequestTimeout},
 		})
 		if err != nil {
 			return err
@@ -697,8 +724,8 @@ func run() error {
 			return errors.New("configured market-data provider is not supported")
 		}
 		provider, err := eodhd.New(eodhd.Config{
-			APIToken:   cfg.MarketData.APIToken,
-			HTTPClient: &http.Client{Timeout: cfg.MarketData.RequestTimeout},
+			TokenSource: marketDataTokenSource(pool, cfg.ExternalCredentials, cfg.MarketData.APIToken),
+			HTTPClient:  &http.Client{Timeout: cfg.MarketData.RequestTimeout},
 		})
 		if err != nil {
 			return err
