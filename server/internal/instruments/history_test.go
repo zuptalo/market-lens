@@ -259,3 +259,131 @@ func TestHistoryReturnsOnlyTheAnnotationsTouchingTheWindow(t *testing.T) {
 		}
 	}
 }
+
+// TestNothingIsDrawnThatIsNotStored is the claim this whole feature rests on, checked over
+// every instrument in the fixture universe rather than over one convenient example (SC-005).
+func TestNothingIsDrawnThatIsNotStored(t *testing.T) {
+	fixture := newExplorationFixture(t)
+	repository := instruments.NewRepository(fixture.pool)
+
+	page, err := repository.Listing(fixture.ctx, instruments.ListingFilter{
+		Limit: 200, Sort: instruments.SortName, AsOf: fixtureAsOf,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) < 5 {
+		t.Fatalf("the universe holds %d instruments, too few to prove anything", len(page.Items))
+	}
+
+	checked := 0
+	for _, row := range page.Items {
+		window, err := repository.History(fixture.ctx, row.ID,
+			instruments.HistoryFilter{Sessions: 5000}, fixtureAsOf)
+		if err != nil {
+			t.Fatalf("history for %s: %v", row.Ticker, err)
+		}
+		checked++
+
+		// 1. Every session drawn exists in stored data.
+		for _, bar := range window.Bars {
+			var stored bool
+			if err := fixture.pool.QueryRow(fixture.ctx, `SELECT exists(
+				SELECT 1 FROM daily_price_bars WHERE instrument_id = $1 AND session_date = $2)`,
+				row.ID.String(), bar.SessionDate.String()).Scan(&stored); err != nil {
+				t.Fatal(err)
+			}
+			if !stored {
+				t.Errorf("%s: session %s was returned but is not stored — it was invented",
+					row.Ticker, bar.SessionDate)
+			}
+		}
+
+		// 2. No session is reported both as stored and as missing.
+		drawn := map[instruments.SessionDate]bool{}
+		for _, bar := range window.Bars {
+			drawn[bar.SessionDate] = true
+		}
+		for _, missing := range window.MissingSessions {
+			if drawn[missing] {
+				t.Errorf("%s: session %s is both drawn and reported missing", row.Ticker, missing)
+			}
+			// 3. A day the exchange was closed is never reported as missing.
+			var status string
+			if err := fixture.pool.QueryRow(fixture.ctx, `SELECT s.status FROM exchange_sessions s
+				JOIN instruments i ON i.exchange_id = s.exchange_id
+				WHERE i.id = $1 AND s.session_date = $2`,
+				row.ID.String(), missing.String()).Scan(&status); err != nil {
+				t.Errorf("%s: missing session %s is not in the exchange calendar at all: %v",
+					row.Ticker, missing, err)
+				continue
+			}
+			if status == "closed" {
+				t.Errorf("%s: %s was closed but is reported as a missing session", row.Ticker, missing)
+			}
+		}
+
+		// 4. A statistic with too few sessions is absent, never zero.
+		if row.StoredSessions < 21 {
+			if row.Return20 != nil || row.Volatility != nil {
+				t.Errorf("%s: computed a statistic from %d stored sessions",
+					row.Ticker, row.StoredSessions)
+			}
+		}
+
+		// 5. Every price is stated in the instrument's own currency; nothing is converted.
+		for _, bar := range window.Bars {
+			if bar.Currency != row.Currency {
+				t.Errorf("%s: a bar is denominated in %s but the listing currency is %s",
+					row.Ticker, bar.Currency, row.Currency)
+			}
+		}
+	}
+	if checked < 5 {
+		t.Fatalf("only %d instruments were checked", checked)
+	}
+}
+
+// Every recorded action and open finding inside a displayed range is visible in that range,
+// checked across the universe rather than on one instrument (SC-006).
+func TestEveryRecordedActionAndFindingInRangeIsReturned(t *testing.T) {
+	fixture := newExplorationFixture(t)
+	repository := instruments.NewRepository(fixture.pool)
+
+	page, err := repository.Listing(fixture.ctx, instruments.ListingFilter{
+		Limit: 200, Sort: instruments.SortName, AsOf: fixtureAsOf,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, row := range page.Items {
+		window, err := repository.History(fixture.ctx, row.ID,
+			instruments.HistoryFilter{Sessions: 5000}, fixtureAsOf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if window.RequestedFrom == "" {
+			continue // no stored history, so there is no range to be visible in
+		}
+
+		var expectedActions, expectedFindings int
+		if err := fixture.pool.QueryRow(fixture.ctx, `SELECT
+			(SELECT count(*) FROM corporate_actions
+			 WHERE instrument_id = $1 AND ex_date BETWEEN $2 AND $3),
+			(SELECT count(*) FROM data_quality_findings
+			 WHERE instrument_id = $1 AND (session_date IS NULL OR session_date BETWEEN $2 AND $3))`,
+			row.ID.String(), window.RequestedFrom.String(), window.RequestedTo.String()).
+			Scan(&expectedActions, &expectedFindings); err != nil {
+			t.Fatal(err)
+		}
+		if len(window.Actions) != expectedActions {
+			t.Errorf("%s: %d recorded actions fall in the window but %d were returned",
+				row.Ticker, expectedActions, len(window.Actions))
+		}
+		if len(window.Findings) != expectedFindings {
+			t.Errorf("%s: %d findings touch the window but %d were returned",
+				row.Ticker, expectedFindings, len(window.Findings))
+		}
+	}
+}

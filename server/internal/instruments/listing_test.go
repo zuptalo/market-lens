@@ -3,6 +3,7 @@ package instruments_test
 import (
 	"math"
 	"testing"
+	"time"
 
 	"market-lens/server/internal/instruments"
 )
@@ -305,6 +306,38 @@ func TestListingFiltersBySectorExchangeAndSearch(t *testing.T) {
 		found := listingFor(t, fixture, instruments.ListingFilter{Query: probe.query, Limit: 200})
 		if _, ok := found[probe.want]; !ok {
 			t.Errorf("searching by %s for %q did not return %s", probe.kind, probe.query, probe.want)
+		}
+	}
+}
+
+// SC-002 bounds the first page of the universe under any supported sort.
+//
+// This measures query time, not the end-to-end "on a typical connection" the criterion
+// describes: network and rendering are outside what a Go test can see. It is the part of the
+// budget this layer is responsible for, and the part a regression here would consume first.
+func TestTheFirstPageOfTheUniverseStaysWithinItsBudget(t *testing.T) {
+	fixture := newExplorationFixture(t)
+	repository := instruments.NewRepository(fixture.pool)
+
+	for _, sort := range []instruments.ListingSort{
+		instruments.SortName, instruments.SortTicker, instruments.SortExchange,
+		instruments.SortSector, instruments.SortCountry, instruments.SortLatestClose,
+		instruments.SortChangePercent, instruments.SortReturn20, instruments.SortReturn90,
+		instruments.SortVolatility, instruments.SortFreshness,
+	} {
+		started := time.Now()
+		page, err := repository.Listing(fixture.ctx, instruments.ListingFilter{
+			Limit: 50, Sort: sort, AsOf: fixtureAsOf,
+		})
+		if err != nil {
+			t.Fatalf("listing sorted by %s: %v", sort, err)
+		}
+		elapsed := time.Since(started)
+		if len(page.Items) == 0 {
+			t.Fatalf("listing sorted by %s returned nothing", sort)
+		}
+		if elapsed > 2*time.Second {
+			t.Errorf("the first page sorted by %s took %s, over the two-second budget", sort, elapsed)
 		}
 	}
 }

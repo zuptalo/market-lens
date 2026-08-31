@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-31
 
-**Status**: planned
+**Status**: in-review
 <!-- Market Lens spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: User description: "Instrument exploration and financial charts. Authenticated
