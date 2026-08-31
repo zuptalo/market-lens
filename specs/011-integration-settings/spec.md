@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-31
 
-**Status**: in-review
+**Status**: shipped
 <!-- Market Lens spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: The owner should be able to see and change the EODHD and SMTP configuration after
