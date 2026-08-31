@@ -180,3 +180,57 @@ func TestADeactivatedOrUnknownAccountCannotOpenAStreamAtAll(t *testing.T) {
 		})
 	}
 }
+
+// The corporate-action event is new in feature 005. It carries market data, which is shared
+// reference data every active user may read, and it must carry nothing else: an ex-date and
+// an instrument identifier explain a discontinuity without disclosing anything private.
+func TestTheCorporateActionEventIsSharedAndCarriesNothingPrivate(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	reader := &eventReaderStub{events: []ClientEvent{
+		{ID: 11, Type: "corporate_action.changed.v1", Version: 1, Scope: "shared",
+			EntityType: "corporate_action", EntityID: "50000000-0000-4000-8000-000000000001",
+			Payload:    json.RawMessage(`{"instrument_id":"33000000-0000-4000-8000-000000000001","ex_date":"2026-05-28","action_type":"split"}`),
+			OccurredAt: time.Date(2026, 8, 30, 8, 0, 0, 0, time.UTC)},
+	}, afterList: cancel}
+	router := NewRouter(authenticatedDependencies(Dependencies{
+		Events: reader, EventHeartbeat: time.Hour, EventBatchLimit: 50,
+	}))
+	recorder := httptest.NewRecorder()
+	request := authenticatedAPIRequest(http.MethodGet, "/api/v1/events").WithContext(ctx)
+	router.ServeHTTP(recorder, request)
+
+	body := recorder.Body.String()
+	if !strings.Contains(body, "corporate_action.changed.v1") {
+		t.Fatalf("an authenticated reader was not served the shared action event: %s", body)
+	}
+	// Named as its own event so a client can decide whether the change concerns what it is
+	// displaying, rather than refetching everything.
+	if !strings.Contains(body, "instrument_id") || !strings.Contains(body, "ex_date") {
+		t.Errorf("the event payload does not name what changed: %s", body)
+	}
+	for _, forbidden := range strings.Fields("token digest password csrf email") {
+		if strings.Contains(strings.ToLower(body), forbidden) {
+			t.Fatalf("the action event disclosed %q: %s", forbidden, body)
+		}
+	}
+}
+
+func TestAnAnonymousCallerReceivesNoCorporateActionEvent(t *testing.T) {
+	router := NewRouter(Dependencies{
+		Events: &eventReaderStub{events: []ClientEvent{
+			{ID: 11, Type: "corporate_action.changed.v1", Version: 1, Scope: "shared",
+				EntityType: "corporate_action", EntityID: "50000000-0000-4000-8000-000000000001",
+				Payload: json.RawMessage(`{"instrument_id":"i"}`)},
+		}},
+		EventHeartbeat: time.Hour,
+	})
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/events", nil))
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("an anonymous stream request returned %d", recorder.Code)
+	}
+	if strings.Contains(recorder.Body.String(), "corporate_action") {
+		t.Fatalf("an anonymous caller was served an event: %s", recorder.Body.String())
+	}
+}
