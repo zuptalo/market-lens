@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import Column from 'primevue/column';
 import DataTable, { type DataTableSortEvent } from 'primevue/datatable';
+import { formatDecimal, formatPercent } from '@/utils/decimal';
 import type { InstrumentListingRow, ListingSort } from '@/types/marketData';
 
 /**
@@ -48,7 +49,7 @@ function shows(column: string): boolean {
 
 function percent(value: number | null): string {
   if (value === null) return ABSENT;
-  return `${(value * 100).toFixed(2)}%`;
+  return formatPercent(value);
 }
 
 /** Why a statistic is absent, so the marker is never left to be guessed at. */
@@ -63,12 +64,12 @@ function statisticTitle(row: InstrumentListingRow, value: number | null): string
 
 function money(row: InstrumentListingRow): string {
   if (row.latestClose === null) return ABSENT;
-  return `${row.latestClose} ${row.currency}`;
+  return `${formatDecimal(row.latestClose)} ${row.currency}`;
 }
 
 function changeText(row: InstrumentListingRow): string {
   if (row.changeAbsolute === null || row.changePercent === null) return ABSENT;
-  return `${row.changeAbsolute} (${percent(row.changePercent)})`;
+  return `${formatDecimal(row.changeAbsolute)} (${percent(row.changePercent)})`;
 }
 
 function freshnessLabel(row: InstrumentListingRow): string {
