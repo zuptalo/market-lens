@@ -232,3 +232,47 @@ func TestAClientNeedsEitherATokenOrASourceForOne(t *testing.T) {
 		t.Fatal("a client was built with no way to obtain a token")
 	}
 }
+
+// EODHD reports a split as a decimal fraction: "2.000000/1.000000".
+//
+// Go's big.Rat only accepts a fraction whose parts are integers, so every one of these was
+// rejected — and because a bad action fails the whole page, every instrument that had ever
+// split failed its entire import. In production that was 23 of 100 instruments, including
+// Novo Nordisk, Ørsted and Sampo, each recording nothing at all.
+func TestSplitRatiosArriveAsDecimalFractions(t *testing.T) {
+	for _, testCase := range []struct {
+		raw  string
+		want string
+	}{
+		// Decimal is canonical: ParseDecimal normalizes trailing zeros, so 2.000000/1.000000
+		// is the decimal 2 rather than the string "2.00000000".
+		{"2.000000/1.000000", "2"},
+		{"3.000000/2.000000", "1.5"},
+		{"1.000000/10.000000", "0.1"}, // a reverse split
+		{"2.5/1", "2.5"},
+		{"2/1", "2"}, // the integer form must keep working
+		{"4", "4"},   // and a bare multiplier has no fraction at all
+	} {
+		ratio, err := parseSplitRatio(testCase.raw)
+		if err != nil {
+			t.Errorf("%q was rejected: %v", testCase.raw, err)
+			continue
+		}
+		if ratio.String() != testCase.want {
+			t.Errorf("%q parsed to %s, expected %s", testCase.raw, ratio.String(), testCase.want)
+		}
+	}
+}
+
+func TestAnUnusableSplitRatioIsStillRejected(t *testing.T) {
+	for _, raw := range []string{
+		"", "not/a/ratio", "abc/1.0", "1.0/xyz",
+		"1.000000/0.000000", // dividing by zero is not a split
+		"-2.000000/1.000000",
+		"0.000000/1.000000",
+	} {
+		if ratio, err := parseSplitRatio(raw); err == nil {
+			t.Errorf("%q was accepted as ratio %s", raw, ratio.String())
+		}
+	}
+}
