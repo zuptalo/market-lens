@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	clientevents "market-lens/server/internal/events"
 )
 
 func TestEventsStreamReplaysVersionedSharedEventsAfterLastID(t *testing.T) {
@@ -17,9 +19,9 @@ func TestEventsStreamReplaysVersionedSharedEventsAfterLastID(t *testing.T) {
 		{ID: 41, Type: "daily_bar.changed.v1", Version: 1, Scope: "shared", EntityType: "daily_bar", EntityID: "bar-1", Payload: json.RawMessage(`{"instrument_id":"one"}`), OccurredAt: time.Date(2026, 8, 29, 8, 0, 0, 0, time.UTC)},
 		{ID: 42, Type: "import_run.changed.v1", Version: 1, Scope: "shared", EntityType: "import_run", EntityID: "run-1", Payload: json.RawMessage(`{"status":"succeeded"}`), OccurredAt: time.Date(2026, 8, 29, 8, 0, 1, 0, time.UTC)},
 	}, afterList: cancel}
-	router := NewRouter(Dependencies{Events: reader, EventScope: "shared", EventHeartbeat: time.Hour, EventBatchLimit: 50})
+	router := NewRouter(authenticatedDependencies(Dependencies{Events: reader, EventHeartbeat: time.Hour, EventBatchLimit: 50}))
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/events", nil).WithContext(ctx)
+	request := authenticatedAPIRequest(http.MethodGet, "/api/v1/events").WithContext(ctx)
 	request.Header.Set("Last-Event-ID", "40")
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK || recorder.Header().Get("Content-Type") != "text/event-stream" ||
@@ -32,15 +34,16 @@ func TestEventsStreamReplaysVersionedSharedEventsAfterLastID(t *testing.T) {
 		!strings.Contains(body, `"scope":"shared"`) || strings.Contains(body, `"scope":"private"`) {
 		t.Fatalf("stream = %q", body)
 	}
-	if reader.after != 40 || reader.scope != "shared" || reader.limit != 50 {
-		t.Fatalf("replay query = after %d scope %s limit %d", reader.after, reader.scope, reader.limit)
+	if reader.after != 40 || reader.audience.UserID != "10000000-0000-4000-8000-000000000001" ||
+		reader.audience.Role != "owner" || reader.limit != 50 {
+		t.Fatalf("replay query = after %d audience %#v limit %d", reader.after, reader.audience, reader.limit)
 	}
 }
 
 func TestEventsStreamValidatesResumeIDAndEmitsHeartbeat(t *testing.T) {
-	router := NewRouter(Dependencies{Events: &eventReaderStub{}})
+	router := NewRouter(authenticatedDependencies(Dependencies{Events: &eventReaderStub{}}))
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/v1/events", nil)
+	request := authenticatedAPIRequest(http.MethodGet, "/api/v1/events")
 	request.Header.Set("Last-Event-ID", "invalid")
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), `"error":`) {
@@ -50,8 +53,8 @@ func TestEventsStreamValidatesResumeIDAndEmitsHeartbeat(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	time.AfterFunc(20*time.Millisecond, cancel)
 	heartbeat := httptest.NewRecorder()
-	heartbeatRequest := httptest.NewRequest(http.MethodGet, "/api/v1/events", nil).WithContext(ctx)
-	NewRouter(Dependencies{Events: &eventReaderStub{}, EventHeartbeat: 5 * time.Millisecond}).ServeHTTP(heartbeat, heartbeatRequest)
+	heartbeatRequest := authenticatedAPIRequest(http.MethodGet, "/api/v1/events").WithContext(ctx)
+	NewRouter(authenticatedDependencies(Dependencies{Events: &eventReaderStub{}, EventHeartbeat: 5 * time.Millisecond})).ServeHTTP(heartbeat, heartbeatRequest)
 	if !strings.Contains(heartbeat.Body.String(), ": heartbeat") {
 		t.Fatalf("heartbeat stream = %q", heartbeat.Body.String())
 	}
@@ -64,8 +67,8 @@ func TestEventsStreamStopsOnCancellation(t *testing.T) {
 	go func() {
 		defer close(done)
 		recorder := httptest.NewRecorder()
-		request := httptest.NewRequest(http.MethodGet, "/api/v1/events", nil).WithContext(ctx)
-		NewRouter(Dependencies{Events: &eventReaderStub{}}).ServeHTTP(recorder, request)
+		request := authenticatedAPIRequest(http.MethodGet, "/api/v1/events").WithContext(ctx)
+		NewRouter(authenticatedDependencies(Dependencies{Events: &eventReaderStub{}})).ServeHTTP(recorder, request)
 	}()
 	select {
 	case <-done:
@@ -75,18 +78,37 @@ func TestEventsStreamStopsOnCancellation(t *testing.T) {
 }
 
 type eventReaderStub struct {
-	mu        sync.Mutex
-	events    []ClientEvent
-	afterList func()
-	after     int64
-	scope     string
-	limit     int
+	mu           sync.Mutex
+	events       []ClientEvent
+	afterList    func()
+	after        int64
+	audience     clientevents.Audience
+	limit        int
+	resolveRole  string
+	resolveErr   error
+	deactivated  bool
+	resolveCalls int
 }
 
-func (s *eventReaderStub) ListClientEvents(_ context.Context, scope string, after int64, limit int) ([]ClientEvent, error) {
+// Audience stands in for the durable user record the real reader consults.
+func (s *eventReaderStub) Audience(_ context.Context, userID string) (clientevents.Audience, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.after, s.scope, s.limit = after, scope, limit
+	s.resolveCalls++
+	if s.resolveErr != nil {
+		return clientevents.Audience{}, s.resolveErr
+	}
+	role := s.resolveRole
+	if role == "" {
+		role = "owner"
+	}
+	return clientevents.Audience{UserID: userID, Role: role, Deactivated: s.deactivated}, nil
+}
+
+func (s *eventReaderStub) ListAuthorized(_ context.Context, audience clientevents.Audience, after int64, limit int) ([]ClientEvent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.after, s.audience, s.limit = after, audience, limit
 	events := append([]ClientEvent(nil), s.events...)
 	s.events = nil
 	if s.afterList != nil {

@@ -1,0 +1,146 @@
+package api
+
+import (
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
+	"testing"
+)
+
+// contractPath is the reviewed API contract for feature 004. Reconciling against the file the
+// specification owns keeps the two from drifting silently in either direction.
+const contractPath = "../../../specs/004-owner-access/contracts/openapi.yaml"
+
+// routerSource is parsed rather than probed because Go's ServeMux does not enumerate its own
+// routes, and a route registered but undocumented is exactly the drift worth catching.
+const routerSource = "router.go"
+
+var (
+	contractPathLine  = regexp.MustCompile(`^  (/\S*?):\s*$`)
+	contractMethod    = regexp.MustCompile(`^    (get|post|put|patch|delete):\s*$`)
+	registeredPattern = regexp.MustCompile(`"(GET|POST|PUT|PATCH|DELETE) (/api/v1/[^"]*)"`)
+	pathParameter     = regexp.MustCompile(`\{[^}]+\}`)
+)
+
+// normalize reduces both sources to one comparable shape: METHOD /path with every path
+// parameter written as {}, because the contract and the router name them differently.
+func normalize(method, path string) string {
+	path = strings.TrimPrefix(path, "/api/v1")
+	if path == "" {
+		path = "/"
+	}
+	return strings.ToUpper(method) + " " + pathParameter.ReplaceAllString(path, "{}")
+}
+
+func contractOperations(t *testing.T) map[string]bool {
+	t.Helper()
+	contents, err := os.ReadFile(filepath.FromSlash(contractPath))
+	if err != nil {
+		t.Fatalf("read the API contract: %v", err)
+	}
+	operations := map[string]bool{}
+	current := ""
+	inPaths := false
+	for _, line := range strings.Split(string(contents), "\n") {
+		if line == "paths:" {
+			inPaths = true
+			continue
+		}
+		if !inPaths {
+			continue
+		}
+		if match := contractPathLine.FindStringSubmatch(line); match != nil {
+			current = match[1]
+			continue
+		}
+		if match := contractMethod.FindStringSubmatch(line); match != nil && current != "" {
+			operations[normalize(match[1], current)] = true
+		}
+	}
+	if len(operations) < 10 {
+		t.Fatalf("parsed only %d operations from the contract, so this comparison proves nothing",
+			len(operations))
+	}
+	return operations
+}
+
+func registeredOperations(t *testing.T) map[string]bool {
+	t.Helper()
+	contents, err := os.ReadFile(routerSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operations := map[string]bool{}
+	for _, match := range registeredPattern.FindAllStringSubmatch(string(contents), -1) {
+		operations[normalize(match[1], match[2])] = true
+	}
+	if len(operations) < 10 {
+		t.Fatalf("parsed only %d routes from the router, so this comparison proves nothing",
+			len(operations))
+	}
+	return operations
+}
+
+func TestEveryImplementedAPIRouteIsDocumentedAndEveryDocumentedRouteExists(t *testing.T) {
+	contract := contractOperations(t)
+	registered := registeredOperations(t)
+
+	// Liveness and readiness are named in the access boundary rather than as operations, and
+	// the retired recovery endpoints exist only to answer 404. Nothing else is exempt.
+	exempt := map[string]bool{
+		"GET /health": true, "GET /ready": true,
+		"POST /auth/owner/recovery/request": true, "POST /auth/owner/recovery/complete": true,
+	}
+	// Routes belonging to earlier features keep their own contracts.
+	inherited := map[string]bool{
+		"GET /instruments": true, "GET /instruments/{}": true, "GET /instruments/{}/prices": true,
+		"GET /market-data/imports": true, "GET /market-data/imports/{}": true,
+		"GET /market-data/quality-findings": true,
+	}
+
+	var undocumented, unimplemented []string
+	for operation := range registered {
+		if !contract[operation] && !exempt[operation] && !inherited[operation] {
+			undocumented = append(undocumented, operation)
+		}
+	}
+	for operation := range contract {
+		if !registered[operation] && !exempt[operation] {
+			unimplemented = append(unimplemented, operation)
+		}
+	}
+	sort.Strings(undocumented)
+	sort.Strings(unimplemented)
+	if len(undocumented) > 0 {
+		t.Errorf("routes exist but the contract does not describe them: %v", undocumented)
+	}
+	if len(unimplemented) > 0 {
+		t.Errorf("the contract describes routes that do not exist: %v", unimplemented)
+	}
+}
+
+func TestTheContractStillDeclaresTheAccessBoundaryItPromises(t *testing.T) {
+	contents, err := os.ReadFile(filepath.FromSlash(contractPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := string(contents)
+	// The boundary is the security claim the whole feature rests on; losing it from the
+	// contract would quietly turn deny-by-default into a convention.
+	for _, required := range []string{
+		"x-market-lens-access-boundary",
+		"protected by default",
+	} {
+		if !strings.Contains(document, required) {
+			t.Errorf("the contract no longer declares %q", required)
+		}
+	}
+	// A retired endpoint must not reappear as a documented operation.
+	for _, retired := range []string{"/auth/owner/recovery/request", "/auth/owner/recovery/complete"} {
+		if strings.Contains(document, "  "+retired+":") {
+			t.Errorf("the contract documents retired endpoint %s", retired)
+		}
+	}
+}

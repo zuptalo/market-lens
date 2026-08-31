@@ -118,10 +118,13 @@ Override it when deploying elsewhere:
 APP_HOST=market-lens.example.com ACME_EMAIL=you@example.com ./install.sh
 ```
 
-The installer generates `POSTGRES_PASSWORD` and `DATABASE_URL` once in the
-`market-lens-secrets` Kubernetes Secret. Re-running it preserves that Secret. No
-credential is stored in the repository, and no manual SQL is executed; the Go
-application applies its embedded migrations on startup.
+The installer generates `POSTGRES_PASSWORD`, `DATABASE_URL`, `AUTH_SECRET`, and an
+independent external-credential encryption key/version once in the
+`market-lens-secrets` Kubernetes Secret. Re-running it preserves existing values and
+adds missing complete key pairs to deployments created before owner access was
+introduced; it never rotates an existing key. An incomplete key/version pair stops the
+upgrade for operator repair. No credential is stored in the repository, and no manual
+SQL is executed; the Go application applies its embedded migrations on startup.
 
 ## Verify
 

@@ -52,8 +52,62 @@ Run the production-shaped single application image and PostgreSQL:
 docker compose up --build
 ```
 
-Open <http://localhost:8080>. Set `POSTGRES_PASSWORD` in a local `.env` before any
-non-development deployment.
+Open <http://localhost:8080>. Set unique `POSTGRES_PASSWORD`, `AUTH_SECRET`, and
+`EXTERNAL_CREDENTIAL_KEY` values in a local `.env` before starting Compose. Generate the
+two independent application keys with `openssl rand -base64 48` and
+`openssl rand -base64 32`, respectively, and keep `EXTERNAL_CREDENTIAL_KEY_VERSION=1`
+until an explicit credential-key rotation. Never commit that file.
+
+## Account access
+
+Market Lens has no public sign-up. One owner is created from a host-issued setup link, and
+everybody else joins by invitation.
+
+### First run
+
+```sh
+docker compose exec app market-lens auth setup-link
+```
+
+The command prints one URL whose fragment carries a single-use capability valid for 15
+minutes. It is printed once and never logged, so copy it before closing the terminal. Open
+it and complete the wizard, which asks for the owner's name, email, and password, the EODHD
+API key, and the SMTP host, port, sender address, and credential. The EODHD key is validated
+against the provider before anything is written; if the provider is unreachable, nothing
+commits and the same link can be retried. On success setup closes permanently and the link
+stops working.
+
+### Adding people
+
+The owner invites by email from **Account settings**. Each invitation is single-use, expires
+in seven days, and can be resent or revoked. An invited person clicks the emailed link, gives
+a display name, and is signed in. Members never choose a password: they sign in by entering
+their email and the six-digit code that arrives by mail. Three wrong codes block sign-in for
+15 minutes; ten in a rolling day lock the account until the owner unlocks it.
+
+### What the host holds and what it never sees
+
+`AUTH_SECRET` and `EXTERNAL_CREDENTIAL_KEY` are the only account secrets in the environment.
+The owner password, the EODHD key, and the SMTP credential are entered once in the wizard and
+stored encrypted; there is no environment variable for any of them and no way to read one
+back. Rotate the encryption key only with the command below, after putting the new key in
+`EXTERNAL_CREDENTIAL_KEY` and raising `EXTERNAL_CREDENTIAL_KEY_VERSION`. Every stored secret
+is re-encrypted in one transaction, so a failure part-way leaves nothing half-rotated:
+
+```sh
+docker compose exec app market-lens auth credential-key rotate --new-version 2
+```
+
+If the owner is locked out, reset the password from the host. Both commands read the new
+secret interactively from a terminal, accept no flag or environment value, and revoke every
+existing session:
+
+```sh
+docker compose exec app market-lens auth owner-password reset
+```
+
+There is no email password recovery and no public recovery page, by design: the owner account
+is the one account an attacker gains nothing by phishing.
 
 ## Tests and builds
 

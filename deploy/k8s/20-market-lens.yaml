@@ -8,6 +8,7 @@ data:
   PORT: "8080"
   STATIC_DIR: /app/web
   ALLOWED_ORIGINS: "https://${APP_HOST}"
+  AUTH_SECURE_COOKIES: "true"
 ---
 apiVersion: v1
 kind: Service
@@ -71,6 +72,21 @@ spec:
                 secretKeyRef:
                   name: market-lens-secrets
                   key: DATABASE_URL
+            - name: AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: market-lens-secrets
+                  key: AUTH_SECRET
+            - name: EXTERNAL_CREDENTIAL_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: market-lens-secrets
+                  key: EXTERNAL_CREDENTIAL_KEY
+            - name: EXTERNAL_CREDENTIAL_KEY_VERSION
+              valueFrom:
+                secretKeyRef:
+                  name: market-lens-secrets
+                  key: EXTERNAL_CREDENTIAL_KEY_VERSION
           startupProbe:
             httpGet:
               path: /api/v1/health

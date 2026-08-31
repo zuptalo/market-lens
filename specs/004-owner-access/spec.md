@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-28
 
-**Status**: planned
+**Status**: in-review
 <!-- Market Lens spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: Establish exactly one first owner for a new Market Lens deployment, secure
@@ -13,6 +13,16 @@ six-digit email-code login for non-owners, roles, owner-controlled member lockou
 session revocation, and backend-enforced isolation for every user's private data and live
 events. Public self-registration, social login, enterprise identity providers, billing,
 and public multi-tenant SaaS are excluded.
+
+## Clarifications
+
+### Session 2026-08-30
+
+- Q: After the generic email-first sign-in step, may the interface reveal that the email belongs to the owner by selecting the password flow automatically? → A: No. Show every email the same OTP screen with a secondary “Use owner password” action.
+- Q: How is the EODHD API key supplied during first-owner setup persisted? → A: Encrypt it in PostgreSQL with a separate deployment-held encryption key and never expose it through client-readable surfaces.
+- Q: How does the owner reset a forgotten password? → A: A deployment operator runs an interactive pod CLI that reads and confirms the new password from the TTY, changes it immediately, and revokes all owner sessions.
+- Q: Must the EODHD credential be authenticated before first-owner setup commits? → A: Yes. Invalid credentials or provider unavailability block owner creation and leave the unexpired setup capability available for retry.
+- Q: Where are SMTP settings and credentials configured? → A: Collect them in the first-owner setup wizard and encrypt sensitive values in PostgreSQL with the deployment-held credential-encryption key.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -27,8 +37,8 @@ event requires a trusted initial authority.
 
 **Independent Test**: Start a fresh deployment, create the owner through the host-
 authorized setup flow, verify setup closes immediately, sign in with the owner's strong
-credential, exercise verified-email recovery, and prove the same or another setup
-credential cannot create a second owner.
+credential, exercise deployment-authorized interactive CLI reset, and prove the same or
+another setup credential cannot create a second owner.
 
 **Acceptance Scenarios**:
 
@@ -36,18 +46,28 @@ credential cannot create a second owner.
    single-use time-bounded setup capability is made available without entering logs or
    browser-visible configuration.
 2. **Given** a valid setup capability, **When** the first person supplies a valid email,
-   strong password, and display name, **Then** exactly one active owner is created and
-   the setup capability is permanently consumed.
-3. **Given** an owner already exists, **When** any setup URL or host setup request is
+   strong password, display name, EODHD API key, and SMTP delivery configuration, **Then**
+   external-service credentials are encrypted with a separate deployment-held key, the
+   EODHD credential is validated, exactly one active owner is created, and the setup
+   capability is permanently consumed.
+3. **Given** an invalid EODHD key or a bounded validation request that cannot reach the
+   provider, **When** setup is submitted, **Then** no owner or provider ciphertext is
+   persisted and the still-unexpired setup capability may be retried safely.
+4. **Given** an owner already exists, **When** any setup URL or host setup request is
    attempted, **Then** no additional owner is created and the application exposes no
    information useful for taking over the account.
-4. **Given** the active owner, **When** the correct owner email and strong credential are
-   supplied, **Then** an authenticated owner session is established without using the
-   member email-code flow.
-5. **Given** the owner has lost the credential, **When** verified-email recovery is
-   completed with a valid single-use expiring capability, **Then** the owner can set a
-   new strong credential and all prior owner sessions and recovery capabilities are
-   revoked.
+5. **Given** any email has been submitted, **When** the generic second step is shown,
+   **Then** it offers six-digit code entry and a secondary “Use owner password” action
+   without revealing whether the email belongs to the owner; the correct owner email and
+   strong credential establish an owner session without using the member-code flow.
+6. **Given** the owner has lost the credential, **When** a deployment operator runs the
+   owner-password reset command inside the application pod and interactively enters and
+   confirms a new strong password, **Then** the credential is replaced, every prior owner
+   session is revoked, and no password appears in arguments, environment, output, or logs.
+7. **Given** a fresh or bootstrapped deployment, **When** an anonymous client requests
+   market pages, instrument/history/import/quality snapshots, or the SSE stream, **Then**
+   no application data is disclosed; after owner authentication, the same shared-data
+   routes are available within the active session.
 
 ---
 
@@ -66,9 +86,9 @@ sessions, and verify revoked sessions cannot access snapshots or resume live eve
 
 **Acceptance Scenarios**:
 
-1. **Given** any submitted email, **When** a login code is requested, **Then** the
-   browser receives the same safe response while only an active, verified, unlocked
-   member receives a six-digit code by email.
+1. **Given** any submitted email, **When** sign-in continues, **Then** the browser receives
+   the same safe response and generic code screen with a secondary owner-password action,
+   while only an active, verified, unlocked member receives a six-digit code by email.
 2. **Given** a member's most recently issued unexpired code, **When** it is entered
    correctly once, **Then** the member receives an authenticated session and the code
    cannot be replayed.
@@ -140,11 +160,13 @@ records while shared market reference data remains common.
 ### Edge Cases
 
 - Two setup attempts race before the first owner commits.
-- The setup, invitation, recovery, or verification capability expires during submission.
+- The setup, invitation, or verification capability expires during submission.
 - An invited email differs only by case or Unicode representation from an existing user.
 - An owner invites themselves, an existing active member, or a deactivated account.
 - The only owner attempts to demote/deactivate themselves or transfer ownership.
 - Email delivery is unavailable, delayed, duplicated, or reports a later bounce.
+- EODHD credential validation is rejected, rate-limited, times out, or the setup
+  capability expires while the bounded provider request is in flight.
 - Multiple login-code requests arrive concurrently or email delivers older codes after a
   newer code has invalidated them.
 - A correct code arrives while the 15-minute block or administrative lock is active.
@@ -168,17 +190,44 @@ records while shared market reference data remains common.
 - **FR-003**: The system MUST support normalized unique verified email identities and
   display names. The owner MUST use a strong owner credential; non-owner members MUST
   authenticate without passwords using emailed one-time codes.
-- **FR-003a**: Owner sign-in and verified-email recovery MUST remain separate from the
-  member code flow. The system MUST NOT request, accept, or retain a password or password
-  credential for a non-owner member.
+- **FR-003a**: Sign-in MUST begin with one generic email step. Its response and next screen
+  MUST NOT reveal whether the email is registered or belongs to the owner. The next screen
+  MUST offer six-digit code entry and a secondary “Use owner password” action for every
+  submitted email. The system MUST NOT accept or retain a password credential for a
+  non-owner member.
+- **FR-003b**: First-owner setup MUST accept and validate the EODHD API key, encrypt it
+  before persistence using a dedicated deployment-held encryption key distinct from the
+  authentication key, and retain only ciphertext plus non-secret configuration metadata.
+  The plaintext provider key MUST be accepted only in the setup mutation and MUST never
+  be returned by a read API, SSE event, audit record, log, browser storage, or rendered UI.
+  Validation MUST use a bounded provider authentication request before commit. Invalid
+  credentials or transient provider failure MUST create no owner or stored credential and
+  MUST leave an otherwise-valid setup capability retryable until its original expiry.
+- **FR-003c**: Owner password recovery MUST be available only through a deployment-local
+  interactive CLI. The command MUST read and confirm the new password from a TTY, MUST
+  NOT accept it through arguments or environment variables, MUST hash it before storage,
+  and MUST atomically revoke every owner session and record safe audit/outbox events.
+  Public or email-based owner password recovery MUST NOT be available.
+- **FR-003d**: First-owner setup MUST collect SMTP host, port, sender identity, and any
+  required username/password. SMTP credentials MUST be encrypted before persistence with
+  the deployment-held credential-encryption key and MUST never be returned through read
+  APIs, SSE, audit, logs, browser storage, or rendered UI. After setup, clients may read
+  only safe configured/healthy/degraded delivery status and non-secret sender metadata.
 - **FR-004**: Public self-registration MUST NOT be available; only the first-owner setup
   and owner-authorized invitations may create accounts.
 - **FR-005**: The system MUST provide secure authenticated sessions with inactivity and
   absolute expiry, request-forgery protection, renewal rules, and individual/all-device
   revocation.
+- **FR-005a**: Application pages and APIs MUST be protected by default. Anonymous access
+  is limited to liveness, readiness, safe setup status/completion, owner/member sign-in
+  requests, and invitation acceptance. Market pages, all instrument and
+  market-data REST snapshots, and `/api/v1/events` MUST disclose no application data
+  without an active authenticated session, including before first-owner setup.
 - **FR-006**: Member code-request and verification responses MUST resist account
   enumeration and apply per-account plus per-origin throttling without blocking all users
-  globally or revealing whether an email is registered, inactive, blocked, or locked.
+  globally or revealing whether an email is registered, inactive, blocked, locked, or is
+  the owner identity. Selecting the owner-password action MUST remain available for every
+  submitted email and failed owner authentication MUST remain generic.
 - **FR-007**: Each member login code MUST contain exactly six numeric digits, expire 10
   minutes after issuance, be accepted only once, and be safely represented at rest. A
   newly issued code MUST invalidate every older unused code for that member.
@@ -216,7 +265,7 @@ records while shared market reference data remains common.
   private events to the owning user, allow shared events for all active users, and end
   promptly when a session/account is revoked.
 - **FR-016**: Security-relevant activity MUST retain a safe audit record covering setup,
-  sign-in/code outcomes, temporary blocks, administrative locks/unlocks, owner recovery,
+  sign-in/code outcomes, temporary blocks, administrative locks/unlocks, owner CLI reset,
   invitations, email/role/status changes, and session revocation without recording codes,
   secrets, or unnecessary private financial data.
 - **FR-017**: Email delivery failures MUST degrade safely, remain retryable and visible
@@ -235,7 +284,8 @@ records while shared market reference data remains common.
 - **Expected red reason**: The current foundation has no account/setup persistence or
   authorization service, so the one-owner invariant cannot be satisfied; a compile or
   database setup failure is not valid red evidence.
-- **Green evidence**: Account/domain, migration/repository, session/security, email
+- **Green evidence**: Account/domain, migration/repository, session/security, owner reset
+  CLI, email
   and six-digit-code contract, temporary/administrative lockout, owner unlock, HTTP/SSE,
   frontend, responsive Playwright, secret-regression, and cross-user isolation suites
   pass, followed by repository/container/deployment verification.
@@ -246,7 +296,7 @@ records while shared market reference data remains common.
 
 ### Responsive UI Behavior *(mandatory for user-facing features; otherwise state N/A)*
 
-- **Mobile (320-767 CSS px)**: Setup, email/code sign-in, owner recovery, invitation acceptance, session
+- **Mobile (320-767 CSS px)**: Setup, email/code sign-in, invitation acceptance, session
   management, and owner member/invitation lists use a single-column touch-friendly flow.
   At 360x800 every primary action and security state is reachable; at 320px no secret,
   error, form control, dialog, or member action is clipped or causes page overflow.
@@ -277,14 +327,14 @@ records while shared market reference data remains common.
   trading, portfolio, alert, device, and future private records are owner-scoped by
   backend services and persistence queries. Account administration does not imply
   access to private financial data.
-- **Security evidence**: Tests cover owner recovery, member-code expiry/replay, distributed
+- **Security evidence**: Tests cover deployment-local owner password reset, member-code expiry/replay, distributed
   guessing, three-attempt temporary blocking, ten-attempt administrative locking,
   owner-only unlock, session expiry/revocation, request forgery, enumeration resistance,
   concurrent setup/acceptance, and cross-user REST/export/SSE isolation.
 
 ### PWA and Notification Behavior *(mandatory when applicable; otherwise state N/A)*
 
-N/A. Invitation, member login-code, verification, and owner-recovery email are
+N/A. Invitation, member login-code, and verification email are
 transactional account messages, not user-configurable market notifications. PWA/Web
 Push require separate specifications.
 
@@ -296,8 +346,11 @@ Push require separate specifications.
   first owner, permanently closed after success.
 - **Invitation**: Owner-issued intended email, role, lifecycle/delivery state, expiry,
   safe retry lineage, and accepting user.
-- **Owner Credential/Recovery Capability**: Safely represented owner authentication and
-  recovery state with rotation, expiry, use, and revocation context.
+- **Owner Credential**: Safely represented owner password state with rehash metadata and
+  deployment-local reset, session revocation, audit, and event context.
+- **External Service Credential**: Encrypted EODHD and SMTP credentials, encryption-key
+  version, validation/readiness timestamps, and safe lifecycle metadata; plaintext exists
+  only transiently during setup submission and outbound provider operations.
 - **Member Login Challenge**: One member's safely represented six-digit code challenge,
   issue/expiry/use state, delivery context, and invalidation lineage; plaintext codes are
   never retained after delivery preparation.
@@ -315,17 +368,21 @@ Push require separate specifications.
 
 - **SC-001**: In 100 concurrent setup races, every fresh deployment creates exactly one
   owner and accepts zero later setup attempts.
+- **SC-001a**: A route matrix covering every market page, instrument/history/import/
+  quality endpoint, and SSE connection returns zero application data to anonymous,
+  expired, revoked, and deactivated sessions while allowing the same shared data to
+  every active authenticated owner/member session.
 - **SC-002**: A legitimate first owner can complete setup in under 3 minutes and an
   invited member can accept an invitation and sign in in under 5 minutes.
 - **SC-003**: 100% of expired, revoked, replayed, wrong-email, and already-consumed setup,
-  invitation, login-code, verification, and recovery attempts create no account or session.
+  invitation, login-code, and verification attempts create no account or session.
 - **SC-004**: A cross-user matrix covering every private list/detail/mutation/export/SSE
   path produces zero private existence, content, count, or event disclosures.
 - **SC-005**: Revoking a session or deactivating a user prevents new reads and live-event
   replay within 5 seconds while leaving other active users connected.
 - **SC-006**: Account email delivery failures expose a safe actionable state within 10
   seconds and existing authenticated research remains usable.
-- **SC-007**: Setup, sign-in, recovery, invitation acceptance, and owner administration
+- **SC-007**: Setup, sign-in, invitation acceptance, and owner administration
   pass at 360x800, 768x1024, and 1440x900 and remain usable without page overflow at
   320 CSS pixels in system, light, and dark themes.
 - **SC-008**: Secret-regression tests find zero credential/capability/session/provider
@@ -337,13 +394,17 @@ Push require separate specifications.
 
 ## Assumptions
 
-- The first owner uses a strong password plus verified-email recovery. Every non-owner
+- The first owner uses a strong password. Every non-owner
   member uses only six-digit emailed one-time codes and is never asked to create a
   password. Social and enterprise identity methods require later specifications.
+- A dedicated external-credential encryption key is supplied by the deployment secret,
+  remains distinct from `AUTH_SECRET`, and is backed up and rotated through an explicit
+  operational procedure without exposing encrypted EODHD or SMTP credentials to clients.
 - Initial roles are owner and member. The owner manages access metadata but cannot inspect
   another user's private financial activity unless a later sharing feature grants it.
-- Transactional account email uses one replaceable configured delivery adapter; exact
-  provider selection and self-hosted delivery configuration are planning decisions.
+- Transactional account email initially uses SMTP configured during first-owner setup.
+  Sensitive SMTP values are encrypted with the deployment-held credential-encryption key;
+  a different delivery adapter requires a later reviewed specification.
 - Temporary member blocks last 15 minutes; administrative lockout counts ten wrong code
   submissions in a rolling 24-hour window. These explicit defaults implement the user's
   requested three-attempt and ten-attempt thresholds and may be amended only through a

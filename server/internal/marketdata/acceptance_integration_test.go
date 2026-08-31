@@ -94,6 +94,7 @@ func TestFixtureImportAcceptanceAtCuratedUniverseScale(t *testing.T) {
 		t.Fatalf("daily-bar events = %d, want 200 initial changes plus one correction", dailyEvents)
 	}
 
+	seedMarketDataTestOwner(t, pool)
 	assertResumedSSE(t, clientevents.NewRepository(pool), resumeID)
 }
 
@@ -160,8 +161,12 @@ type cancellingEventReader struct {
 	cancel     context.CancelFunc
 }
 
-func (r *cancellingEventReader) ListClientEvents(ctx context.Context, scope string, after int64, limit int) ([]clientevents.Event, error) {
-	events, err := r.repository.ListClientEvents(ctx, scope, after, limit)
+func (r *cancellingEventReader) Audience(ctx context.Context, userID string) (clientevents.Audience, error) {
+	return r.repository.Audience(ctx, userID)
+}
+
+func (r *cancellingEventReader) ListAuthorized(ctx context.Context, audience clientevents.Audience, after int64, limit int) ([]clientevents.Event, error) {
+	events, err := r.repository.ListAuthorized(ctx, audience, after, limit)
 	if err == nil && len(events) == 0 {
 		r.cancel()
 	}
@@ -172,11 +177,12 @@ func assertResumedSSE(t *testing.T, repository *clientevents.Repository, resumeI
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	reader := &cancellingEventReader{repository: repository, cancel: cancel}
-	router := api.NewRouter(api.Dependencies{
-		Events: reader, EventScope: "shared", EventHeartbeat: time.Hour, EventBatchLimit: 37,
-	})
+	router := api.NewRouter(authenticatedAPIDependencies(api.Dependencies{
+		Events: reader, EventHeartbeat: time.Hour, EventBatchLimit: 37,
+	}))
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/events", nil).WithContext(ctx)
+	addMarketDataTestSession(request)
 	request.Header.Set("Last-Event-ID", strconv.FormatInt(resumeID, 10))
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {

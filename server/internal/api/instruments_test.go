@@ -30,7 +30,7 @@ func TestInstrumentReadContracts(t *testing.T) {
 		},
 		prices: instruments.PricePage{Items: []instruments.DailyBar{{SessionDate: last, Open: "100.125", High: "102.5", Low: "99.75", Close: "101.25", Volume: 1234, Currency: "SEK", Provider: "fixture", ObservedAt: time.Date(2026, 8, 29, 18, 30, 0, 0, time.UTC)}}, NextCursor: "older"},
 	}
-	router := NewRouter(Dependencies{Instruments: reader})
+	router := NewRouter(authenticatedDependencies(Dependencies{Instruments: reader}))
 
 	response := performRequest(router, "/api/v1/instruments?q=alfa&exchange=XSTO&country=SE&currency=SEK&active=true&cursor=cursor&limit=1")
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"mic":"XSTO"`) || !strings.Contains(response.Body.String(), `"next_cursor":"next-page"`) {
@@ -61,7 +61,7 @@ func TestInstrumentReadContracts(t *testing.T) {
 
 func TestInstrumentReadContractsValidateAndReturnNotFound(t *testing.T) {
 	reader := &instrumentReaderStub{err: instruments.ErrNotFound}
-	router := NewRouter(Dependencies{Instruments: reader})
+	router := NewRouter(authenticatedDependencies(Dependencies{Instruments: reader}))
 	validID := "33000000-0000-4000-8000-000000000001"
 	tests := []struct {
 		path string

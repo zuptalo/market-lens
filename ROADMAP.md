@@ -1,6 +1,6 @@
 # Market Lens roadmap
 
-**Last updated**: 2026-08-28
+**Last updated**: 2026-08-29
 
 This is the durable delivery map across sessions. Product intent lives in
 [`docs/product-vision.md`](docs/product-vision.md); reviewed requirements/designs live
@@ -24,7 +24,7 @@ without a reviewed feature spec and valid red test.
 | Ops-A | Optional public k3s deployment | In progress | [`001-k3s-deployment`](specs/001-k3s-deployment/spec.md) | Foundation | Same image runs on target k3s with PostgreSQL, TLS, and image rollout; not a product prerequisite. |
 | Release-A | Protected versioned delivery | Shipped | [`003-release-versioning`](specs/003-release-versioning/spec.md) and [plan](specs/003-release-versioning/plan.md) | Foundation | PR-only squash delivery, automatic SemVer/GHCR releases, protected main, and visible runtime version. |
 | 1 | Instruments and daily market data | In review | [`002-instruments-market-data`](specs/002-instruments-market-data/spec.md) and [plan](specs/002-instruments-market-data/plan.md) | Foundation | 100 Nordic listings, about ten years of daily OHLCV, action context, quality findings, observable imports, read-only inspection, and durable resumable SSE updates. |
-| Security-A | Owner bootstrap, authentication, and invitations | Planned | [`004-owner-access`](specs/004-owner-access/spec.md) | Foundation; required before browser access beyond bootstrap and all private data | Exactly one first owner, secure sessions/recovery, roles, and expiring single-use verified-email invitations with cross-user isolation. |
+| Security-A | Owner bootstrap, authentication, and invitations | In review | [`004-owner-access`](specs/004-owner-access/spec.md) | Foundation; required before browser access beyond bootstrap and all private data | Exactly one first owner, secure sessions/recovery, roles, and expiring single-use verified-email invitations with cross-user isolation. |
 | Experience-A | Installable PWA and device lifecycle | Backlog | Not yet specified | Security-A; SSE foundation | Chrome/Edge installability on mobile/tablet/desktop, offline/stale behavior, devices, and permission lifecycle. |
 | 2 | Instrument exploration and financial charts | Backlog | Not yet specified | Milestone 1 | Search/browse, instrument detail, responsive candlestick/volume history, overlays, and basic statistics. |
 | 3 | Reusable feature engine | Backlog | Not yet specified | Milestone 1; benchmark/FX inputs as needed | Deterministic timestamped returns, trend, momentum, relative strength, volatility, ATR, RSI/MACD, drawdown, volume, and regime features with leakage tests. |
@@ -39,15 +39,14 @@ without a reviewed feature spec and valid red test.
 
 ## Current focus
 
-Instruments and daily market data is the current product feature. Its implementation and
-local acceptance matrix are complete on `002-instruments-market-data`; protected pull-
-request review, required checks, release verification, and final shipped-state evidence
-remain.
+Owner bootstrap and authenticated application access is the current product feature.
+Feature 002's implementation and local acceptance matrix are complete, but its public
+deployment was rolled back to `v0.2.0` and final shipped-state evidence remains paused
+until Feature 004 protects every market page, REST snapshot, and SSE stream.
 
 The market-data backend/provider work may continue independently, but its browser/SSE
-delivery cannot be declared deployable until the owner-bootstrap, authentication,
-invitation, and authorization specification is reviewed and its required boundary is in
-place. Create that cross-cutting spec before completing feature 002 UI acceptance.
+delivery cannot be declared deployable until Feature 004's owner bootstrap, session,
+and protected-by-default application boundary is implemented and verified.
 
 Milestones 2–5 are the next planning sequence. Create separate feature specs so their
 acceptance criteria, data ownership, responsive behavior, and test-first proof can be
