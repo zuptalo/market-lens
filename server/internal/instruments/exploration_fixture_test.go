@@ -141,7 +141,12 @@ func (f *explorationFixture) addBars(t *testing.T, instrument, exchange instrume
 			FROM open_sessions
 			WHERE offset_back >= $5 AND offset_back < $5 + $4
 		), kept AS (
-			SELECT session_date, position FROM window_sessions
+			-- position counts back from the most recent session, so the price index is
+			-- inverted to make closes rise with time the way a real series does. Without this
+			-- the fixture's oldest bar would be its most expensive and every computed return
+			-- would come out negative.
+			SELECT session_date, ($4 - 1 - position) AS position
+			FROM window_sessions
 			WHERE NOT (position = ANY($6::int[]))
 		)
 		INSERT INTO daily_price_bars
