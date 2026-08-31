@@ -152,11 +152,11 @@ function freshnessLabel(row: InstrumentListingRow): string {
       <template #body="{ data }">{{ freshnessLabel(data) }}</template>
     </Column>
 
-    <template #empty>
-      <p class="empty-state" role="status">
-        No instruments match these filters.
-      </p>
-    </template>
+    <!--
+      No empty slot here on purpose. The view owns the empty state, because the message is
+      only half of it: the other half is the control that clears the filters, and two status
+      messages saying the same thing is worse than one that also offers a way back.
+    -->
   </DataTable>
 </template>
 

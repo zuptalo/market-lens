@@ -27,6 +27,8 @@ defineProps<{
   country: string;
   sector: string;
   status: string;
+  sort: string;
+  order: string;
 }>();
 
 defineEmits<{
@@ -35,7 +37,29 @@ defineEmits<{
   (event: 'update:country', value: string): void;
   (event: 'update:sector', value: string): void;
   (event: 'update:status', value: string): void;
+  (event: 'update:sort', value: string): void;
+  (event: 'update:order', value: string): void;
 }>();
+
+/**
+ * Sorting is offered here as well as on the table headers. Below the tablet breakpoint the
+ * table stacks into cards and its header row is not on screen, so the headers alone would
+ * leave a phone with no way to sort at all — and "sort opens in the sheet" is exactly what
+ * the specification asks for on a small screen.
+ */
+const SORTS = [
+  { value: 'name', label: 'Name' },
+  { value: 'ticker', label: 'Ticker' },
+  { value: 'exchange', label: 'Exchange' },
+  { value: 'sector', label: 'Sector' },
+  { value: 'country', label: 'Country' },
+  { value: 'latest_close', label: 'Latest close' },
+  { value: 'change_percent', label: 'Change' },
+  { value: 'return_20', label: '20-session return' },
+  { value: 'return_90', label: '90-session return' },
+  { value: 'volatility', label: 'Volatility' },
+  { value: 'freshness', label: 'Freshness' },
+];
 </script>
 
 <template>
@@ -88,6 +112,27 @@ defineEmits<{
         <option value="">All statuses</option>
         <option value="active">Active</option>
         <option value="inactive">Inactive</option>
+      </select>
+    </label>
+    <label>Sort by
+      <select
+        :value="sort"
+        aria-label="Sort by"
+        @change="$emit('update:sort', ($event.target as HTMLSelectElement).value)"
+      >
+        <option v-for="option in SORTS" :key="option.value" :value="option.value">
+          {{ option.label }}
+        </option>
+      </select>
+    </label>
+    <label>Direction
+      <select
+        :value="order"
+        aria-label="Sort direction"
+        @change="$emit('update:order', ($event.target as HTMLSelectElement).value)"
+      >
+        <option value="asc">Ascending</option>
+        <option value="desc">Descending</option>
       </select>
     </label>
   </div>

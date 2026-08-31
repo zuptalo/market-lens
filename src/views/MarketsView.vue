@@ -299,6 +299,8 @@ onBeforeUnmount(() => {
         v-model:country="country"
         v-model:sector="sector"
         v-model:status="status"
+        v-model:sort="sort"
+        v-model:order="order"
       />
 
       <ul v-if="activeFilters.length" class="active-filters" aria-label="Active filters">
@@ -351,6 +353,8 @@ onBeforeUnmount(() => {
         v-model:country="country"
         v-model:sector="sector"
         v-model:status="status"
+        v-model:sort="sort"
+        v-model:order="order"
       />
       <p>Filters apply to the whole universe, not only to the rows already loaded.</p>
       <Button label="Clear all filters" severity="secondary" @click="clearFilters(); filtersOpen = false" />
