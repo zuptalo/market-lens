@@ -313,10 +313,36 @@ function safeImportErrorSummary(value: string | null): string | null {
 
 interface LiveOptions {
   sourceFactory: (url: string, lastEventId: string) => LiveEventSource;
-  onRefresh: (entityType: string, entityId: string) => void;
+  onRefresh: (entityType: string, entityId: string, payload: LiveEventPayload) => void;
   onState: (state: ConnectionState) => void;
   reconnectDelayMs: number;
   staleAfterMs: number;
+}
+
+/**
+ * The market-data events this client applies.
+ *
+ * The server writes each one as a *named* SSE event ("event: daily_bar.changed.v1"), and a
+ * browser EventSource routes a named event to a listener registered for that name — never to
+ * the generic 'message' one. Subscribing only to 'message' therefore receives nothing at all,
+ * which is a silent failure: the connection is open, the state says connected, and no update
+ * ever arrives.
+ */
+export const MARKET_DATA_EVENT_TYPES = [
+  'daily_bar.changed.v1',
+  'import_run.changed.v1',
+  'import_item.changed.v1',
+  'quality_finding.changed.v1',
+  'corporate_action.changed.v1',
+] as const;
+
+/** What a market-data event says about the change it reports. */
+export interface LiveEventPayload {
+  entity_id?: string;
+  entity_type?: string;
+  instrument_id?: string;
+  session_date?: string;
+  ex_date?: string;
 }
 
 export class MarketDataLive {
@@ -369,6 +395,11 @@ export class MarketDataLive {
       this.staleTimer = undefined;
       this.options.onState('connected');
     });
+    // Both: the named types the server actually sends, and 'message' so an unnamed event
+    // (or a future one) is still applied rather than dropped.
+    for (const type of MARKET_DATA_EVENT_TYPES) {
+      source.addEventListener(type, (event) => this.onMessage(event));
+    }
     source.addEventListener('message', (event) => this.onMessage(event));
     source.addEventListener('error', () => {
       if (this.source !== source) return;
@@ -394,9 +425,11 @@ export class MarketDataLive {
       if (this.seen.size > 200) this.seen.delete(this.seen.values().next().value ?? '');
     }
     try {
-      const data = JSON.parse(event.data) as { entity_type?: string; entity_id?: string };
+      const data = JSON.parse(event.data) as LiveEventPayload;
       const entityType = data.entity_type ?? event.type.split('.changed.')[0];
-      if (entityType && data.entity_id) this.options.onRefresh(entityType, data.entity_id);
+      // The payload travels with the callback so a view can refresh only the row or window
+      // the change concerns, instead of refetching everything and losing the person's place.
+      if (entityType && data.entity_id) this.options.onRefresh(entityType, data.entity_id, data);
     } catch {
       // Malformed invalidations are ignored; the stream remains usable.
     }

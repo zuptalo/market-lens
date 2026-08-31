@@ -385,14 +385,31 @@ func (s *ImportScope) upsertAction(ctx context.Context, input persistInput, acti
 	if err != nil {
 		return false, err
 	}
-	_, err = s.tx.Exec(ctx, `INSERT INTO corporate_actions
+	if _, err = s.tx.Exec(ctx, `INSERT INTO corporate_actions
 		(id,instrument_id,provider,provider_action_id,action_type,ex_date,effective_date,ratio,amount,currency,
 		old_symbol,new_symbol,source_hash,import_run_id,first_observed_at,last_observed_at)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NULLIF($10,''),NULLIF($11,''),NULLIF($12,''),$13,$14,$15,$15)`,
 		id.String(), input.Target.InstrumentID.String(), input.Provider, action.ProviderActionID, action.Type,
 		action.ExDate.String(), sessionValue(action.EffectiveDate), decimalValue(action.Ratio), decimalValue(action.Amount),
-		action.Currency, action.OldSymbol, action.NewSymbol, action.SourceHash, input.RunID.String(), input.ObservedAt)
-	return err == nil, err
+		action.Currency, action.OldSymbol, action.NewSymbol, action.SourceHash, input.RunID.String(), input.ObservedAt); err != nil {
+		return false, err
+	}
+	// On the same transaction as the row above, deliberately. A corporate action is a
+	// client-visible committed change, and until this feature it was the one such change the
+	// import recorded silently — leaving a connected client to learn about a split only if a
+	// bar happened to arrive alongside it. "Usually accompanied by a bar" is not a contract,
+	// and an action-only import would have updated nothing on screen.
+	//
+	// The payload names the instrument and the ex-date so a client can decide whether the
+	// change concerns what it is displaying rather than refetching everything.
+	if err := emitEvent(ctx, s.tx, "corporate_action", id.String(), map[string]any{
+		"instrument_id": input.Target.InstrumentID.String(),
+		"ex_date":       action.ExDate.String(),
+		"action_type":   string(action.Type),
+	}, input.ObservedAt); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (s *ImportScope) insertFinding(ctx context.Context, input persistInput, issue ValidationIssue) (instruments.UUID, error) {

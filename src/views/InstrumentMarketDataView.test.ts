@@ -12,7 +12,22 @@ import { __reset } from '@/components/finance/__mocks__/lightweight-charts';
 
 const INSTRUMENT_ID = '11111111-1111-4111-8111-111111111111';
 
-class QuietEventSource extends EventTarget { close(): void {} }
+/**
+ * A stand-in for EventSource that records its instances so a test can deliver a *named*
+ * event, which is what the server actually writes.
+ */
+class QuietEventSource extends EventTarget {
+  static instances: QuietEventSource[] = [];
+  constructor() {
+    super();
+    QuietEventSource.instances.push(this);
+  }
+  close(): void {}
+  deliver(type: string, data: string, lastEventId = '1'): void {
+    const event = new MessageEvent(type, { data, lastEventId });
+    this.dispatchEvent(event);
+  }
+}
 
 function historyWire(overrides: Record<string, unknown> = {}) {
   return {
@@ -138,5 +153,82 @@ describe('InstrumentMarketDataView', () => {
     await flushPromises();
     expect(wrapper.get('[role="alert"]').text()).toContain('Unable to load');
     expect(wrapper.text()).not.toContain('secret');
+  });
+});
+
+describe('InstrumentMarketDataView live updates', () => {
+  beforeEach(() => {
+    __reset();
+    vi.stubGlobal('EventSource', QuietEventSource);
+    stubFetch();
+  });
+
+  it('keeps the chosen range and overlays when a change arrives for this instrument', async () => {
+    QuietEventSource.instances = [];
+    const wrapper = mountView();
+    await flushPromises();
+
+    // Choose a range and turn an overlay off — these are the person's choices, and a live
+    // change must not take them away (FR-020).
+    const range60 = wrapper.findAll('button').find((button) => button.text() === '60 sessions');
+    await range60!.trigger('click');
+    await flushPromises();
+    await wrapper.get('[aria-label="20-session moving average"]').trigger('click');
+    await flushPromises();
+    const overlayBefore = wrapper.get('[aria-label="20-session moving average"]').attributes('aria-pressed');
+
+    const callsBefore = vi.mocked(fetch).mock.calls.length;
+    const source = QuietEventSource.instances.at(-1);
+    expect(source, 'the view opened no event stream').toBeDefined();
+    source!.deliver(
+      'daily_bar.changed.v1',
+      JSON.stringify({ entity_id: 'bar-1', instrument_id: INSTRUMENT_ID, session_date: '2026-06-03' }),
+    );
+    await flushPromises();
+
+    // The change was for this instrument, so the window is re-read.
+    expect(vi.mocked(fetch).mock.calls.length).toBeGreaterThan(callsBefore);
+    expect(wrapper.findAll('[aria-pressed="true"]').some((element) => element.text() === '60 sessions')).toBe(true);
+    expect(wrapper.get('[aria-label="20-session moving average"]').attributes('aria-pressed')).toBe(overlayBefore);
+  });
+
+  it('ignores a change for an instrument that is not the one on screen', async () => {
+    QuietEventSource.instances = [];
+    const wrapper = mountView();
+    await flushPromises();
+    const callsBefore = vi.mocked(fetch).mock.calls.length;
+
+    QuietEventSource.instances.at(-1)!.deliver(
+      'daily_bar.changed.v1',
+      JSON.stringify({ entity_id: 'bar-9', instrument_id: 'some-other-instrument' }),
+    );
+    await flushPromises();
+
+    // Refetching for an instrument nobody is looking at wastes a request and can only
+    // disturb the view.
+    expect(vi.mocked(fetch).mock.calls.length).toBe(callsBefore);
+    expect(wrapper.text()).toContain('Interrupted History AB');
+  });
+
+  it('applies a repeated event identifier exactly once', async () => {
+    QuietEventSource.instances = [];
+    mountView();
+    await flushPromises();
+    const callsBefore = vi.mocked(fetch).mock.calls.length;
+
+    const source = QuietEventSource.instances.at(-1)!;
+    const payload = JSON.stringify({ entity_id: 'bar-1', instrument_id: INSTRUMENT_ID });
+    source.deliver('daily_bar.changed.v1', payload, '42');
+    source.deliver('daily_bar.changed.v1', payload, '42');
+    await flushPromises();
+
+    expect(vi.mocked(fetch).mock.calls.length).toBe(callsBefore + 1);
+  });
+
+  it('reports the connection state so a stale view is never presented as current', async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    // The status component renders one of connected / reconnecting / stale / offline.
+    expect(wrapper.text()).toMatch(/connected|reconnecting|stale|offline/i);
   });
 });

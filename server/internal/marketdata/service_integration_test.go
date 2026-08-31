@@ -3,6 +3,7 @@ package marketdata_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -433,5 +434,94 @@ func assertCurrentBar(t *testing.T, pool *pgxpool.Pool, instrumentID, date, clos
 	}
 	if gotClose != close || gotRun != runID {
 		t.Fatalf("current bar = close %s run %s, want close %s run %s", gotClose, gotRun, close, runID)
+	}
+}
+
+// Corporate actions were recorded silently while every neighbouring write published an
+// event. That made them invisible to a connected client, which is precisely what the
+// constitution's live-update principle forbids for a client-visible committed change.
+func TestImportPublishesAnEventWhenItRecordsACorporateAction(t *testing.T) {
+	pool := migratedPool(t)
+	provider := newScriptedProvider()
+	ratio := decimal(t, "2")
+	provider.set("NORD.ST", "", marketdata.DailyPage{
+		Bars: []marketdata.ProviderBar{
+			bar(t, "2024-03-28", "100.5", "50.25", 125000, "bar-1"),
+			bar(t, "2024-04-02", "51.75", "51.75", 180000, "bar-2"),
+		},
+		Actions: []marketdata.ProviderAction{{
+			ProviderActionID: "split-1", Type: marketdata.ActionSplit,
+			ExDate: session(t, "2024-04-02"), Ratio: &ratio, SourceHash: "action-1",
+		}},
+	})
+
+	service := marketdata.NewImportService(marketdata.NewRepository(pool), provider)
+	if _, err := service.Import(context.Background(), importRequest(t, target(t, stockholmInstrument, "NORD.ST"))); err != nil {
+		t.Fatal(err)
+	}
+
+	var count int
+	var scope, payload string
+	if err := pool.QueryRow(context.Background(), `SELECT count(*),
+		coalesce(max(scope), ''), coalesce(max(payload::text), '')
+		FROM client_events WHERE event_type = 'corporate_action.changed.v1'`).
+		Scan(&count, &scope, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("recording a corporate action published %d events, expected exactly one", count)
+	}
+	if scope != "shared" {
+		t.Errorf("the event was published with scope %q; market data is shared reference data", scope)
+	}
+	// The payload has to name what changed, or a client cannot tell whether the change
+	// concerns the instrument it is displaying and must refetch everything.
+	for _, want := range []string{"instrument_id", "ex_date", "2024-04-02"} {
+		if !strings.Contains(payload, want) {
+			t.Errorf("the event payload does not name %s: %s", want, payload)
+		}
+	}
+
+	// A replay records nothing new, so it must publish nothing new either.
+	if _, err := service.Import(context.Background(), importRequest(t, target(t, stockholmInstrument, "NORD.ST"))); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM client_events
+		WHERE event_type = 'corporate_action.changed.v1'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Errorf("replaying an import published the action event again (%d total)", count)
+	}
+}
+
+// The event and the row it reports must be written in the same transaction: a client that
+// reconnects after a failed import must not find an event for an action that was rolled back.
+func TestACorporateActionEventIsWrittenInTheSameTransactionAsTheAction(t *testing.T) {
+	pool := migratedPool(t)
+	provider := newScriptedProvider()
+	ratio := decimal(t, "2")
+	provider.set("NORD.ST", "", marketdata.DailyPage{
+		Bars: []marketdata.ProviderBar{bar(t, "2024-03-28", "100.5", "50.25", 125000, "bar-1")},
+		Actions: []marketdata.ProviderAction{{
+			ProviderActionID: "split-1", Type: marketdata.ActionSplit,
+			ExDate: session(t, "2024-04-02"), Ratio: &ratio, SourceHash: "action-1",
+		}},
+	})
+	service := marketdata.NewImportService(marketdata.NewRepository(pool), provider)
+	if _, err := service.Import(context.Background(), importRequest(t, target(t, stockholmInstrument, "NORD.ST"))); err != nil {
+		t.Fatal(err)
+	}
+
+	var actions, events int
+	if err := pool.QueryRow(context.Background(), `SELECT
+		(SELECT count(*) FROM corporate_actions),
+		(SELECT count(*) FROM client_events WHERE event_type = 'corporate_action.changed.v1')`).
+		Scan(&actions, &events); err != nil {
+		t.Fatal(err)
+	}
+	if actions != events {
+		t.Fatalf("%d corporate actions are stored but %d events were published; the two are "+
+			"not transactionally coupled", actions, events)
 	}
 }

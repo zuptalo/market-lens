@@ -145,7 +145,7 @@ describe('market-data live updates', () => {
     sources[0].message({ lastEventId: '41', type: 'import_run.changed.v1', data: '{"entity_id":"run"}' });
     sources[0].message({ lastEventId: '41', type: 'import_run.changed.v1', data: '{"entity_id":"run"}' });
     expect(refresh).toHaveBeenCalledTimes(1);
-    expect(refresh).toHaveBeenCalledWith('import_run', 'run');
+    expect(refresh).toHaveBeenCalledWith('import_run', 'run', expect.objectContaining({ entity_id: 'run' }));
 
     sources[0].error();
     expect(states.at(-1)).toBe('reconnecting');
@@ -155,6 +155,79 @@ describe('market-data live updates', () => {
     expect(states.at(-1)).toBe('stale');
     live.setOnline(false);
     expect(states.at(-1)).toBe('offline');
+    live.stop();
+  });
+
+  it('subscribes by event name, because that is what the server sends', () => {
+    const sources: FakeSource[] = [];
+    const refresh = vi.fn();
+    const live = new MarketDataLive({
+      sourceFactory: (_url, lastEventId) => {
+        const source = new FakeSource(lastEventId);
+        sources.push(source);
+        return source;
+      },
+      onRefresh: refresh,
+      onState: () => {},
+      reconnectDelayMs: 1_000,
+      staleAfterMs: 10_000,
+    });
+    live.start();
+    sources[0].open();
+
+    // The server writes "event: <type>" for every event. A client listening only for
+    // 'message' receives none of them, and the view silently never updates — which is the
+    // failure mode this test exists to make impossible.
+    for (const type of [
+      'daily_bar.changed.v1', 'import_run.changed.v1', 'import_item.changed.v1',
+      'quality_finding.changed.v1', 'corporate_action.changed.v1',
+    ]) {
+      expect(sources[0].subscribed(), `not subscribed to ${type}`).toContain(type);
+    }
+
+    sources[0].named({
+      lastEventId: '7', type: 'daily_bar.changed.v1',
+      data: '{"entity_id":"bar-1","instrument_id":"i-1","session_date":"2026-06-30"}',
+    });
+    expect(refresh).toHaveBeenCalledWith('daily_bar', 'bar-1', expect.objectContaining({
+      instrument_id: 'i-1', session_date: '2026-06-30',
+    }));
+
+    // A corporate action must reach the view too: it was the one committed change the import
+    // used to record silently.
+    sources[0].named({
+      lastEventId: '8', type: 'corporate_action.changed.v1',
+      data: '{"entity_id":"a-1","instrument_id":"i-1","ex_date":"2026-05-28"}',
+    });
+    expect(refresh).toHaveBeenCalledWith('corporate_action', 'a-1', expect.objectContaining({
+      instrument_id: 'i-1',
+    }));
+    live.stop();
+  });
+
+  it('applies a repeated event identifier exactly once even across event names', () => {
+    const sources: FakeSource[] = [];
+    const refresh = vi.fn();
+    const live = new MarketDataLive({
+      sourceFactory: (_url, lastEventId) => {
+        const source = new FakeSource(lastEventId);
+        sources.push(source);
+        return source;
+      },
+      onRefresh: refresh,
+      onState: () => {},
+      reconnectDelayMs: 1_000,
+      staleAfterMs: 10_000,
+    });
+    live.start();
+    sources[0].open();
+    const event = {
+      lastEventId: '9', type: 'daily_bar.changed.v1',
+      data: '{"entity_id":"bar-1","instrument_id":"i-1"}',
+    };
+    sources[0].named(event);
+    sources[0].named(event);
+    expect(refresh).toHaveBeenCalledTimes(1);
     live.stop();
   });
 });
@@ -178,6 +251,13 @@ class FakeSource implements LiveEventSource {
   open(): void { this.emit('open', { lastEventId: '', type: 'open', data: '' }); }
   error(): void { this.emit('error', { lastEventId: '', type: 'error', data: '' }); }
   message(event: LiveEvent): void { this.emit('message', event); }
+  /**
+   * Dispatch under the event's own name, which is what the server actually sends: the SSE
+   * writer emits "event: daily_bar.changed.v1", and a real EventSource routes that to a
+   * listener registered for that name and never to the generic 'message' one.
+   */
+  named(event: LiveEvent): void { this.emit(event.type, event); }
+  subscribed(): string[] { return [...this.listeners.keys()]; }
 
   private emit(type: string, event: LiveEvent): void {
     for (const listener of this.listeners.get(type) ?? []) listener(event);

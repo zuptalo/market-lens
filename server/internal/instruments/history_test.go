@@ -201,3 +201,61 @@ func daysBetween(t *testing.T, from, to string) int {
 func parseDay(value string) (time.Time, error) {
 	return time.Parse("2006-01-02", value)
 }
+
+// Annotations are scoped to the window actually drawn. A split outside it explains nothing
+// about what is on screen, and listing it would invite a reader to attribute a move to it.
+func TestHistoryReturnsOnlyTheAnnotationsTouchingTheWindow(t *testing.T) {
+	fixture := newExplorationFixture(t)
+
+	wide := historyFor(t, fixture, fixture.gappy, instruments.HistoryFilter{Sessions: 5000})
+	if len(wide.Actions) != 2 {
+		t.Fatalf("the whole history returned %d corporate actions, expected the split and the "+
+			"dividend: %#v", len(wide.Actions), wide.Actions)
+	}
+	var split *instruments.ChartAction
+	for index := range wide.Actions {
+		if wide.Actions[index].Type == "split" {
+			split = &wide.Actions[index]
+		}
+	}
+	if split == nil {
+		t.Fatal("the recorded split was not returned")
+	}
+	if split.Ratio == nil || split.Ratio.String() != "2.00000000" {
+		t.Errorf("the split's ratio was %v; without it a reader cannot tell a real move from "+
+			"an unadjusted split", split.Ratio)
+	}
+	for _, action := range wide.Actions {
+		if action.ExDate < wide.RequestedFrom || action.ExDate > wide.RequestedTo {
+			t.Errorf("action %s at %s is outside the window %s..%s",
+				action.Type, action.ExDate, wide.RequestedFrom, wide.RequestedTo)
+		}
+	}
+
+	// Both the open and the resolved finding fall in the full history; a caller decides which
+	// to show, so the query must not silently drop one.
+	if len(wide.Findings) != 2 {
+		t.Errorf("the whole history returned %d findings, expected the open and the resolved "+
+			"one: %#v", len(wide.Findings), wide.Findings)
+	}
+	var open int
+	for _, finding := range wide.Findings {
+		if finding.Status == "open" {
+			open++
+		}
+		if finding.Rule == "" || finding.Severity == "" {
+			t.Errorf("finding %s carries no rule or severity: %#v", finding.ID, finding)
+		}
+	}
+	if open != 1 {
+		t.Errorf("expected exactly one open finding, found %d", open)
+	}
+
+	// A five-session window sits after every annotation in the fixture, so it must return none.
+	narrow := historyFor(t, fixture, fixture.gappy, instruments.HistoryFilter{Sessions: 2})
+	for _, action := range narrow.Actions {
+		if action.ExDate < narrow.RequestedFrom {
+			t.Errorf("a two-session window returned action %s from %s", action.Type, action.ExDate)
+		}
+	}
+}

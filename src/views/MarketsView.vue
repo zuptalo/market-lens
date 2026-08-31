@@ -12,6 +12,7 @@ import {
   fetchRecentImports,
   listingQueryString,
   type LiveEvent,
+  type LiveEventPayload,
   type LiveEventSource,
 } from '@/services/marketData';
 import { OPTIONAL_COLUMNS, useColumnPreference } from '@/stores/instrumentColumns';
@@ -187,11 +188,48 @@ function browserEventSource(url: string, lastEventId: string): LiveEventSource {
   };
 }
 
+/**
+ * Apply a committed change in place.
+ *
+ * The payload names the instrument the change concerns, so a bar for something that is not
+ * on screen changes nothing: the view must not jump, reorder, or scroll to it (FR-020). Only
+ * the affected row is refetched, which is what keeps the filters, sort, page and scroll
+ * position a person was using.
+ */
+async function applyLiveChange(entityType: string, payload: LiveEventPayload): Promise<void> {
+  if (entityType === 'import_run' || entityType === 'import_item') {
+    void refresh();
+    return;
+  }
+  const instrumentId = payload.instrument_id;
+  if (!instrumentId) return;
+  if (!listing.value.items.some((row) => row.id === instrumentId)) return;
+
+  // Re-read the rows already on screen under the same query, and swap in only the one the
+  // event named. Filters, sort, page and scroll position are held outside this ref, so they
+  // are untouched; and an instrument outside the current filters never gets here at all, so
+  // the view does not jump or reorder for something the person is not looking at (FR-020).
+  try {
+    const page = await fetchInstrumentListing(
+      { ...currentQuery(), limit: listing.value.items.length }, fetch,
+    );
+    const updated = page.items.find((row) => row.id === instrumentId);
+    if (!updated) return;
+    listing.value = {
+      ...listing.value,
+      items: listing.value.items.map((row) => (row.id === instrumentId ? updated : row)),
+    };
+  } catch {
+    // A failed refresh leaves the row as it was rather than blanking it; the connection
+    // state already tells the person the view may not be current.
+  }
+}
+
 const live = new MarketDataLive({
   sourceFactory: browserEventSource,
-  onRefresh: (entityType) => {
-    if (entityType === 'import_run' || entityType === 'import_item' || entityType === 'quality_finding') void refresh();
-    if (entityType === 'daily_bar' || entityType === 'instrument') void load();
+  onRefresh: (entityType, _entityId, payload) => {
+    if (entityType === 'quality_finding') void refresh();
+    void applyLiveChange(entityType, payload);
   },
   onState: (state) => { connectionState.value = state; },
   reconnectDelayMs: 1_000,

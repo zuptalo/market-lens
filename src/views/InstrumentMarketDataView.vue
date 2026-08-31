@@ -4,8 +4,15 @@ import { useRoute } from 'vue-router';
 import ChartRangeControls from '@/components/finance/ChartRangeControls.vue';
 import ChartAnnotations from '@/components/finance/ChartAnnotations.vue';
 import PriceChart from '@/components/finance/PriceChart.vue';
-import { fetchInstrumentHistory } from '@/services/marketData';
-import type { HistoryWindow } from '@/types/marketData';
+import MarketDataStatus from '@/components/finance/MarketDataStatus.vue';
+import {
+  MarketDataLive,
+  fetchInstrumentHistory,
+  type LiveEvent,
+  type LiveEventPayload,
+  type LiveEventSource,
+} from '@/services/marketData';
+import type { ConnectionState, HistoryWindow } from '@/types/marketData';
 
 /**
  * One instrument's stored history.
@@ -28,6 +35,7 @@ const error = ref('');
 const sessions = ref(250);
 const overlays = ref<number[]>([20]);
 const chart = ref<InstanceType<typeof PriceChart>>();
+const connectionState = ref<ConnectionState>(navigator.onLine ? 'reconnecting' : 'offline');
 
 let controller: AbortController | undefined;
 
@@ -105,8 +113,56 @@ function pan(direction: 'back' | 'forward'): void {
   chart.value?.showRange(bars[start].sessionDate, bars[bars.length - 1].sessionDate);
 }
 
-onMounted(() => { void load(); });
-onBeforeUnmount(() => controller?.abort());
+function browserEventSource(url: string, lastEventId: string): LiveEventSource {
+  const endpoint = lastEventId ? `${url}?last_event_id=${encodeURIComponent(lastEventId)}` : url;
+  const source = new EventSource(endpoint);
+  return {
+    addEventListener(type, listener) {
+      source.addEventListener(type, (event) => {
+        const message = event as MessageEvent<string>;
+        listener({ lastEventId: message.lastEventId ?? '', type, data: message.data ?? '' } satisfies LiveEvent);
+      });
+    },
+    close: () => source.close(),
+  };
+}
+
+/**
+ * Reload the window only when the change concerns *this* instrument.
+ *
+ * The reload replaces the bars; the person's selected range, overlay choices and connection
+ * state live outside `window_` and are therefore untouched, and the chart keeps its own
+ * visible window because the component is updated rather than remounted (FR-020).
+ */
+function applyLiveChange(payload: LiveEventPayload): void {
+  if (payload.instrument_id && payload.instrument_id !== instrumentId) return;
+  void load();
+}
+
+const live = new MarketDataLive({
+  sourceFactory: browserEventSource,
+  onRefresh: (_entityType, _entityId, payload) => applyLiveChange(payload),
+  onState: (state) => { connectionState.value = state; },
+  reconnectDelayMs: 1_000,
+  staleAfterMs: 10_000,
+});
+const online = () => live.setOnline(true);
+const offline = () => live.setOnline(false);
+
+onMounted(() => {
+  void load();
+  live.setOnline(navigator.onLine);
+  live.start();
+  window.addEventListener('online', online);
+  window.addEventListener('offline', offline);
+});
+
+onBeforeUnmount(() => {
+  controller?.abort();
+  live.stop();
+  window.removeEventListener('online', online);
+  window.removeEventListener('offline', offline);
+});
 </script>
 
 <template>
@@ -198,6 +254,13 @@ onBeforeUnmount(() => controller?.abort());
           estimated.
         </p>
       </section>
+
+      <MarketDataStatus
+        :runs="[]"
+        :connection-state="connectionState"
+        :loading="false"
+        error=""
+      />
 
       <ChartAnnotations
         :actions="window_.actions"
