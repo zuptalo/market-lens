@@ -12,6 +12,7 @@ import {
   type LiveEventPayload,
   type LiveEventSource,
 } from '@/services/marketData';
+import { createCoalescer } from '@/services/coalesce';
 import type { ConnectionState, HistoryWindow } from '@/types/marketData';
 
 /**
@@ -128,15 +129,22 @@ function browserEventSource(url: string, lastEventId: string): LiveEventSource {
 }
 
 /**
- * Reload the window only when the change concerns *this* instrument.
+ * Reload the window only when the change concerns *this* instrument, and only once for a
+ * burst of them.
+ *
+ * An import over a ten-year history publishes one event per bar. Reloading per event opened
+ * thousands of overlapping requests and froze the page, so the events are collected and
+ * answered with a single reload.
  *
  * The reload replaces the bars; the person's selected range, overlay choices and connection
  * state live outside `window_` and are therefore untouched, and the chart keeps its own
  * visible window because the component is updated rather than remounted (FR-020).
  */
+const windowRefresh = createCoalescer(async () => { await load(); });
+
 function applyLiveChange(payload: LiveEventPayload): void {
   if (payload.instrument_id && payload.instrument_id !== instrumentId) return;
-  void load();
+  windowRefresh.add(instrumentId);
 }
 
 const live = new MarketDataLive({
@@ -159,6 +167,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   controller?.abort();
+  windowRefresh.cancel();
   live.stop();
   window.removeEventListener('online', online);
   window.removeEventListener('offline', offline);

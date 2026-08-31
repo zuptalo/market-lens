@@ -16,6 +16,7 @@ import {
   type LiveEventPayload,
   type LiveEventSource,
 } from '@/services/marketData';
+import { createCoalescer } from '@/services/coalesce';
 import { OPTIONAL_COLUMNS, useColumnPreference } from '@/stores/instrumentColumns';
 import type {
   ConnectionState,
@@ -197,41 +198,55 @@ function browserEventSource(url: string, lastEventId: string): LiveEventSource {
  * the affected row is refetched, which is what keeps the filters, sort, page and scroll
  * position a person was using.
  */
-async function applyLiveChange(entityType: string, payload: LiveEventPayload): Promise<void> {
-  if (entityType === 'import_run' || entityType === 'import_item') {
-    void refresh();
-    return;
-  }
-  const instrumentId = payload.instrument_id;
-  if (!instrumentId) return;
-  if (!listing.value.items.some((row) => row.id === instrumentId)) return;
-
-  // Re-read the rows already on screen under the same query, and swap in only the one the
-  // event named. Filters, sort, page and scroll position are held outside this ref, so they
-  // are untouched; and an instrument outside the current filters never gets here at all, so
-  // the view does not jump or reorder for something the person is not looking at (FR-020).
+/**
+ * Refresh the rows a burst of events named.
+ *
+ * One request per event is what the first version did, and an import publishes one event per
+ * stored bar — so a backfill turned into hundreds of thousands of overlapping requests and
+ * the page stopped responding. Events are collected instead, merged over a short window, and
+ * answered with a single re-read.
+ *
+ * Only rows already on screen are re-read. An instrument outside the current filters is
+ * dropped before it reaches the coalescer, so the view neither refetches nor jumps for
+ * something the person is not looking at (FR-020).
+ */
+const listingRefresh = createCoalescer(async (instrumentIds) => {
+  const visible = [...instrumentIds].filter((id) => listing.value.items.some((row) => row.id === id));
+  if (visible.length === 0) return;
   try {
     const page = await fetchInstrumentListing(
       { ...currentQuery(), limit: listing.value.items.length }, fetch,
     );
-    const updated = page.items.find((row) => row.id === instrumentId);
-    if (!updated) return;
+    const updated = new Map(page.items.map((row) => [row.id, row]));
     listing.value = {
       ...listing.value,
-      items: listing.value.items.map((row) => (row.id === instrumentId ? updated : row)),
+      items: listing.value.items.map((row) => updated.get(row.id) ?? row),
     };
   } catch {
-    // A failed refresh leaves the row as it was rather than blanking it; the connection
+    // A failed refresh leaves the rows as they were rather than blanking them; the connection
     // state already tells the person the view may not be current.
   }
+});
+
+/** Import progress is its own burst — one event per item — so it is coalesced too. */
+const statusRefresh = createCoalescer(async () => { await refresh(); });
+
+function applyLiveChange(entityType: string, payload: LiveEventPayload): void {
+  if (entityType === 'import_run' || entityType === 'import_item') {
+    statusRefresh.add(entityType);
+    return;
+  }
+  if (entityType === 'quality_finding') statusRefresh.add(entityType);
+
+  const instrumentId = payload.instrument_id;
+  if (!instrumentId) return;
+  if (!listing.value.items.some((row) => row.id === instrumentId)) return;
+  listingRefresh.add(instrumentId);
 }
 
 const live = new MarketDataLive({
   sourceFactory: browserEventSource,
-  onRefresh: (entityType, _entityId, payload) => {
-    if (entityType === 'quality_finding') void refresh();
-    void applyLiveChange(entityType, payload);
-  },
+  onRefresh: (entityType, _entityId, payload) => applyLiveChange(entityType, payload),
   onState: (state) => { connectionState.value = state; },
   reconnectDelayMs: 1_000,
   staleAfterMs: 10_000,
@@ -251,6 +266,8 @@ onMounted(() => {
 onBeforeUnmount(() => {
   listingController?.abort();
   statusController?.abort();
+  listingRefresh.cancel();
+  statusRefresh.cancel();
   live.stop();
   window.removeEventListener('online', online);
   window.removeEventListener('offline', offline);
