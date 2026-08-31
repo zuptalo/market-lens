@@ -94,9 +94,36 @@ evidence for each row across the full universe.
 | A recorded corporate action publishes `corporate_action.changed.v1` in its own transaction | |
 | An unauthenticated caller receives no event and no data | |
 
-## Dependency note *(to record)*
+## Dependency note
 
-The charting library's package name, exact pinned version, licence, and any attribution
-requirement must be recorded here at the moment it is added, read from the package rather
-than assumed. If the attribution requirement proves unacceptable, `PriceChart.vue` is the
-only file that must change.
+Recorded 2026-08-31 at the moment the dependency was added, read from the installed
+package rather than assumed.
+
+| | |
+| --- | --- |
+| Package | `lightweight-charts` |
+| Version | `5.2.1`, pinned exactly in `package.json` (no `^`, no `~`) |
+| Licence | Apache-2.0 (`node_modules/lightweight-charts/LICENSE`) |
+| Publisher | TradingView — <https://www.tradingview.com/lightweight-charts/> |
+
+**There is an attribution requirement, and it is binding.** The README states:
+
+> You shall add the "attribution notice" from the NOTICE file and a link to
+> <https://www.tradingview.com/> to the page of your website or mobile application that is
+> available to your users.
+
+Two things follow, both worth stating because neither is obvious:
+
+1. **No NOTICE file ships in the npm package.** The requirement names one, and the
+   published tarball does not contain it. The link is therefore the part of the obligation
+   we can actually discharge from the package we installed.
+2. **The link requirement is satisfied by the chart itself.** The library's
+   `layout.attributionLogo` option renders the required link to TradingView on the chart.
+   It defaults to `true` in version 5, which means the obligation is met by *not*
+   interfering — and would be silently broken by anyone setting it to `false` to tidy the
+   chart up.
+
+`PriceChart.vue` sets `attributionLogo: true` explicitly rather than relying on the
+default, and a test asserts it stays on, so the licence obligation is enforced by the suite
+instead of by memory. If the attribution ever proves unacceptable, `PriceChart.vue` is
+still the only file that must change.

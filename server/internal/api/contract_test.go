@@ -9,9 +9,16 @@ import (
 	"testing"
 )
 
-// contractPath is the reviewed API contract for feature 004. Reconciling against the file the
-// specification owns keeps the two from drifting silently in either direction.
-const contractPath = "../../../specs/004-owner-access/contracts/openapi.yaml"
+// contractPaths are the reviewed API contracts. Reconciling against the files the
+// specifications own keeps the two from drifting silently in either direction. Each feature
+// keeps its own contract, so this is a list rather than one path.
+var contractPaths = []string{
+	"../../../specs/004-owner-access/contracts/openapi.yaml",
+}
+
+// boundaryContractPath is the contract that declares the deny-by-default access boundary for
+// the whole API. It is feature 004's, because that is the feature that established it.
+const boundaryContractPath = "../../../specs/004-owner-access/contracts/openapi.yaml"
 
 // routerSource is parsed rather than probed because Go's ServeMux does not enumerate its own
 // routes, and a route registered but undocumented is exactly the drift worth catching.
@@ -34,34 +41,47 @@ func normalize(method, path string) string {
 	return strings.ToUpper(method) + " " + pathParameter.ReplaceAllString(path, "{}")
 }
 
+// contractOperations merges every reviewed contract into one operation set. The sanity guard
+// below applies to that union rather than to each file, because a per-file guard would make
+// any small contract fail as a harness error — and a harness error is not evidence of
+// anything. A feature is entitled to document two operations.
 func contractOperations(t *testing.T) map[string]bool {
 	t.Helper()
-	contents, err := os.ReadFile(filepath.FromSlash(contractPath))
-	if err != nil {
-		t.Fatalf("read the API contract: %v", err)
-	}
 	operations := map[string]bool{}
-	current := ""
-	inPaths := false
-	for _, line := range strings.Split(string(contents), "\n") {
-		if line == "paths:" {
-			inPaths = true
-			continue
+	for _, path := range contractPaths {
+		contents, err := os.ReadFile(filepath.FromSlash(path))
+		if err != nil {
+			t.Fatalf("read the API contract %s: %v", path, err)
 		}
-		if !inPaths {
-			continue
-		}
-		if match := contractPathLine.FindStringSubmatch(line); match != nil {
-			current = match[1]
-			continue
-		}
-		if match := contractMethod.FindStringSubmatch(line); match != nil && current != "" {
-			operations[normalize(match[1], current)] = true
+		current := ""
+		inPaths := false
+		for _, line := range strings.Split(string(contents), "\n") {
+			if line == "paths:" {
+				inPaths = true
+				continue
+			}
+			if !inPaths {
+				continue
+			}
+			// A top-level key ends the paths block; without this a later section's keys
+			// would be read as operations once more than one contract is registered.
+			if line != "" && line[0] != ' ' && line[0] != '#' {
+				inPaths = false
+				current = ""
+				continue
+			}
+			if match := contractPathLine.FindStringSubmatch(line); match != nil {
+				current = match[1]
+				continue
+			}
+			if match := contractMethod.FindStringSubmatch(line); match != nil && current != "" {
+				operations[normalize(match[1], current)] = true
+			}
 		}
 	}
 	if len(operations) < 10 {
-		t.Fatalf("parsed only %d operations from the contract, so this comparison proves nothing",
-			len(operations))
+		t.Fatalf("parsed only %d operations from %d contracts, so this comparison proves nothing",
+			len(operations), len(contractPaths))
 	}
 	return operations
 }
@@ -122,7 +142,7 @@ func TestEveryImplementedAPIRouteIsDocumentedAndEveryDocumentedRouteExists(t *te
 }
 
 func TestTheContractStillDeclaresTheAccessBoundaryItPromises(t *testing.T) {
-	contents, err := os.ReadFile(filepath.FromSlash(contractPath))
+	contents, err := os.ReadFile(filepath.FromSlash(boundaryContractPath))
 	if err != nil {
 		t.Fatal(err)
 	}
