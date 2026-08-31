@@ -16,6 +16,7 @@ test before production code changes.
 | 002 | [Instruments and daily market data](002-instruments-market-data/spec.md) | In review | [Complete](002-instruments-market-data/plan.md) | [In progress](002-instruments-market-data/tasks.md) | Foundation | Local implementation and acceptance are complete; protected delivery and post-release evidence remain. |
 | 003 | [Release versioning and protected delivery](003-release-versioning/spec.md) | Shipped | [Complete](003-release-versioning/plan.md) | [In progress](003-release-versioning/tasks.md) | Foundation | Shipped as immutable release `v0.2.0`; lifecycle record will merge with feature 002. |
 | 004 | [Owner access and invitations](004-owner-access/spec.md) | In review | [Complete](004-owner-access/plan.md) | [Complete](004-owner-access/tasks.md) | Foundation | Protects all market pages, REST data, and SSE; every phase green with cross-user isolation proven. |
+| 005 | [Instrument exploration and financial charts](005-instrument-exploration/spec.md) | Planned | Not started | Not started | 002, 004 | Browsable universe and daily candlestick/volume history with quality, actions, and gaps surfaced honestly. |
 
 Feature lifecycle values are `planned → in-progress → in-review → shipped`. Update the
 spec and this registry together when lifecycle changes.
@@ -27,12 +28,11 @@ reserve directory numbers.
 
 | Order | Feature spec to create | Depends on | Scope retained for the future spec |
 |---:|---|---|---|
-| 1 | Instrument exploration and financial charts | 002 | Markets/search, instrument detail, daily candles/volume, ranges, overlays, latest-value semantics, responsive dense data, chart-library decision. |
-| 2 | Reusable feature engine | 002 | Timestamped return/trend/momentum/relative-strength/volatility/ATR/RSI/MACD/drawdown/volume/regime features; missing data, determinism, leakage tests. |
-| 3 | Deterministic strategies and signals | Feature engine | Strategy/config versioning, momentum/trend ranking, action/score/confidence, immutable explanations/snapshots, reproducibility, history. |
-| 4 | Reproducible backtesting | Strategies/signals | Simulation, data snapshots, accounting, rebalancing, percentage/minimum brokerage, FX/spread/slippage, benchmarks, metrics/curves/trades/signals, leakage and survivorship disclosure. |
-| 5 | Personal tracking, portfolio, and risk engine | Authentication; strategies; backtest evidence | User-owned holdings/trades/tracking rules, cash/positions/P&L/exposure, stock/sector/country/cash/drawdown/liquidity/volatility/trade-size rules, rejection/modification, order intents. |
-| 6 | Paper trading | Market data, strategies, risk/portfolio | Virtual cash, latest signals, simulated orders/trades, permanent history, forward P&L, scheduling, shared-logic proof. |
+| 1 | Reusable feature engine | 002 | Timestamped return/trend/momentum/relative-strength/volatility/ATR/RSI/MACD/drawdown/volume/regime features; missing data, determinism, leakage tests. |
+| 2 | Deterministic strategies and signals | Feature engine | Strategy/config versioning, momentum/trend ranking, action/score/confidence, immutable explanations/snapshots, reproducibility, history. |
+| 3 | Reproducible backtesting | Strategies/signals | Simulation, data snapshots, accounting, rebalancing, percentage/minimum brokerage, FX/spread/slippage, benchmarks, metrics/curves/trades/signals, leakage and survivorship disclosure. |
+| 4 | Personal tracking, portfolio, and risk engine | Authentication; strategies; backtest evidence | User-owned holdings/trades/tracking rules, cash/positions/P&L/exposure, stock/sector/country/cash/drawdown/liquidity/volatility/trade-size rules, rejection/modification, order intents. |
+| 5 | Paper trading | Market data, strategies, risk/portfolio | Virtual cash, latest signals, simulated orders/trades, permanent history, forward P&L, scheduling, shared-logic proof. |
 | Cross-cutting | Installable PWA and devices | Authentication; SSE foundation | Chrome/Edge mobile/tablet/desktop installation, offline/stale UI, device ownership, push permission lifecycle, and revocation. |
 | Cross-cutting | Email and Web Push notifications | Authentication; PWA/devices; explainable signals | Granular consent, quiet/frequency controls, per-device revocation, minimal payloads, provider outage handling, and links to authenticated explanations. |
 | Later | Advanced analysis | Trusted core | Hourly data, more strategies/markets, comparisons, costs, fundamentals/news/notifications through separate abstractions. |
