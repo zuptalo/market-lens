@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import OwnerAuth from '@/components/account/OwnerAuth.vue';
 import { useAuth } from '@/composables/useAuth';
+import SetupRequiredNotice from '@/components/account/SetupRequiredNotice.vue';
 
 const auth = useAuth();
 const router = useRouter();
@@ -46,7 +47,7 @@ async function setup(value: Record<string, string>): Promise<void> {
 <template>
   <section class="auth-view">
     <p v-if="setupRequired === false" role="status">Owner setup is permanently closed.</p>
-    <p v-else-if="setupRequired && !capability" role="alert">Run the host setup command to obtain a fresh setup link.</p>
+    <SetupRequiredNotice v-else-if="setupRequired && !capability" />
     <OwnerAuth
       v-else-if="capability"
       mode="setup"

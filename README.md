@@ -65,17 +65,26 @@ everybody else joins by invitation.
 
 ### First run
 
+A newly deployed instance has no accounts, and opening it in a browser says so and shows the
+command below. Run it wherever Market Lens itself is running — inside the container if it
+runs in one:
+
 ```sh
-docker compose exec app market-lens auth setup-link
+market-lens auth setup-link
 ```
 
-The command prints one URL whose fragment carries a single-use capability valid for 15
-minutes. It is printed once and never logged, so copy it before closing the terminal. Open
-it and complete the wizard, which asks for the owner's name, email, and password, the EODHD
-API key, and the SMTP host, port, sender address, and credential. The EODHD key is validated
-against the provider before anything is written; if the provider is unreachable, nothing
-commits and the same link can be retried. On success setup closes permanently and the link
-stops working.
+It prints one URL whose fragment carries a single-use capability valid for 15 minutes. The
+link is printed once and never logged, so copy it before closing the terminal; run the
+command again for a fresh one. Open it and complete the wizard, which asks for the owner's
+name, email, and password, the EODHD API key, and the SMTP host, port, sender address, and
+credential. The EODHD key is validated against the provider before anything is written; if
+the provider is unreachable, nothing commits and the same link can be retried. On success
+setup closes permanently and the link stops working.
+
+Setup needs a link from the server rather than an open first-visit wizard because this
+application is normally reachable from the internet. An open setup page would let whoever
+loaded it first claim ownership of the installation; asking the server for the link is what
+proves the person completing setup is the one running it.
 
 ### Adding people
 
@@ -95,7 +104,7 @@ back. Rotate the encryption key only with the command below, after putting the n
 is re-encrypted in one transaction, so a failure part-way leaves nothing half-rotated:
 
 ```sh
-docker compose exec app market-lens auth credential-key rotate --new-version 2
+market-lens auth credential-key rotate --new-version 2
 ```
 
 If the owner is locked out, reset the password from the host. Both commands read the new
@@ -103,7 +112,7 @@ secret interactively from a terminal, accept no flag or environment value, and r
 existing session:
 
 ```sh
-docker compose exec app market-lens auth owner-password reset
+market-lens auth owner-password reset
 ```
 
 There is no email password recovery and no public recovery page, by design: the owner account
