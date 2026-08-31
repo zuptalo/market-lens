@@ -360,3 +360,76 @@ test('keeps the range and scroll position across an orientation change', async (
   await page.setViewportSize({ width: 360, height: 800 });
   await expect(page.getByRole('button', { name: '60 sessions' })).toHaveAttribute('aria-pressed', 'true');
 });
+
+test('stacks into cards that use the full width of a small screen', async ({ page, isMobile }) => {
+  test.skip(!isMobile, 'the stacked card layout only applies below the tablet breakpoint');
+
+  await page.goto('/markets');
+  await expect(page.getByText('Interrupted History AB')).toBeVisible();
+
+  const measured = await page.evaluate(() => {
+    const row = document.querySelector('tbody tr');
+    const table = document.querySelector('table');
+    const container = document.querySelector('.p-datatable-table-container')
+      ?? document.querySelector('.p-datatable');
+    return {
+      viewport: window.innerWidth,
+      rowWidth: row ? row.getBoundingClientRect().width : 0,
+      tableWidth: table ? table.getBoundingClientRect().width : 0,
+      containerWidth: container ? container.getBoundingClientRect().width : 0,
+    };
+  });
+
+  // A stacked card is the row. If the table is still laid out as a table it keeps its column
+  // widths — 880px against a 360px screen — and every card collapses to a fraction of the
+  // space, hugging the left edge with the rest of the screen empty.
+  expect(measured.tableWidth,
+    `the table is ${Math.round(measured.tableWidth)}px inside a ${Math.round(measured.containerWidth)}px container`)
+    .toBeLessThanOrEqual(measured.containerWidth + 1);
+
+  expect(measured.rowWidth,
+    `a card is ${Math.round(measured.rowWidth)}px wide in a ${measured.viewport}px viewport`)
+    .toBeGreaterThan(measured.containerWidth * 0.9);
+});
+
+test('hides the header row entirely when the table is stacked', async ({ page, isMobile }) => {
+  test.skip(!isMobile, 'the stacked card layout only applies below the tablet breakpoint');
+
+  await page.goto('/markets');
+  await expect(page.getByText('Interrupted History AB')).toBeVisible();
+
+  const head = await page.evaluate(() => {
+    const thead = document.querySelector('thead');
+    if (!thead) return null;
+    const rect = thead.getBoundingClientRect();
+    return { height: Math.round(rect.height), width: Math.round(rect.width), display: getComputedStyle(thead).display };
+  });
+
+  // Each cell carries its own label once stacked, so the header row has no job — but PrimeVue
+  // styles it by class, which outranks a bare element selector. Losing that specificity battle
+  // leaves a blank band above the first card that looks like a rendering fault.
+  expect(head, 'no table header found').not.toBeNull();
+  expect(head!.height, `the header row still occupies ${head!.height}px above the cards`).toBeLessThanOrEqual(1);
+});
+
+test('a stacked card scrolls nothing sideways and clips no value', async ({ page, isMobile }) => {
+  test.skip(!isMobile, 'the stacked card layout only applies below the tablet breakpoint');
+
+  await page.goto('/markets');
+  await expect(page.getByText('Interrupted History AB')).toBeVisible();
+
+  const overflowing = await page.evaluate(() => {
+    const offenders: string[] = [];
+    for (const cell of Array.from(document.querySelectorAll('tbody td'))) {
+      if (cell.scrollWidth > cell.clientWidth + 1) {
+        offenders.push(`${cell.getAttribute('data-label') ?? '?'}: ${cell.scrollWidth}>${cell.clientWidth}`);
+      }
+    }
+    return offenders;
+  });
+  expect(overflowing, 'cell content is clipped inside its card').toEqual([]);
+
+  const pageOverflow = await page.evaluate(() =>
+    document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(pageOverflow).toBeLessThanOrEqual(1);
+});
