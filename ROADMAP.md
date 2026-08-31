@@ -42,21 +42,31 @@ without a reviewed feature spec and valid red test.
 
 ## Current focus
 
-Everything specified so far is shipped and running: `v0.5.0` carries features 002, 003, 004
-and 009 through 012. Production needs only `DATABASE_URL` plus the credential key it must
+Everything specified so far is shipped and running: `v0.6.1` carries features 002, 003, 004,
+005 and 009 through 012. Production needs only `DATABASE_URL` plus the credential key it must
 retain, and the owner can correct provider configuration from the browser.
 
-The next product feature is **Milestone 2, instrument exploration and financial charts**. Its
-specification, plan, research, data model and contracts are written and reviewed on the
-`005-instrument-exploration` branch; task breakdown and implementation remain. One decision is
-still open and belongs in the specification rather than the implementation: which charting
-component is used. The project rule is that no custom UI component is built where the chosen
-library provides one, so this must be settled before any chart code is written.
+Milestone 2 shipped in `v0.6.0`. The curated universe is browsable with price, derived
+statistics and freshness, and one instrument's stored daily history is readable as a
+candlestick and volume chart with ranges, zoom, pan and moving-average overlays. The charting
+question that was open here is settled: `lightweight-charts`, confined to a single component,
+recorded with its licence in the feature's quickstart.
 
-Market data is already delivered behind that boundary: every page, REST snapshot and SSE
-stream requires an authenticated session, with cross-user isolation proven by test.
+Market data is delivered behind the access boundary: every page, REST snapshot and SSE stream
+requires an authenticated session, with cross-user isolation proven by test.
 
-Milestones 2–5 are the next planning sequence. Create separate feature specs so their
+**The next product feature is Milestone 3, the reusable feature engine.** It is not yet
+specified, and nothing after it can proceed without it: strategies depend on the engine,
+backtesting on strategies, and portfolio and paper trading on those.
+
+One decision is already waiting for that specification. Feature 005 computes descriptive
+20- and 90-session returns and a volatility measure for display, and its specification states
+plainly that these are *not* the versioned, leakage-tested definitions the engine will own —
+if the engine defines them differently, feature 005 adopts the engine's definition rather than
+the reverse. Whoever specifies the engine is therefore choosing whether the Markets table's
+current numbers stay as they are or change.
+
+Milestones 3–5 are the next planning sequence. Create separate feature specs so their
 acceptance criteria, data ownership, responsive behavior, and test-first proof can be
 reviewed independently. Do not combine them into one implementation batch.
 
