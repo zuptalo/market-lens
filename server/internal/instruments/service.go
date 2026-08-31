@@ -429,3 +429,17 @@ func (s *QueryService) Listing(ctx context.Context, filter ListingFilter) (Listi
 	}
 	return s.repository.Listing(ctx, filter)
 }
+
+// History answers one instrument's stored daily history. Every bound the caller may leave
+// open is defaulted here, and the as-of date is fixed at the boundary for the same reason it
+// is for the listing: left to the query it would quietly become "whenever this ran".
+func (s *QueryService) History(ctx context.Context, id UUID, filter HistoryFilter) (HistoryWindow, error) {
+	if filter.Sessions == 0 {
+		filter.Sessions = 250
+	}
+	if filter.Sessions < 2 || filter.Sessions > 5000 {
+		return HistoryWindow{}, fmt.Errorf("%w: sessions must be between 2 and 5000", ErrInvalidQuery)
+	}
+	asOf := SessionDate(time.Now().UTC().Format("2006-01-02"))
+	return s.repository.History(ctx, id, filter, asOf)
+}

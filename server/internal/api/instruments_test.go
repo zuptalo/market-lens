@@ -93,6 +93,8 @@ func TestInstrumentReadContractsValidateAndReturnNotFound(t *testing.T) {
 type instrumentReaderStub struct {
 	listing       instruments.ListingPage
 	listingFilter instruments.ListingFilter
+	history       instruments.HistoryWindow
+	historyFilter instruments.HistoryFilter
 	page          instruments.SearchPage
 	inspection    instruments.Inspection
 	prices        instruments.PricePage
@@ -104,6 +106,12 @@ type instrumentReaderStub struct {
 func (s *instrumentReaderStub) Listing(_ context.Context, filter instruments.ListingFilter) (instruments.ListingPage, error) {
 	s.listingFilter = filter
 	return s.listing, s.err
+}
+
+func (s *instrumentReaderStub) History(_ context.Context, _ instruments.UUID,
+	filter instruments.HistoryFilter) (instruments.HistoryWindow, error) {
+	s.historyFilter = filter
+	return s.history, s.err
 }
 
 func (s *instrumentReaderStub) Inspect(context.Context, instruments.UUID) (instruments.Inspection, error) {
@@ -234,5 +242,100 @@ func TestListingEndpointRequiresAnActiveSession(t *testing.T) {
 	response := performRequest(router, "/api/v1/instruments?limit=10")
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("an anonymous listing request returned %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestHistoryEndpointReturnsTheChartsPayload(t *testing.T) {
+	id := mustAPIUUID(t, "33000000-0000-4000-8000-000000000001")
+	observed := time.Date(2026, 6, 30, 17, 30, 0, 0, time.UTC)
+	provider := "fixture"
+	reader := &instrumentReaderStub{
+		history: instruments.HistoryWindow{
+			Instrument: instruments.ListingRow{
+				Instrument: instruments.Instrument{ID: id, Ticker: "GAPPY", Name: "Interrupted History AB",
+					Currency: "SEK", Country: "SE", Active: true},
+				Exchange: instruments.Exchange{MIC: "XSTO", Name: "Nasdaq Stockholm"},
+			},
+			Coverage:      instruments.HistoryCoverage{FirstSession: "2026-01-05", LastSession: "2026-06-30", BarCount: 120},
+			RequestedFrom: "2026-05-18",
+			RequestedTo:   "2026-06-30",
+			Bars: []instruments.DailyBar{{SessionDate: "2026-05-18", Open: "100.00", High: "101.50",
+				Low: "98.50", Close: "100.50", Volume: 1000}},
+			MissingSessions: []instruments.SessionDate{"2026-06-03", "2026-06-04"},
+			SeriesBasis:     instruments.SeriesProviderAdjusted,
+			Provider:        &provider,
+			ObservedAt:      &observed,
+			Actions: []instruments.ChartAction{{ID: id, Type: "split", ExDate: "2026-05-28",
+				Ratio: func() *instruments.Decimal { d := instruments.Decimal("2"); return &d }()}},
+			Findings: []instruments.ChartFinding{{ID: id, Rule: "suspicious_jump", Status: "open",
+				Severity: "warning"}},
+		},
+	}
+	router := NewRouter(authenticatedDependencies(Dependencies{Instruments: reader}))
+
+	response := performRequest(router, "/api/v1/instruments/"+id.String()+"/history?sessions=60&to=2026-06-30")
+	if response.Code != http.StatusOK {
+		t.Fatalf("history response = %d %s", response.Code, response.Body.String())
+	}
+	if reader.historyFilter.Sessions != 60 || reader.historyFilter.To.String() != "2026-06-30" {
+		t.Fatalf("history filter = %#v", reader.historyFilter)
+	}
+
+	body := response.Body.String()
+	for _, want := range []string{
+		`"missing_sessions":["2026-06-03","2026-06-04"]`,
+		`"series_basis":"provider_adjusted"`,
+		`"provider":"fixture"`,
+		`"stored_sessions":120`,
+		`"action_type":"split"`,
+		`"rule":"suspicious_jump"`,
+		`"close":"100.50"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("history response is missing %s: %s", want, body)
+		}
+	}
+	// Money must survive as a decimal string; a float would quietly change the number.
+	if strings.Contains(body, `"close":100.5`) {
+		t.Errorf("a price was serialized as a number: %s", body)
+	}
+}
+
+func TestHistoryEndpointAnswersUnknownAndUnauthorizedIdentically(t *testing.T) {
+	id := "33000000-0000-4000-8000-000000000001"
+	reader := &instrumentReaderStub{err: instruments.ErrNotFound}
+	router := NewRouter(authenticatedDependencies(Dependencies{Instruments: reader}))
+
+	response := performRequest(router, "/api/v1/instruments/"+id+"/history")
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("unknown instrument returned %d", response.Code)
+	}
+	unknownBody := response.Body.String()
+
+	// The identifier below is well-formed and simply does not exist. If the two answers ever
+	// diverge, an anonymous prober could enumerate which identifiers are real (SC-010).
+	response = performRequest(router, "/api/v1/instruments/33000000-0000-4000-8000-000000000999/history")
+	if response.Code != http.StatusNotFound || response.Body.String() != unknownBody {
+		t.Fatalf("a second unknown identifier answered differently: %d %s",
+			response.Code, response.Body.String())
+	}
+
+	for _, path := range []string{
+		"/api/v1/instruments/not-a-uuid/history",
+		"/api/v1/instruments/" + id + "/history?sessions=1",
+		"/api/v1/instruments/" + id + "/history?sessions=5001",
+		"/api/v1/instruments/" + id + "/history?to=yesterday",
+	} {
+		if code := performRequest(router, path).Code; code != http.StatusBadRequest {
+			t.Errorf("%s returned %d, expected 400", path, code)
+		}
+	}
+}
+
+func TestHistoryEndpointRequiresAnActiveSession(t *testing.T) {
+	router := NewRouter(Dependencies{Instruments: &instrumentReaderStub{}})
+	response := performRequest(router, "/api/v1/instruments/33000000-0000-4000-8000-000000000001/history")
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("an anonymous history request returned %d %s", response.Code, response.Body.String())
 	}
 }

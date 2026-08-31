@@ -14,6 +14,7 @@ import (
 
 type InstrumentReader interface {
 	Listing(context.Context, instruments.ListingFilter) (instruments.ListingPage, error)
+	History(context.Context, instruments.UUID, instruments.HistoryFilter) (instruments.HistoryWindow, error)
 	Inspect(context.Context, instruments.UUID) (instruments.Inspection, error)
 	Prices(context.Context, instruments.UUID, instruments.PriceFilter) (instruments.PricePage, error)
 }
@@ -134,6 +135,40 @@ func listInstrumentsHandler(reader InstrumentReader) http.HandlerFunc {
 	}
 }
 
+// getInstrumentHistoryHandler answers the chart's payload. An unknown instrument and one the
+// caller may not read produce the same 404, deliberately: telling them apart would let an
+// anonymous prober enumerate which identifiers exist (FR-018, SC-010).
+func getInstrumentHistoryHandler(reader InstrumentReader) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := instruments.ParseUUID(r.PathValue("id"))
+		if err != nil {
+			httpx.Error(w, http.StatusBadRequest, "invalid instrument ID")
+			return
+		}
+		filter := instruments.HistoryFilter{Sessions: 250}
+		if raw := r.URL.Query().Get("sessions"); raw != "" {
+			value, convErr := strconv.Atoi(raw)
+			if convErr != nil || value < 2 || value > 5000 {
+				httpx.Error(w, http.StatusBadRequest, "invalid session count")
+				return
+			}
+			filter.Sessions = value
+		}
+		if raw := r.URL.Query().Get("to"); raw != "" {
+			if filter.To, err = instruments.ParseSessionDate(raw); err != nil {
+				httpx.Error(w, http.StatusBadRequest, "invalid to date")
+				return
+			}
+		}
+		window, err := reader.History(r.Context(), id, filter)
+		if err != nil {
+			writeInstrumentError(w, err)
+			return
+		}
+		httpx.JSON(w, http.StatusOK, historyWindowDTO(window))
+	}
+}
+
 func getInstrumentHandler(reader InstrumentReader) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, err := instruments.ParseUUID(r.PathValue("id"))
@@ -203,6 +238,106 @@ func listInstrumentPricesHandler(reader InstrumentReader) http.HandlerFunc {
 		}
 		httpx.JSON(w, http.StatusOK, map[string]any{"items": items, "next_cursor": nullableString(page.NextCursor)})
 	}
+}
+
+type historyBarResponse struct {
+	SessionDate   string  `json:"session_date"`
+	Open          string  `json:"open"`
+	High          string  `json:"high"`
+	Low           string  `json:"low"`
+	Close         string  `json:"close"`
+	AdjustedClose *string `json:"adjusted_close"`
+	Volume        int64   `json:"volume"`
+}
+
+type chartActionResponse struct {
+	ID        string  `json:"id"`
+	Type      string  `json:"action_type"`
+	ExDate    string  `json:"ex_date"`
+	Ratio     *string `json:"ratio"`
+	Amount    *string `json:"amount"`
+	Currency  *string `json:"currency"`
+	OldSymbol *string `json:"old_symbol"`
+	NewSymbol *string `json:"new_symbol"`
+}
+
+type chartFindingResponse struct {
+	ID          string  `json:"id"`
+	Rule        string  `json:"rule"`
+	Status      string  `json:"status"`
+	Severity    string  `json:"severity"`
+	SessionDate *string `json:"session_date"`
+	Detail      *string `json:"detail"`
+}
+
+type historyWindowResponse struct {
+	Instrument listingRowResponse `json:"instrument"`
+	Coverage   struct {
+		FirstSession   *string `json:"first_session"`
+		LastSession    *string `json:"last_session"`
+		StoredSessions int64   `json:"stored_sessions"`
+	} `json:"coverage"`
+	RequestedFrom *string              `json:"requested_from"`
+	RequestedTo   *string              `json:"requested_to"`
+	Bars          []historyBarResponse `json:"bars"`
+	// Sessions the exchange was open for with no stored bar. Sent as dates rather than a
+	// count so the chart can interrupt the series at exactly these points.
+	MissingSessions []string               `json:"missing_sessions"`
+	SeriesBasis     string                 `json:"series_basis"`
+	Provider        *string                `json:"provider"`
+	ObservedAt      *string                `json:"observed_at"`
+	Actions         []chartActionResponse  `json:"actions"`
+	Findings        []chartFindingResponse `json:"findings"`
+}
+
+func historyWindowDTO(window instruments.HistoryWindow) historyWindowResponse {
+	response := historyWindowResponse{
+		Instrument:      listingRowDTO(window.Instrument),
+		RequestedFrom:   optionalSession(window.RequestedFrom),
+		RequestedTo:     optionalSession(window.RequestedTo),
+		Bars:            make([]historyBarResponse, 0, len(window.Bars)),
+		MissingSessions: make([]string, 0, len(window.MissingSessions)),
+		SeriesBasis:     string(window.SeriesBasis),
+		Provider:        window.Provider,
+		Actions:         make([]chartActionResponse, 0, len(window.Actions)),
+		Findings:        make([]chartFindingResponse, 0, len(window.Findings)),
+	}
+	response.Coverage.FirstSession = optionalSession(window.Coverage.FirstSession)
+	response.Coverage.LastSession = optionalSession(window.Coverage.LastSession)
+	response.Coverage.StoredSessions = window.Coverage.BarCount
+	if window.ObservedAt != nil {
+		observed := window.ObservedAt.UTC().Format(time.RFC3339)
+		response.ObservedAt = &observed
+	}
+	for _, bar := range window.Bars {
+		response.Bars = append(response.Bars, historyBarResponse{
+			SessionDate: bar.SessionDate.String(), Open: bar.Open.String(), High: bar.High.String(),
+			Low: bar.Low.String(), Close: bar.Close.String(), AdjustedClose: bar.AdjustedClose,
+			Volume: bar.Volume,
+		})
+	}
+	for _, date := range window.MissingSessions {
+		response.MissingSessions = append(response.MissingSessions, date.String())
+	}
+	for _, action := range window.Actions {
+		response.Actions = append(response.Actions, chartActionResponse{
+			ID: action.ID.String(), Type: action.Type, ExDate: action.ExDate.String(),
+			Ratio: optionalDecimal(action.Ratio), Amount: optionalDecimal(action.Amount),
+			Currency: action.Currency, OldSymbol: action.OldSymbol, NewSymbol: action.NewSymbol,
+		})
+	}
+	for _, finding := range window.Findings {
+		entry := chartFindingResponse{
+			ID: finding.ID.String(), Rule: finding.Rule, Status: finding.Status,
+			Severity: finding.Severity, Detail: finding.Detail,
+		}
+		if finding.SessionDate != nil {
+			date := finding.SessionDate.String()
+			entry.SessionDate = &date
+		}
+		response.Findings = append(response.Findings, entry)
+	}
+	return response
 }
 
 func listingRowDTO(item instruments.ListingRow) listingRowResponse {

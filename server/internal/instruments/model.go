@@ -271,6 +271,10 @@ const (
 
 // ListingFilter selects and orders the universe.
 type ListingFilter struct {
+	// ID narrows the listing to one instrument, so the detail view derives its identity and
+	// statistics from exactly the same projection as the list rather than from a second one
+	// that would eventually disagree with it.
+	ID         UUID
 	Query      string
 	MIC        string
 	Country    string

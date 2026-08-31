@@ -14,6 +14,7 @@ import (
 // keeps its own contract, so this is a list rather than one path.
 var contractPaths = []string{
 	"../../../specs/004-owner-access/contracts/openapi.yaml",
+	"../../../specs/005-instrument-exploration/contracts/openapi.yaml",
 }
 
 // boundaryContractPath is the contract that declares the deny-by-default access boundary for
@@ -114,8 +115,10 @@ func TestEveryImplementedAPIRouteIsDocumentedAndEveryDocumentedRouteExists(t *te
 		"POST /auth/owner/recovery/request": true, "POST /auth/owner/recovery/complete": true,
 	}
 	// Routes belonging to earlier features keep their own contracts.
+	// GET /instruments is no longer inherited: feature 005's contract documents it, so
+	// exempting it would keep the test silent about the very endpoint that feature changed.
 	inherited := map[string]bool{
-		"GET /instruments": true, "GET /instruments/{}": true, "GET /instruments/{}/prices": true,
+		"GET /instruments/{}": true, "GET /instruments/{}/prices": true,
 		"GET /market-data/imports": true, "GET /market-data/imports/{}": true,
 		"GET /market-data/quality-findings": true,
 	}

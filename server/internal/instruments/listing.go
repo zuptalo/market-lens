@@ -177,6 +177,9 @@ func (r *Repository) Listing(ctx context.Context, filter ListingFilter) (Listing
 	}
 
 	conditions := []string{}
+	if filter.ID != "" {
+		conditions = append(conditions, "i.id = "+add(filter.ID.String())+"::uuid")
+	}
 	if query := strings.TrimSpace(filter.Query); query != "" {
 		placeholder := add("%" + strings.ToLower(query) + "%")
 		conditions = append(conditions, fmt.Sprintf(
