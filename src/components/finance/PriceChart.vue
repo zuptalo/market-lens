@@ -8,6 +8,7 @@ import {
   createSeriesMarkers,
 } from 'lightweight-charts';
 import { movingAverage } from './movingAverage';
+import { formatDecimal } from '@/utils/decimal';
 import type { Bar, CorporateAction, QualityFinding } from '@/types/marketData';
 
 /**
@@ -107,8 +108,8 @@ function markers() {
 }
 
 function actionLabel(action: CorporateAction): string {
-  if (action.ratio) return `${action.actionType} ${action.ratio}`;
-  if (action.amount) return `${action.actionType} ${action.amount} ${action.currency ?? ''}`.trim();
+  if (action.ratio) return `${action.actionType} ${formatDecimal(action.ratio, 0)}`;
+  if (action.amount) return `${action.actionType} ${formatDecimal(action.amount)} ${action.currency ?? ''}`.trim();
   return action.actionType;
 }
 

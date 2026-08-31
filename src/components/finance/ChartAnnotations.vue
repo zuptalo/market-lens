@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import { formatDecimal } from '@/utils/decimal';
 import type { CorporateAction, QualityFinding } from '@/types/marketData';
 
 /**
@@ -20,8 +21,10 @@ const props = withDefaults(defineProps<{
 }>(), { missingSessions: () => [] });
 
 function actionDetail(action: CorporateAction): string {
-  if (action.ratio) return `ratio ${action.ratio}`;
-  if (action.amount) return `${action.amount}${action.currency ? ` ${action.currency}` : ''}`;
+  // A two-for-one split is a ratio of 2, not 2.00, so ratios keep no forced decimals while
+  // a dividend is money and does.
+  if (action.ratio) return `ratio ${formatDecimal(action.ratio, 0)}`;
+  if (action.amount) return `${formatDecimal(action.amount)}${action.currency ? ` ${action.currency}` : ''}`;
   if (action.oldSymbol || action.newSymbol) return `${action.oldSymbol ?? '—'} → ${action.newSymbol ?? '—'}`;
   return '';
 }

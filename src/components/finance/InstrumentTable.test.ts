@@ -77,6 +77,31 @@ describe('InstrumentTable', () => {
     expect(headers.join(' ')).not.toContain('Volatility');
   });
 
+  it('trims the trailing zeros a numeric(20,8) column brings with it', () => {
+    // What real data actually looks like. Every fixture in this suite used two-decimal
+    // strings, so the suite happily passed while production rendered
+    // "21540.00000000 DKK" — a price that reads as noise.
+    const wrapper = mountTable({
+      rows: [buildListingRow({
+        latestClose: '21540.00000000',
+        changeAbsolute: '-430.00000000',
+        currency: 'DKK',
+      })],
+    });
+    const text = wrapper.text();
+    expect(text).toContain('21540.00 DKK');
+    expect(text).toContain('-430.00');
+    expect(text).not.toContain('21540.00000000');
+  });
+
+  it('keeps precision the provider actually reported', () => {
+    const wrapper = mountTable({
+      rows: [buildListingRow({ latestClose: '0.12345678', currency: 'SEK' })],
+    });
+    // Rounding here would state a price the data does not support.
+    expect(wrapper.text()).toContain('0.12345678 SEK');
+  });
+
   it('labels every cell so the table can stack into cards on a narrow screen', () => {
     const wrapper = mountTable();
     // The mobile treatment is a stacked card per instrument; each cell carries its own label
