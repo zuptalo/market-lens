@@ -146,6 +146,19 @@ no update arrived. The suite could not see it because the test double dispatched
 same name the production code subscribed to — the test and the bug agreed with each other.
 The double now dispatches by the event's own name, as the server does.
 
+## Production verification
+
+Released as `v0.6.0` and rolled out by Keel on 2026-08-31.
+
+| Check | Result |
+| --- | --- |
+| `GET /api/v1/health` | `{"service":"market-lens","status":"ok","version":"0.6.0"}` |
+| `GET /api/v1/ready` | `{"status":"ready"}` |
+| Rollout | `deployment "market-lens" successfully rolled out`, one pod running, no restarts |
+| `GET /api/v1/instruments` unauthenticated | `401 authentication_required` |
+| `GET /api/v1/instruments/{id}/history` unauthenticated | `401 authentication_required` — identical body to an unknown identifier |
+| `/markets` and `/markets/{id}` as a browser navigation | `302` to sign-in, not a JSON error |
+
 ## Dependency note
 
 Recorded 2026-08-31 at the moment the dependency was added, read from the installed
