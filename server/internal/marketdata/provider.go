@@ -206,6 +206,23 @@ func safeProviderError(err error) error {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return err
 	}
+	// An error that already carries a code has been classified by whoever knew what happened —
+	// the client saw the status, or the decoder saw the payload. Re-deriving a code from its
+	// summary threw that away: the summaries are deliberately free of anything the substring
+	// matching keys on, so every classified failure fell through to the generic
+	// "provider_error" and an owner could not tell an expired key from an unknown symbol from
+	// an exhausted quota.
+	//
+	// The summary is still normalized rather than trusted, so a code that arrives with an
+	// invented summary gets the canonical one for that code.
+	var classified *ProviderError
+	if errors.As(err, &classified) && classified.Code != "" {
+		safe := NormalizeSafeError(SafeError{Code: classified.Code, Summary: classified.Summary})
+		return &ProviderError{
+			Code: safe.Code, Summary: safe.Summary,
+			Transient: classified.Transient, RetryAfter: classified.RetryAfter,
+		}
+	}
 	safe := SanitizeError(err.Error())
 	return &ProviderError{Code: safe.Code, Summary: safe.Summary}
 }

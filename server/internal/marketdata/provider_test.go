@@ -150,3 +150,58 @@ func bar(t *testing.T, session SessionDate, closeValue string) ProviderBar {
 	}
 	return ProviderBar{SessionDate: session, Open: open, High: high, Low: low, Close: closeDecimal, Volume: 100, SourceHash: session.String() + ":" + closeValue}
 }
+
+// A provider failure must keep the code that says what went wrong.
+//
+// Every classification the client makes — not found, authentication, unavailable, malformed
+// payload — was being thrown away and replaced with the generic "provider_error", because the
+// sanitizer re-derived a code by matching substrings against a summary that was already safe
+// and matched none of them. An owner looking at a failed import could not tell an expired key
+// from an unknown symbol from an exhausted quota, and neither could anybody debugging it.
+func TestCollectDailyKeepsTheProviderErrorCodeThatExplainsTheFailure(t *testing.T) {
+	day := mustSession(t, "2026-08-24")
+	for _, expected := range []struct {
+		code    string
+		summary string
+	}{
+		{"provider_not_found", "Market-data provider data was not found."},
+		{"provider_authentication", "Market-data provider authentication failed."},
+		{"provider_unavailable", "Market-data provider is unavailable."},
+		{"provider_payload", "Market-data provider returned an invalid payload."},
+	} {
+		provider := &scriptedProvider{errors: []error{
+			&ProviderError{Code: expected.code, Summary: expected.summary},
+		}}
+		_, err := CollectDaily(context.Background(), provider,
+			DailyRequest{ProviderSymbol: "NOVO-B.CO", From: day, To: day}, CollectOptions{})
+		if err == nil {
+			t.Fatalf("%s produced no error", expected.code)
+		}
+		safe := safeImportError(err)
+		if safe.Code != expected.code {
+			t.Errorf("a %s failure was recorded as %q, so the reason was lost",
+				expected.code, safe.Code)
+		}
+	}
+}
+
+// The sanitizer still has to run on errors that are not already classified, and it must not
+// start trusting a summary a caller invented.
+func TestAnUnclassifiedFailureIsStillSanitizedAndCarriesNoSecret(t *testing.T) {
+	const secret = "s3cr3t-never-expose"
+	day := mustSession(t, "2026-08-24")
+	provider := &scriptedProvider{errors: []error{
+		errors.New("dial tcp 10.0.0.1:443: connect: connection refused while sending " + secret),
+	}}
+	_, err := CollectDaily(context.Background(), provider,
+		DailyRequest{ProviderSymbol: "NOVO-B.CO", From: day, To: day}, CollectOptions{})
+	if err == nil {
+		t.Fatal("an unclassified failure produced no error")
+	}
+	if strings.Contains(err.Error(), secret) || strings.Contains(err.Error(), "10.0.0.1") {
+		t.Fatalf("an unclassified failure leaked its detail: %v", err)
+	}
+	if code := safeImportError(err).Code; code != "provider_error" {
+		t.Errorf("an unclassified failure was recorded as %q, expected the generic code", code)
+	}
+}
