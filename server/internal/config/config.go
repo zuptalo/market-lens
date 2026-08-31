@@ -22,13 +22,15 @@ type MarketDataConfig struct {
 }
 
 type Config struct {
-	Port            string
-	DatabaseURL     string
-	AllowedOrigins  []string
-	Environment     string
-	StaticDir       string
-	ShutdownTimeout time.Duration
-	MarketData      MarketDataConfig
+	Port                string
+	DatabaseURL         string
+	AllowedOrigins      []string
+	Environment         string
+	StaticDir           string
+	ShutdownTimeout     time.Duration
+	MarketData          MarketDataConfig
+	Auth                AuthConfig
+	ExternalCredentials ExternalCredentialConfig
 }
 
 func Load() (Config, error) {
@@ -36,14 +38,25 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	environment := valueOrDefault("ENV", "development")
+	auth, err := loadAuth(environment)
+	if err != nil {
+		return Config{}, err
+	}
+	externalCredentials, err := loadExternalCredentials(environment)
+	if err != nil {
+		return Config{}, err
+	}
 	cfg := Config{
-		Port:            valueOrDefault("PORT", "8080"),
-		DatabaseURL:     valueOrDefault("DATABASE_URL", "postgres://market_lens:market_lens@localhost:5432/market_lens?sslmode=disable"),
-		AllowedOrigins:  splitCSV(valueOrDefault("ALLOWED_ORIGINS", "http://localhost:5173")),
-		Environment:     valueOrDefault("ENV", "development"),
-		StaticDir:       strings.TrimSpace(os.Getenv("STATIC_DIR")),
-		ShutdownTimeout: 10 * time.Second,
-		MarketData:      marketData,
+		Port:                valueOrDefault("PORT", "8080"),
+		DatabaseURL:         valueOrDefault("DATABASE_URL", "postgres://market_lens:market_lens@localhost:5432/market_lens?sslmode=disable"),
+		AllowedOrigins:      splitCSV(valueOrDefault("ALLOWED_ORIGINS", "http://localhost:5173")),
+		Environment:         environment,
+		StaticDir:           strings.TrimSpace(os.Getenv("STATIC_DIR")),
+		ShutdownTimeout:     10 * time.Second,
+		MarketData:          marketData,
+		Auth:                auth,
+		ExternalCredentials: externalCredentials,
 	}
 	if cfg.Port == "" {
 		return Config{}, fmt.Errorf("PORT must not be empty")

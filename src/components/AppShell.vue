@@ -3,8 +3,10 @@ import Button from 'primevue/button';
 import Tag from 'primevue/tag';
 import { useTheme } from '@/composables/useTheme';
 import { buildVersion } from '@/utils/version';
+import { useAuth } from '@/composables/useAuth';
 
 const { preference, cycleTheme } = useTheme();
+const auth = useAuth();
 </script>
 
 <template>
@@ -15,8 +17,10 @@ const { preference, cycleTheme } = useTheme();
         <span>Market Lens</span>
       </RouterLink>
       <nav class="primary-nav" aria-label="Primary navigation">
-        <RouterLink to="/">Overview</RouterLink>
-        <RouterLink to="/markets">Market data</RouterLink>
+        <RouterLink v-if="auth.state.status === 'authenticated'" to="/">Overview</RouterLink>
+        <RouterLink v-if="auth.state.status === 'authenticated'" to="/markets">Market data</RouterLink>
+        <RouterLink v-if="auth.state.status === 'authenticated'" to="/account">Account</RouterLink>
+        <RouterLink v-else to="/login">Sign in</RouterLink>
       </nav>
       <div class="app-actions">
         <Tag
@@ -26,6 +30,7 @@ const { preference, cycleTheme } = useTheme();
           :aria-label="`Market Lens version ${buildVersion}`"
         />
         <Button
+          class="theme-toggle"
           severity="secondary"
           variant="text"
           :label="`Theme: ${preference}`"

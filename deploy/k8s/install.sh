@@ -17,14 +17,36 @@ echo "==> namespace"
 "$KUBECTL" create namespace market-lens --dry-run=client -o yaml | "$KUBECTL" apply -f -
 
 if "$KUBECTL" -n market-lens get secret market-lens-secrets >/dev/null 2>&1; then
-  echo "==> market-lens-secrets exists; preserving database credentials"
+  echo "==> market-lens-secrets exists; preserving credentials"
+  if [[ -z "$("$KUBECTL" -n market-lens get secret market-lens-secrets -o jsonpath='{.data.AUTH_SECRET}')" ]]; then
+    echo "==> adding authentication key to existing secret"
+    auth_secret="$(openssl rand -base64 48)"
+    "$KUBECTL" -n market-lens patch secret market-lens-secrets --type=merge \
+      --patch "{\"stringData\":{\"AUTH_SECRET\":\"$auth_secret\"}}" >/dev/null
+  fi
+  external_key_data="$("$KUBECTL" -n market-lens get secret market-lens-secrets -o jsonpath='{.data.EXTERNAL_CREDENTIAL_KEY}')"
+  external_version_data="$("$KUBECTL" -n market-lens get secret market-lens-secrets -o jsonpath='{.data.EXTERNAL_CREDENTIAL_KEY_VERSION}')"
+  if [[ -z "$external_key_data" && -z "$external_version_data" ]]; then
+    echo "==> adding external credential encryption key to existing secret"
+    external_credential_key="$(openssl rand -base64 32)"
+    "$KUBECTL" -n market-lens patch secret market-lens-secrets --type=merge \
+      --patch "{\"stringData\":{\"EXTERNAL_CREDENTIAL_KEY\":\"$external_credential_key\",\"EXTERNAL_CREDENTIAL_KEY_VERSION\":\"1\"}}" >/dev/null
+  elif [[ -z "$external_key_data" || -z "$external_version_data" ]]; then
+    echo "market-lens-secrets contains an incomplete external credential key configuration" >&2
+    exit 1
+  fi
 else
   echo "==> generating market-lens-secrets"
   password="$(openssl rand -hex 24)"
+  auth_secret="$(openssl rand -base64 48)"
+  external_credential_key="$(openssl rand -base64 32)"
   database_url="postgres://market_lens:${password}@market-lens-postgres:5432/market_lens?sslmode=disable"
   "$KUBECTL" -n market-lens create secret generic market-lens-secrets \
     --from-literal=POSTGRES_PASSWORD="$password" \
-    --from-literal=DATABASE_URL="$database_url"
+    --from-literal=DATABASE_URL="$database_url" \
+    --from-literal=AUTH_SECRET="$auth_secret" \
+    --from-literal=EXTERNAL_CREDENTIAL_KEY="$external_credential_key" \
+    --from-literal=EXTERNAL_CREDENTIAL_KEY_VERSION="1"
 fi
 
 echo "==> configuring persistent Traefik ACME resolver"

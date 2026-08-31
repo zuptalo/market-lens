@@ -3,6 +3,10 @@ import { expect, test } from '@playwright/test';
 const runID = '22000000-0000-4000-8000-000000000001';
 
 test.beforeEach(async ({ page }) => {
+  await page.route('**/api/v1/account', (route) => route.fulfill({ json: {
+    id: '10000000-0000-4000-8000-000000000001', email: 'owner@example.com', display_name: 'Owner',
+    role: 'owner', status: 'active', email_verified_at: '2026-08-30T08:00:00Z',
+  } }));
   await page.addInitScript(() => {
     const sources: EventTarget[] = [];
     const urls: string[] = [];

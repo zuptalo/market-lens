@@ -42,7 +42,11 @@ Reactivation does not create a session, password, or code.
 ## Bootstrap State and Capability
 
 `bootstrap_state` is a singleton row that closes setup independently of capability
-cleanup. `auth_capabilities` stores high-entropy setup and owner-recovery capabilities.
+cleanup. `auth_capabilities` stores high-entropy setup capabilities. Migration `0007`
+introduced the historical `owner_recovery` kind; forward migration `0009` records safe
+retirement audit/event evidence, removes those unusable secret-digest rows, and adds a
+constraint that permits only `owner_setup`. Runtime code never
+issues or consumes owner-recovery capabilities.
 
 ### Bootstrap state
 
@@ -57,16 +61,16 @@ cleanup. `auth_capabilities` stores high-entropy setup and owner-recovery capabi
 | Field | Type | Rules |
 |---|---|---|
 | `id` | uuid | Primary key |
-| `kind` | text | `owner_setup` or `owner_recovery` |
-| `user_id` | uuid nullable | Null for setup; owner FK for recovery |
+| `kind` | text | `owner_setup` only after migration `0009` |
+| `user_id` | uuid nullable | Always null for setup |
 | `token_digest` | bytea | Unique 32-byte purpose-separated keyed digest |
-| `expires_at` | timestamptz | Setup 15 minutes; recovery 30 minutes |
+| `expires_at` | timestamptz | Setup 15 minutes |
 | `consumed_at` | timestamptz nullable | One-use marker |
 | `revoked_at` | timestamptz nullable | Explicit/superseded marker |
 | `created_at` | timestamptz | Immutable |
 
-Only one usable capability of a kind/user remains after issuance. Consumption uses a
-conditional update inside the owner creation/recovery transaction. Cleanup may retain
+Only one usable setup capability remains after issuance. Consumption uses a
+conditional update inside the owner creation transaction. Cleanup may retain
 expired/consumed metadata for audit but never token plaintext.
 
 ## Owner Credential
@@ -81,9 +85,44 @@ Exactly one credential row, owned by the owner.
 | `created_at` | timestamptz | Immutable |
 
 Application invariants verify the user role is owner. Password plaintext exists only for
-request processing and is never logged. A successful recovery updates this row, consumes
-the capability, revokes all recovery capabilities and owner sessions, and records audit/
-event effects atomically.
+setup, login, or the interactive reset and is never logged. A successful deployment CLI
+reset updates this row, revokes every owner session, and records audit/event effects
+atomically. No HTTP or email recovery path exists.
+
+## External Service Credential
+
+One authenticated-encryption envelope per configured integration. Setup creates exactly
+the `eodhd_api` and `smtp` rows in the same transaction as the owner.
+
+| Field | Type | Rules |
+|---|---|---|
+| `id` | uuid | Primary key; included in authenticated additional data |
+| `kind` | text | Unique, `eodhd_api` or `smtp` |
+| `ciphertext` | bytea | AES-256-GCM random-nonce sealed versioned JSON; non-empty and bounded |
+| `payload_version` | smallint | Positive secret-envelope schema version; initially `1` |
+| `key_version` | integer | Positive deployment key version; initially configured version |
+| `validated_at` | timestamptz nullable | Required for `eodhd_api`; null for SMTP |
+| `created_at` | timestamptz | Immutable |
+| `updated_at` | timestamptz | Changes only on credential replacement/rotation |
+
+Payloads:
+
+```text
+eodhd_api/v1 = {"api_key":"<secret>"}
+smtp/v1      = {"host":"<secret>","port":587,"from":"<secret>",
+                "username":"<optional-secret>","password":"<optional-secret>"}
+```
+
+Canonical serialization validates bounds before encryption. Additional authenticated
+data is an unambiguous encoding of `market-lens`, row ID, kind, payload version, and key
+version, preventing ciphertext transfer between rows or versions. Neither ciphertext nor
+decrypted fields are returned by any HTTP read model. Safe integration status is derived
+as `configured`, `ready`, kind, validation time, and key version only.
+
+The deployment key is never stored in PostgreSQL. Normal reads require the configured
+key version to match the row; authentication failure or version mismatch fails closed
+with a sanitized error. The rotation CLI decrypts all rows with the old key and replaces
+every envelope with the new version in one transaction.
 
 ## Invitation
 
@@ -174,7 +213,7 @@ Durable sliding-window input for delivery and origin controls.
 | Field | Type | Rules |
 |---|---|---|
 | `id` | bigint | Monotonic primary key |
-| `bucket_kind` | text | `member_code_delivery`, `origin_code_request`, `origin_code_verify`, `owner_login`, or `owner_recovery` |
+| `bucket_kind` | text | `member_code_delivery`, `origin_code_request`, `origin_code_verify`, or `owner_login` |
 | `bucket_digest` | bytea | Purpose-keyed digest of normalized email/user/origin |
 | `occurred_at` | timestamptz | Indexed with bucket |
 
@@ -212,7 +251,7 @@ Safe lifecycle metadata for transactional account mail.
 | Field | Type | Rules |
 |---|---|---|
 | `id` | uuid | Primary key |
-| `kind` | text | `invitation`, `member_login_code`, `owner_recovery`, or `security_notice` |
+| `kind` | text | `invitation`, `member_login_code`, or `security_notice` |
 | `recipient_email` | text | Required for actual delivery; owner-visible only where authorized |
 | `subject_user_id` | uuid nullable | User concerned by the message |
 | `invitation_id` | uuid nullable | Optional related invite |
@@ -275,10 +314,14 @@ and safe session lifecycle. A member's private financial events never become own
 
 ## Transaction Boundaries
 
-- Bootstrap: capability consume + owner/user credential + close state + session + audit
-  + user/owner events.
-- Recovery: capability consume + credential update + all-session/capability revoke +
-  audit + owner event.
+- Bootstrap: after successful bounded EODHD validation, capability consume + owner/user
+  credential + encrypted EODHD/SMTP rows + close state + session + audit + user/owner
+  events. Provider I/O occurs before the transaction; capability/bootstrap state is
+  locked and rechecked inside it.
+- Owner password reset: credential update + all-owner-session revoke + audit + owner
+  event. The command requires an interactive TTY and has no public transport equivalent.
+- Credential-key rotation: decrypt/validate both current rows before mutation, then
+  replace every ciphertext/key version + audit + owner event atomically.
 - Invitation acceptance: invite consume + member activation + login state + optional
   session + audit + owner/user events.
 - Wrong code: challenge/login-state lock + failure event + possible block/lock + audit +

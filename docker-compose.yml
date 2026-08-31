@@ -10,6 +10,11 @@ services:
     environment:
       ENV: production
       DATABASE_URL: postgres://market_lens:${POSTGRES_PASSWORD:-market_lens}@db:5432/market_lens?sslmode=disable
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8080}
+      AUTH_SECRET: ${AUTH_SECRET:-}
+      AUTH_SECURE_COOKIES: "true"
+      EXTERNAL_CREDENTIAL_KEY: ${EXTERNAL_CREDENTIAL_KEY:-}
+      EXTERNAL_CREDENTIAL_KEY_VERSION: ${EXTERNAL_CREDENTIAL_KEY_VERSION:-}
     ports:
       - "${APP_PORT:-8080}:8080"
 

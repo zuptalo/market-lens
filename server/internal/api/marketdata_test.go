@@ -32,7 +32,7 @@ func TestMarketDataImportAndFindingReadContracts(t *testing.T) {
 			Detail: "Provider returned inconsistent daily OHLC values.", Status: marketdata.FindingOpen, CreatedAt: finished,
 		}},
 	}
-	router := NewRouter(Dependencies{Database: databaseStub{}, Version: "test", MarketData: reader})
+	router := NewRouter(authenticatedDependencies(Dependencies{Database: databaseStub{}, Version: "test", MarketData: reader}))
 
 	t.Run("recent imports", func(t *testing.T) {
 		response := performRequest(router, "/api/v1/market-data/imports?status=partial&limit=25")
@@ -83,7 +83,7 @@ func TestMarketDataImportAndFindingReadContracts(t *testing.T) {
 }
 
 func TestMarketDataReadContractsReturnConsistentErrors(t *testing.T) {
-	router := NewRouter(Dependencies{MarketData: &marketDataReaderStub{err: ErrNotFound}})
+	router := NewRouter(authenticatedDependencies(Dependencies{MarketData: &marketDataReaderStub{err: ErrNotFound}}))
 	tests := []struct {
 		path string
 		want int
@@ -133,7 +133,7 @@ func (s *marketDataReaderStub) ListQualityFindings(_ context.Context, filter Fin
 
 func performRequest(handler http.Handler, path string) *httptest.ResponseRecorder {
 	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+	handler.ServeHTTP(recorder, authenticatedAPIRequest(http.MethodGet, path))
 	return recorder
 }
 

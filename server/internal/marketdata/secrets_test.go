@@ -48,8 +48,9 @@ func TestSecretsStayOutOfConfigurationErrorsProviderLogsAndAPIPayloads(t *testin
 			ID: runID, Kind: marketdata.ImportBackfill, Provider: "fixture", Status: marketdata.ImportFailed,
 			StartedAt: time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC), Error: &unsafe,
 		}}
-		router := api.NewRouter(api.Dependencies{MarketData: reader})
+		router := api.NewRouter(authenticatedAPIDependencies(api.Dependencies{MarketData: reader}))
 		request := httptest.NewRequest(http.MethodGet, "/api/v1/market-data/imports?limit=20", nil)
+		addMarketDataTestSession(request)
 		response := httptest.NewRecorder()
 		router.ServeHTTP(response, request)
 		if response.Code != http.StatusOK {

@@ -2,9 +2,28 @@ openapi: 3.1.0
 info:
   title: Market Lens Owner Access and Invitations API
   version: 1.0.0
-  description: Invitation-only identity, passwordless member login, owner administration, sessions, and authorized SSE.
+  description: Generic email-first authentication, one-owner setup, invitation-only members, sessions, and authorized SSE.
 servers:
   - url: /api/v1
+x-market-lens-access-boundary:
+  public:
+    - /health
+    - /ready
+    - /setup/status
+    - /auth/owner/setup
+    - /auth/sign-in/start
+    - /auth/owner/login
+    - /auth/member/code/verify
+    - /auth/invitations/accept
+  authenticated-existing-routes:
+    - /instruments
+    - /instruments/{id}
+    - /instruments/{id}/prices
+    - /market-data/imports
+    - /market-data/imports/{id}
+    - /market-data/quality-findings
+    - /events
+  rule: All application pages and APIs not explicitly public are protected by default, including before owner bootstrap.
 tags:
   - { name: Setup }
   - { name: Authentication }
@@ -40,10 +59,33 @@ paths:
         '400': { $ref: '#/components/responses/InvalidRequest' }
         '409': { $ref: '#/components/responses/SetupClosed' }
         '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/ProviderUnavailable' }
+  /auth/sign-in/start:
+    post:
+      tags: [Authentication]
+      operationId: startSignIn
+      description: >-
+        Always returns the same body and advances the client to OTP entry. Only an
+        eligible active member receives a code; owner, unknown-account, throttled,
+        temporarily blocked, and administratively locked behavior is externally
+        indistinguishable. A temporarily blocked or locked member is not emailed a code,
+        because that code could not be used before the block elapsed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties: { email: { $ref: '#/components/schemas/Email' } }
+      responses:
+        '202': { $ref: '#/components/responses/GenericEmailAccepted' }
+        '429': { $ref: '#/components/responses/RateLimited' }
   /auth/owner/login:
     post:
       tags: [Authentication]
       operationId: loginOwner
+      description: Secondary action selected explicitly from the generic OTP screen; failures never identify the owner email.
       requestBody:
         required: true
         content:
@@ -57,55 +99,6 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/Authenticated' }
         '401': { $ref: '#/components/responses/GenericAuthenticationFailure' }
-        '429': { $ref: '#/components/responses/RateLimited' }
-  /auth/owner/recovery/request:
-    post:
-      tags: [Authentication]
-      operationId: requestOwnerRecovery
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [email]
-              properties: { email: { $ref: '#/components/schemas/Email' } }
-      responses:
-        '202': { $ref: '#/components/responses/GenericEmailAccepted' }
-        '429': { $ref: '#/components/responses/RateLimited' }
-  /auth/owner/recovery/complete:
-    post:
-      tags: [Authentication]
-      operationId: completeOwnerRecovery
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [capability, password]
-              properties:
-                capability: { type: string, minLength: 40, maxLength: 512, writeOnly: true }
-                password: { type: string, minLength: 12, maxLength: 1024, writeOnly: true }
-      responses:
-        '204': { description: Credential replaced; caller must sign in normally }
-        '400': { $ref: '#/components/responses/InvalidCapability' }
-        '429': { $ref: '#/components/responses/RateLimited' }
-  /auth/member/code/request:
-    post:
-      tags: [Authentication]
-      operationId: requestMemberLoginCode
-      description: Always returns the same body for unknown, inactive, blocked, locked, and eligible emails.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [email]
-              properties: { email: { $ref: '#/components/schemas/Email' } }
-      responses:
-        '202': { $ref: '#/components/responses/GenericEmailAccepted' }
         '429': { $ref: '#/components/responses/RateLimited' }
   /auth/member/code/verify:
     post:
@@ -241,6 +234,25 @@ paths:
         '403': { $ref: '#/components/responses/OwnerRequired' }
         '409': { $ref: '#/components/responses/Conflict' }
         '429': { $ref: '#/components/responses/RateLimited' }
+  /owner/integrations:
+    get:
+      tags: [Owner administration]
+      operationId: getIntegrationStatus
+      security: [{ sessionCookie: [] }]
+      responses:
+        '200':
+          description: Safe setup/readiness metadata; never contains configuration, ciphertext, or provider error bodies
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/IntegrationStatus' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/OwnerRequired' }
   /owner/invitations/{invitationId}/resend:
     post:
       tags: [Owner administration]
@@ -358,6 +370,14 @@ components:
       type: apiKey
       in: header
       name: X-CSRF-Token
+    csrfCookie:
+      type: apiKey
+      in: cookie
+      name: __Host-market_lens_csrf
+      description: >-
+        Double-submit token published alongside the session cookie. It is deliberately
+        readable by same-origin script so a reloaded page can recover it and keep making
+        authorized mutations; the HttpOnly session cookie remains the only authenticator.
   parameters:
     SessionId: { name: sessionId, in: path, required: true, schema: { type: string, format: uuid } }
     InvitationId: { name: invitationId, in: path, required: true, schema: { type: string, format: uuid } }
@@ -366,7 +386,9 @@ components:
     Limit: { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 25 } }
   responses:
     Authenticated:
-      description: Authenticated; sets a secure HttpOnly session cookie and returns the CSRF token only in this response
+      description: >-
+        Authenticated; sets a secure HttpOnly session cookie plus a script-readable
+        __Host-market_lens_csrf cookie carrying the same CSRF token returned in the body
       headers:
         Set-Cookie: { schema: { type: string } }
       content:
@@ -380,7 +402,7 @@ components:
             type: object
             required: [message]
             properties:
-              message: { type: string, const: 'If this email is eligible, a message will arrive shortly.' }
+              message: { type: string, const: 'If you have an account, you should receive an email with a six-digit passcode.' }
     GenericAuthenticationFailure:
       description: Uniform invalid/unavailable authentication result
       content:
@@ -398,6 +420,11 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
     SetupClosed:
       description: Setup is unavailable or already closed
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ProviderUnavailable:
+      description: Setup dependency validation failed or timed out; no setup state was committed and the capability remains retryable until expiry
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -449,12 +476,25 @@ components:
       maxLength: 120
     OwnerSetupRequest:
       type: object
-      required: [capability, email, password, display_name]
+      required: [capability, email, password, display_name, eodhd_api_key, smtp]
+      additionalProperties: false
       properties:
         capability: { type: string, minLength: 40, maxLength: 512, writeOnly: true }
         email: { $ref: '#/components/schemas/Email' }
         password: { type: string, minLength: 12, maxLength: 1024, writeOnly: true }
         display_name: { $ref: '#/components/schemas/DisplayName' }
+        eodhd_api_key: { type: string, minLength: 1, maxLength: 1024, writeOnly: true }
+        smtp: { $ref: '#/components/schemas/SMTPConfiguration' }
+    SMTPConfiguration:
+      type: object
+      required: [host, port, from]
+      additionalProperties: false
+      properties:
+        host: { type: string, minLength: 1, maxLength: 253, writeOnly: true }
+        port: { type: integer, minimum: 1, maximum: 65535, writeOnly: true }
+        from: { $ref: '#/components/schemas/Email' }
+        username: { type: string, maxLength: 320, writeOnly: true }
+        password: { type: string, maxLength: 1024, writeOnly: true }
     Account:
       type: object
       required: [id, email, display_name, role, status, email_verified_at]
@@ -486,6 +526,16 @@ components:
     DeliveryState:
       type: string
       enum: [pending, sending, sent, failed, abandoned]
+    IntegrationStatus:
+      type: object
+      required: [kind, configured, ready, key_version]
+      additionalProperties: false
+      properties:
+        kind: { type: string, enum: [eodhd_api, smtp] }
+        configured: { type: boolean }
+        ready: { type: boolean }
+        validated_at: { type: [string, 'null'], format: date-time }
+        key_version: { type: integer, minimum: 1 }
     Invitation:
       type: object
       required: [id, email, state, expires_at, delivery_state, resend_count, created_at]
