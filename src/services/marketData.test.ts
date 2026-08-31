@@ -2,9 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
 	InstrumentSearchClient,
 	MarketDataLive,
-	fetchDailyPrices,
 	fetchInstrument,
-	fetchInstruments,
+	fetchInstrumentListing,
 	fetchRecentImports,
   type LiveEvent,
   type LiveEventSource,
@@ -16,8 +15,11 @@ describe('instrument snapshots', () => {
       .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [{
         id: '33000000-0000-4000-8000-000000000001', isin: 'SE0000000100', ticker: 'ALFA',
         name: 'Alpha AB', exchange: { mic: 'XSTO', name: 'Nasdaq Stockholm', timezone: 'Europe/Stockholm' },
-        currency: 'SEK', country: 'SE', instrument_type: 'common_stock', active: true,
-        purchasability_status: 'unverified',
+        currency: 'SEK', country: 'SE', sector: 'Technology', industry: 'Software',
+        instrument_type: 'common_stock', status: 'active', purchasability_status: 'unverified',
+        latest_session: '2026-08-28', latest_close: '101.25', change_absolute: '1.25',
+        change_percent: 0.0125, return_20: null, return_90: null, volatility: null,
+        stored_sessions: 2, freshness: { state: 'current', sessions_behind: 0 },
       }], next_cursor: 'next' }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({
         id: '33000000-0000-4000-8000-000000000001', isin: 'SE0000000100', ticker: 'ALFA', name: 'Alpha AB',
@@ -29,8 +31,8 @@ describe('instrument snapshots', () => {
       }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [], next_cursor: null }) });
 
-    const page = await fetchInstruments({ query: 'al fa', mic: 'XSTO', active: true, limit: 20 }, fetcher);
-    expect(fetcher).toHaveBeenNthCalledWith(1, '/api/v1/instruments?q=al+fa&exchange=XSTO&active=true&limit=20', expect.objectContaining({ signal: undefined }));
+    const page = await fetchInstrumentListing({ query: 'al fa', mic: 'XSTO', status: 'active', limit: 20 }, fetcher);
+    expect(fetcher).toHaveBeenNthCalledWith(1, '/api/v1/instruments?q=al+fa&mic=XSTO&status=active&limit=20', expect.objectContaining({ signal: undefined }));
     expect(page.items[0]).toMatchObject({ ticker: 'ALFA', exchange: { mic: 'XSTO' } });
     expect(page.nextCursor).toBe('next');
 
@@ -39,8 +41,6 @@ describe('instrument snapshots', () => {
     expect(detail.history).toEqual({ firstSession: '2026-08-27', lastSession: '2026-08-28', barCount: 2 });
     expect(detail.qualitySummary.openWarnings).toBe(1);
 
-    const history = await fetchDailyPrices(page.items[0].id, { from: '2026-08-01', to: '2026-08-28' }, fetcher);
-    expect(history.items).toEqual([]);
   });
 
   it('cancels superseded searches and suppresses stale responses', async () => {
@@ -57,7 +57,11 @@ describe('instrument snapshots', () => {
     pending[1].resolve({ ok: true, json: async () => ({ items: [{
       id: '33000000-0000-4000-8000-000000000002', isin: 'SE0000000200', ticker: 'NEW', name: 'New AB',
       exchange: { mic: 'XSTO', name: 'Nasdaq Stockholm', timezone: 'Europe/Stockholm' }, currency: 'SEK',
-      country: 'SE', instrument_type: 'common_stock', active: true, purchasability_status: 'unverified',
+      country: 'SE', sector: 'Technology', industry: 'Software', instrument_type: 'common_stock',
+      status: 'active', purchasability_status: 'unverified', latest_session: '2026-08-28',
+      latest_close: '101.25', change_absolute: '1.25', change_percent: 0.0125,
+      return_20: null, return_90: null, volatility: null, stored_sessions: 2,
+      freshness: { state: 'current', sessions_behind: 0 },
     }] }) });
     await second;
     pending[0].resolve({ ok: true, json: async () => ({ items: [] }) });
@@ -141,7 +145,7 @@ describe('market-data live updates', () => {
     sources[0].message({ lastEventId: '41', type: 'import_run.changed.v1', data: '{"entity_id":"run"}' });
     sources[0].message({ lastEventId: '41', type: 'import_run.changed.v1', data: '{"entity_id":"run"}' });
     expect(refresh).toHaveBeenCalledTimes(1);
-    expect(refresh).toHaveBeenCalledWith('import_run', 'run');
+    expect(refresh).toHaveBeenCalledWith('import_run', 'run', expect.objectContaining({ entity_id: 'run' }));
 
     sources[0].error();
     expect(states.at(-1)).toBe('reconnecting');
@@ -151,6 +155,79 @@ describe('market-data live updates', () => {
     expect(states.at(-1)).toBe('stale');
     live.setOnline(false);
     expect(states.at(-1)).toBe('offline');
+    live.stop();
+  });
+
+  it('subscribes by event name, because that is what the server sends', () => {
+    const sources: FakeSource[] = [];
+    const refresh = vi.fn();
+    const live = new MarketDataLive({
+      sourceFactory: (_url, lastEventId) => {
+        const source = new FakeSource(lastEventId);
+        sources.push(source);
+        return source;
+      },
+      onRefresh: refresh,
+      onState: () => {},
+      reconnectDelayMs: 1_000,
+      staleAfterMs: 10_000,
+    });
+    live.start();
+    sources[0].open();
+
+    // The server writes "event: <type>" for every event. A client listening only for
+    // 'message' receives none of them, and the view silently never updates — which is the
+    // failure mode this test exists to make impossible.
+    for (const type of [
+      'daily_bar.changed.v1', 'import_run.changed.v1', 'import_item.changed.v1',
+      'quality_finding.changed.v1', 'corporate_action.changed.v1',
+    ]) {
+      expect(sources[0].subscribed(), `not subscribed to ${type}`).toContain(type);
+    }
+
+    sources[0].named({
+      lastEventId: '7', type: 'daily_bar.changed.v1',
+      data: '{"entity_id":"bar-1","instrument_id":"i-1","session_date":"2026-06-30"}',
+    });
+    expect(refresh).toHaveBeenCalledWith('daily_bar', 'bar-1', expect.objectContaining({
+      instrument_id: 'i-1', session_date: '2026-06-30',
+    }));
+
+    // A corporate action must reach the view too: it was the one committed change the import
+    // used to record silently.
+    sources[0].named({
+      lastEventId: '8', type: 'corporate_action.changed.v1',
+      data: '{"entity_id":"a-1","instrument_id":"i-1","ex_date":"2026-05-28"}',
+    });
+    expect(refresh).toHaveBeenCalledWith('corporate_action', 'a-1', expect.objectContaining({
+      instrument_id: 'i-1',
+    }));
+    live.stop();
+  });
+
+  it('applies a repeated event identifier exactly once even across event names', () => {
+    const sources: FakeSource[] = [];
+    const refresh = vi.fn();
+    const live = new MarketDataLive({
+      sourceFactory: (_url, lastEventId) => {
+        const source = new FakeSource(lastEventId);
+        sources.push(source);
+        return source;
+      },
+      onRefresh: refresh,
+      onState: () => {},
+      reconnectDelayMs: 1_000,
+      staleAfterMs: 10_000,
+    });
+    live.start();
+    sources[0].open();
+    const event = {
+      lastEventId: '9', type: 'daily_bar.changed.v1',
+      data: '{"entity_id":"bar-1","instrument_id":"i-1"}',
+    };
+    sources[0].named(event);
+    sources[0].named(event);
+    expect(refresh).toHaveBeenCalledTimes(1);
     live.stop();
   });
 });
@@ -174,6 +251,13 @@ class FakeSource implements LiveEventSource {
   open(): void { this.emit('open', { lastEventId: '', type: 'open', data: '' }); }
   error(): void { this.emit('error', { lastEventId: '', type: 'error', data: '' }); }
   message(event: LiveEvent): void { this.emit('message', event); }
+  /**
+   * Dispatch under the event's own name, which is what the server actually sends: the SSE
+   * writer emits "event: daily_bar.changed.v1", and a real EventSource routes that to a
+   * listener registered for that name and never to the generic 'message' one.
+   */
+  named(event: LiveEvent): void { this.emit(event.type, event); }
+  subscribed(): string[] { return [...this.listeners.keys()]; }
 
   private emit(type: string, event: LiveEvent): void {
     for (const listener of this.listeners.get(type) ?? []) listener(event);

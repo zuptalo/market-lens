@@ -364,6 +364,96 @@ async function mockAccount(page: Page, authenticated: boolean): Promise<void> {
     active_session_count: 1, created_at: '2026-08-31T08:00:00Z',
   }], next_cursor: '' } }));
   await page.route('**/api/v1/owner/invitations', (route) => route.fulfill({ json: { items: [], next_cursor: '' } }));
-  await page.route('**/api/v1/instruments?*', (route) => route.fulfill({ json: { items: [] } }));
+  await page.route('**/api/v1/instruments?*', (route) => route.fulfill({ json: { items: [{
+    id: '11111111-1111-4111-8111-111111111111', isin: 'SE0000000200', ticker: 'GAPPY',
+    name: 'Interrupted History AB', exchange: { mic: 'XSTO', name: 'Nasdaq Stockholm' },
+    currency: 'SEK', country: 'SE', sector: 'Technology', industry: 'Software',
+    instrument_type: 'common_stock', status: 'active', purchasability_status: 'unverified',
+    latest_session: '2026-06-02', latest_close: '109.50', change_absolute: '1.00',
+    change_percent: 0.0092, return_20: 0.0412, return_90: null, volatility: 0.1875,
+    stored_sessions: 120, freshness: { state: 'current', sessions_behind: 0 },
+  }], next_cursor: null } }));
+  await page.route('**/api/v1/instruments/*/history*', (route) => route.fulfill({ json: {
+    instrument: {
+      id: '11111111-1111-4111-8111-111111111111', isin: 'SE0000000200', ticker: 'GAPPY',
+      name: 'Interrupted History AB', exchange: { mic: 'XSTO', name: 'Nasdaq Stockholm' },
+      currency: 'SEK', country: 'SE', sector: 'Technology', industry: 'Software',
+      instrument_type: 'common_stock', status: 'active', purchasability_status: 'unverified',
+      latest_session: '2026-06-02', latest_close: '109.50', change_absolute: '1.00',
+      change_percent: 0.0092, return_20: 0.0412, return_90: null, volatility: 0.1875,
+      stored_sessions: 120, freshness: { state: 'current', sessions_behind: 0 },
+    },
+    coverage: { first_session: '2026-01-05', last_session: '2026-06-02', stored_sessions: 120 },
+    requested_from: '2026-05-18', requested_to: '2026-06-02',
+    bars: [
+      { session_date: '2026-05-18', open: '100.00', high: '101.50', low: '98.50', close: '100.50', adjusted_close: null, volume: 1000 },
+      { session_date: '2026-05-27', open: '105.00', high: '106.50', low: '103.50', close: '105.50', adjusted_close: null, volume: 1042 },
+    ],
+    missing_sessions: ['2026-05-25', '2026-05-26'],
+    series_basis: 'provider_adjusted', provider: 'fixture', observed_at: '2026-06-02T17:30:00Z',
+    actions: [{ id: 'a1', action_type: 'split', ex_date: '2026-05-27', ratio: '2', amount: null, currency: null, old_symbol: null, new_symbol: null }],
+    findings: [{ id: 'f1', rule: 'suspicious_jump', status: 'open', session_date: '2026-05-27', detail: 'close moved more than the threshold' }],
+  } }));
   await page.route('**/api/v1/market-data/imports?*', (route) => route.fulfill({ json: { items: [] } }));
 }
+
+/**
+ * The two views feature 005 adds carry the heaviest accessibility burden in the product: a
+ * data-dense table and a chart. Both are measured here rather than asserted in a review.
+ */
+for (const path of ['/markets', '/markets/11111111-1111-4111-8111-111111111111']) {
+  test(`${path} has named controls, visible focus and readable contrast`, async ({ page }) => {
+    await mockAccount(page, true);
+    await page.goto(path);
+    await expect(page.getByRole('heading').first()).toBeVisible();
+
+    await expectAccessibleNames(page);
+    await expectReadableContrast(page);
+  });
+
+  for (const viewport of VIEWPORTS) {
+    test(`${path} fits and stays usable at ${viewport.name}`, async ({ page }) => {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await mockAccount(page, true);
+      await page.goto(path);
+      await expect(page.getByRole('heading').first()).toBeVisible();
+
+      expect(await horizontallyOverflows(page), `${path} overflows at ${viewport.name}`).toBe(false);
+
+      // Every primary control must be comfortably operable by touch. A 24-pixel target on a
+      // phone is a target people miss.
+      const tooSmall = await page.evaluate(() => {
+        const offending: string[] = [];
+        for (const element of Array.from(document.querySelectorAll('button, a[href], select, input'))) {
+          const rect = element.getBoundingClientRect();
+          if (rect.width === 0 && rect.height === 0) continue;
+          const style = window.getComputedStyle(element);
+          if (style.display === 'none' || style.visibility === 'hidden') continue;
+          // The charting library renders its own attribution link inside the chart. Its size
+          // and placement are the library's, the licence requires the link to be present, and
+          // enlarging or removing it is not ours to do. Everything else is ours and is held
+          // to the minimum.
+          if (element.closest('.price-chart')) continue;
+          if (rect.height < 24 || rect.width < 24) {
+            offending.push(`${element.tagName}:${(element.textContent ?? '').trim().slice(0, 24)}`);
+          }
+        }
+        return offending;
+      });
+      expect(tooSmall, `controls below the minimum touch target at ${viewport.name}`).toEqual([]);
+    });
+  }
+}
+
+test('the chart states in words everything it draws', async ({ page }) => {
+  await mockAccount(page, true);
+  await page.goto('/markets/11111111-1111-4111-8111-111111111111');
+  await expect(page.getByRole('heading', { name: 'Stored daily history' })).toBeVisible();
+
+  // A canvas is opaque to a screen reader. Each of these is a fact the chart shows visually
+  // and must therefore also state as text (FR-017).
+  await expect(page.getByText(/2 sessions the exchange was open with no stored bar/)).toBeVisible();
+  await expect(page.getByText(/Provider-adjusted/)).toBeVisible();
+  await expect(page.getByText('suspicious_jump')).toBeVisible();
+  await expect(page.getByText(/2026-01-05/)).toBeVisible();
+});

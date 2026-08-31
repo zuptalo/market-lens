@@ -158,6 +158,7 @@ const authorizedEventTypes = [
   'owner.password_reset.v1',
   'session.created.v1', 'session.revoked.v1', 'sessions.revoked.v1',
   'daily_bar.changed.v1', 'import_item.changed.v1', 'import_run.changed.v1', 'quality_finding.changed.v1',
+  'corporate_action.changed.v1',
 ] as const;
 
 function validScope(value: unknown): value is 'shared' | 'user' | 'owner' {

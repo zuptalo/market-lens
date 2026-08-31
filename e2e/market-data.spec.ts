@@ -117,41 +117,57 @@ test('shows failed import accessibly in every theme and does not overflow at 320
 
 test('searches, inspects, and returns with instrument state across responsive input modes', async ({ page, isMobile }) => {
   const instrumentID = '33000000-0000-4000-8000-000000000001';
+  const listingRow = {
+    id: instrumentID, isin: 'SE0000000100', ticker: 'ALFA', name: 'Alpha AB',
+    exchange: { mic: 'XSTO', name: 'Nasdaq Stockholm' },
+    currency: 'SEK', country: 'SE', sector: 'Industrials', industry: 'Machinery',
+    instrument_type: 'common_stock', status: 'active', purchasability_status: 'unverified',
+    latest_session: '2026-08-28', latest_close: '101.25', change_absolute: '1.25',
+    change_percent: 0.0125, return_20: null, return_90: null, volatility: null,
+    stored_sessions: 2, freshness: { state: 'current', sessions_behind: 0 },
+  };
   await page.route('**/api/v1/market-data/imports?*', (route) => route.fulfill({ json: { items: [] } }));
-  await page.route('**/api/v1/instruments?*', (route) => route.fulfill({ json: { items: [{
-    id: instrumentID, isin: 'SE0000000100', ticker: 'ALFA', name: 'Alpha AB',
-    exchange: { mic: 'XSTO', name: 'Nasdaq Stockholm', timezone: 'Europe/Stockholm' },
-    currency: 'SEK', country: 'SE', instrument_type: 'common_stock', active: true,
-    purchasability_status: 'unverified',
-  }], next_cursor: null } }));
-  await page.route(`**/api/v1/instruments/${instrumentID}`, (route) => route.fulfill({ json: {
-    id: instrumentID, isin: 'SE0000000100', ticker: 'ALFA', name: 'Alpha AB',
-    exchange: { mic: 'XSTO', name: 'Nasdaq Stockholm', timezone: 'Europe/Stockholm' },
-    currency: 'SEK', country: 'SE', instrument_type: 'common_stock', active: true,
-    purchasability_status: 'unverified',
-    latest_bar: { session_date: '2026-08-28', open: '100.125', high: '102.5', low: '99.75', close: '101.25', adjusted_close: null, volume: 1234, currency: 'SEK', provider: 'fixture', observed_at: '2026-08-29T18:30:00Z' },
-    history: { first_session: '2026-08-27', last_session: '2026-08-28', bar_count: 2 },
-    quality_summary: { open_warnings: 1, open_errors: 0 },
+  await page.route('**/api/v1/instruments?*', (route) =>
+    route.fulfill({ json: { items: [listingRow], next_cursor: null } }));
+  await page.route(`**/api/v1/instruments/${instrumentID}/history*`, (route) => route.fulfill({ json: {
+    instrument: listingRow,
+    coverage: { first_session: '2026-08-27', last_session: '2026-08-28', stored_sessions: 2 },
+    requested_from: '2026-08-27', requested_to: '2026-08-28',
+    bars: [
+      { session_date: '2026-08-27', open: '100.125', high: '102.5', low: '99.75', close: '100.00', adjusted_close: null, volume: 1200 },
+      { session_date: '2026-08-28', open: '100.125', high: '102.5', low: '99.75', close: '101.25', adjusted_close: null, volume: 1234 },
+    ],
+    missing_sessions: [],
+    series_basis: 'raw', provider: 'fixture', observed_at: '2026-08-29T18:30:00Z',
+    actions: [], findings: [],
   } }));
-  await page.route(`**/api/v1/instruments/${instrumentID}/prices?*`, (route) => route.fulfill({ json: { items: [], next_cursor: null } }));
 
   await page.goto('/markets');
+  // Below the tablet breakpoint the filters live in a sheet rather than above the list.
+  if (isMobile) await page.getByTestId('open-filters').click();
   const search = page.getByRole('searchbox', { name: 'Search instruments' });
   await search.fill('ALFA');
   // The exchange filter is a combobox rather than a native select, so it is driven the way a
   // person does: open it and choose the option by its name.
-  await page.getByLabel('Exchange').click();
+  await page.getByRole('combobox', { name: 'Exchange' }).click();
   await page.getByRole('option', { name: 'XSTO', exact: true }).click();
   await expect(page).toHaveURL(/q=ALFA/);
+  if (isMobile) {
+    // The sheet is modal: its mask intercepts pointer events, so it has to be dismissed
+    // before the list underneath can be tapped. That is the real interaction on a phone.
+    await page.getByRole('button', { name: 'Close' }).click();
+    await expect(page.locator('.p-drawer-mask')).toHaveCount(0);
+  }
+
   const result = page.getByRole('link', { name: /Alpha AB.*ALFA.*XSTO/i });
   if (isMobile) await result.tap(); else await result.press('Enter');
 
   await expect(page).toHaveURL(new RegExp(`/markets/${instrumentID}`));
   await expect(page.getByRole('heading', { name: 'Alpha AB' })).toBeVisible();
-  await expect(page.getByText('Latest known daily value')).toBeVisible();
-  await expect(page.getByText('Session 2026-08-28')).toBeVisible();
-  await expect(page.getByText('101.25 SEK')).toBeVisible();
-  await expect(page.getByText(/1 open warning/i)).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Stored daily history' })).toBeVisible();
+  // The window and the coverage behind it are stated in words, not only drawn.
+  await expect(page.getByText(/2026-08-27/).first()).toBeVisible();
+  await expect(page.getByText(/Raw closes as observed/)).toBeVisible();
 
   for (let theme = 0; theme < 3; theme += 1) {
     await expect(page.getByRole('heading', { name: 'Alpha AB' })).toBeVisible();
@@ -164,9 +180,12 @@ test('searches, inspects, and returns with instrument state across responsive in
   }
 
   await page.getByRole('link', { name: 'Back to instruments' }).click();
+  if (isMobile) await page.getByTestId('open-filters').click();
   await expect(search).toHaveValue('ALFA');
   // A combobox reports its selection as text, not as an input value.
-  await expect(page.getByLabel('Exchange')).toContainText('XSTO');
+  // Scoped by role: the active-filter chip also names the exchange, which is the point of a
+  // removable chip but makes a bare label lookup ambiguous.
+  await expect(page.getByRole('combobox', { name: 'Exchange' })).toContainText('XSTO');
   await page.setViewportSize({ width: 320, height: 800 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
 });

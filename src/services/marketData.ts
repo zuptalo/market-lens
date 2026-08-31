@@ -3,9 +3,11 @@ import type {
   DailyBarSummary,
   ImportRunSummary,
   InstrumentDetail,
-  InstrumentPage,
+  InstrumentListingPage,
+  InstrumentListingRow,
   InstrumentSummary,
-  PricePage,
+  ListingQuery,
+  HistoryWindow,
 } from '@/types/marketData';
 
 export interface LiveEvent {
@@ -20,23 +22,6 @@ export interface LiveEventSource {
 }
 
 export type Fetcher = (input: string, init?: RequestInit) => Promise<Pick<Response, 'ok' | 'json'>>;
-
-export interface InstrumentSearchParams {
-  query?: string;
-  mic?: string;
-  country?: string;
-  currency?: string;
-  active?: boolean;
-  cursor?: string;
-  limit?: number;
-}
-
-export interface PriceSearchParams {
-  from?: string;
-  to?: string;
-  cursor?: string;
-  limit?: number;
-}
 
 interface InstrumentWire {
   id: string;
@@ -70,22 +55,6 @@ interface InstrumentDetailWire extends InstrumentWire {
   quality_summary: { open_warnings: number; open_errors: number };
 }
 
-export async function fetchInstruments(params: InstrumentSearchParams = {}, fetcher: Fetcher = fetch, signal?: AbortSignal): Promise<InstrumentPage> {
-  const query = new URLSearchParams();
-  if (params.query) query.set('q', params.query);
-  if (params.mic) query.set('exchange', params.mic);
-  if (params.country) query.set('country', params.country);
-  if (params.currency) query.set('currency', params.currency);
-  if (params.active !== undefined) query.set('active', String(params.active));
-  if (params.cursor) query.set('cursor', params.cursor);
-  if (params.limit !== undefined) query.set('limit', String(params.limit));
-  const response = await fetcher(`/api/v1/instruments?${query.toString()}`, { signal });
-  if (!response.ok) throw new Error('Unable to load instruments.');
-  const body = await response.json() as { items?: InstrumentWire[]; next_cursor?: string | null };
-  if (!Array.isArray(body.items)) throw new Error('Unable to load instruments.');
-  return { items: body.items.map(instrumentFromWire), nextCursor: body.next_cursor ?? null };
-}
-
 export async function fetchInstrument(id: string, fetcher: Fetcher = fetch, signal?: AbortSignal): Promise<InstrumentDetail> {
   const response = await fetcher(`/api/v1/instruments/${encodeURIComponent(id)}`, { signal });
   if (!response.ok) throw new Error('Unable to load instrument market data.');
@@ -98,32 +67,179 @@ export async function fetchInstrument(id: string, fetcher: Fetcher = fetch, sign
   };
 }
 
-export async function fetchDailyPrices(id: string, params: PriceSearchParams = {}, fetcher: Fetcher = fetch, signal?: AbortSignal): Promise<PricePage> {
+/** Wire shape of one listing row. Mirrors the contract exactly so the mapping stays honest. */
+interface ListingRowWire {
+  id: string;
+  isin: string;
+  ticker: string;
+  name: string;
+  exchange: { mic: string; name: string; timezone?: string };
+  currency: string;
+  country: string;
+  sector: string;
+  industry: string;
+  instrument_type: 'common_stock';
+  status: 'active' | 'inactive';
+  purchasability_status: InstrumentSummary['purchasabilityStatus'];
+  latest_session: string | null;
+  latest_close: string | null;
+  change_absolute: string | null;
+  change_percent: number | null;
+  return_20: number | null;
+  return_90: number | null;
+  volatility: number | null;
+  stored_sessions: number;
+  freshness: { state: 'current' | 'stale' | 'no_history'; sessions_behind: number | null };
+}
+
+function listingRowFromWire(row: ListingRowWire): InstrumentListingRow {
+  return {
+    id: row.id,
+    ticker: row.ticker,
+    name: row.name,
+    isin: row.isin,
+    exchange: { mic: row.exchange.mic, name: row.exchange.name },
+    sector: row.sector || null,
+    industry: row.industry || null,
+    country: row.country,
+    currency: row.currency,
+    status: row.status,
+    latestSession: row.latest_session,
+    latestClose: row.latest_close,
+    changeAbsolute: row.change_absolute,
+    // `?? null` and never `?? 0`: an absent statistic stays absent all the way to the screen.
+    changePercent: row.change_percent ?? null,
+    return20: row.return_20 ?? null,
+    return90: row.return_90 ?? null,
+    volatility: row.volatility ?? null,
+    storedSessions: row.stored_sessions,
+    freshness: {
+      state: row.freshness.state,
+      sessionsBehind: row.freshness.sessions_behind ?? null,
+    },
+  };
+}
+
+export function listingQueryString(query: ListingQuery): string {
+  const params = new URLSearchParams();
+  if (query.query) params.set('q', query.query);
+  if (query.mic) params.set('mic', query.mic);
+  if (query.country) params.set('country', query.country);
+  if (query.currency) params.set('currency', query.currency);
+  if (query.sector) params.set('sector', query.sector);
+  if (query.status) params.set('status', query.status);
+  if (query.sort) params.set('sort', query.sort);
+  if (query.order) params.set('order', query.order);
+  if (query.cursor) params.set('cursor', query.cursor);
+  if (query.limit !== undefined) params.set('limit', String(query.limit));
+  return params.toString();
+}
+
+export async function fetchInstrumentListing(
+  query: ListingQuery = {},
+  fetcher: Fetcher = fetch,
+  signal?: AbortSignal,
+): Promise<InstrumentListingPage> {
+  const response = await fetcher(`/api/v1/instruments?${listingQueryString(query)}`, { signal });
+  if (!response.ok) throw new Error('Unable to load instruments.');
+  const body = await response.json() as { items?: ListingRowWire[]; next_cursor?: string | null };
+  if (!Array.isArray(body.items)) throw new Error('Unable to load instruments.');
+  return { items: body.items.map(listingRowFromWire), nextCursor: body.next_cursor ?? null };
+}
+
+interface HistoryWindowWire {
+  instrument: ListingRowWire;
+  coverage: { first_session: string | null; last_session: string | null; stored_sessions: number };
+  requested_from: string | null;
+  requested_to: string | null;
+  bars: Array<{
+    session_date: string; open: string; high: string; low: string; close: string;
+    adjusted_close: string | null; volume: number;
+  }>;
+  missing_sessions: string[];
+  series_basis: 'raw' | 'provider_adjusted';
+  provider: string | null;
+  observed_at: string | null;
+  actions: Array<{
+    id: string; action_type: HistoryWindow['actions'][number]['actionType']; ex_date: string;
+    ratio: string | null; amount: string | null; currency: string | null;
+    old_symbol: string | null; new_symbol: string | null;
+  }>;
+  findings: Array<{
+    id: string; rule: string; status: string; session_date: string | null; detail: string | null;
+  }>;
+}
+
+export async function fetchInstrumentHistory(
+  id: string,
+  params: { sessions?: number; to?: string } = {},
+  fetcher: Fetcher = fetch,
+  signal?: AbortSignal,
+): Promise<HistoryWindow> {
   const query = new URLSearchParams();
-  if (params.from) query.set('from', params.from);
+  if (params.sessions !== undefined) query.set('sessions', String(params.sessions));
   if (params.to) query.set('to', params.to);
-  if (params.cursor) query.set('cursor', params.cursor);
-  if (params.limit !== undefined) query.set('limit', String(params.limit));
-  const response = await fetcher(`/api/v1/instruments/${encodeURIComponent(id)}/prices?${query.toString()}`, { signal });
+  const response = await fetcher(
+    `/api/v1/instruments/${encodeURIComponent(id)}/history?${query.toString()}`, { signal });
   if (!response.ok) throw new Error('Unable to load instrument history.');
-  const body = await response.json() as { items?: DailyBarWire[]; next_cursor?: string | null };
-  if (!Array.isArray(body.items)) throw new Error('Unable to load instrument history.');
-  return { items: body.items.map(barFromWire), nextCursor: body.next_cursor ?? null };
+  const body = await response.json() as HistoryWindowWire;
+  return {
+    instrument: listingRowFromWire(body.instrument),
+    coverage: {
+      firstSession: body.coverage.first_session,
+      lastSession: body.coverage.last_session,
+      storedSessions: body.coverage.stored_sessions,
+    },
+    requestedFrom: body.requested_from,
+    requestedTo: body.requested_to,
+    bars: body.bars.map((bar) => ({
+      sessionDate: bar.session_date,
+      open: bar.open,
+      high: bar.high,
+      low: bar.low,
+      close: bar.close,
+      adjustedClose: bar.adjusted_close,
+      volume: bar.volume,
+    })),
+    // Kept as dates rather than collapsed to a count: the chart has to interrupt the series
+    // at exactly these sessions, and a number cannot say where.
+    missingSessions: [...body.missing_sessions],
+    seriesBasis: body.series_basis,
+    provider: body.provider,
+    observedAt: body.observed_at,
+    actions: body.actions.map((action) => ({
+      id: action.id,
+      actionType: action.action_type,
+      exDate: action.ex_date,
+      ratio: action.ratio,
+      amount: action.amount,
+      currency: action.currency,
+      oldSymbol: action.old_symbol,
+      newSymbol: action.new_symbol,
+    })),
+    findings: body.findings.map((finding) => ({
+      id: finding.id,
+      rule: finding.rule,
+      status: finding.status,
+      sessionDate: finding.session_date,
+      detail: finding.detail,
+    })),
+  };
 }
 
 export class InstrumentSearchClient {
   private controller?: AbortController;
   private sequence = 0;
 
-  constructor(private readonly fetcher: Fetcher, private readonly onResult: (page: InstrumentPage) => void) {}
+  constructor(private readonly fetcher: Fetcher, private readonly onResult: (page: InstrumentListingPage) => void) {}
 
-  async search(params: InstrumentSearchParams): Promise<void> {
+  async search(params: ListingQuery): Promise<void> {
     this.controller?.abort();
     const controller = new AbortController();
     this.controller = controller;
     const sequence = ++this.sequence;
     try {
-      const page = await fetchInstruments(params, this.fetcher, controller.signal);
+      const page = await fetchInstrumentListing(params, this.fetcher, controller.signal);
       if (sequence === this.sequence && !controller.signal.aborted) this.onResult(page);
     } catch (error) {
       if (!controller.signal.aborted) throw error;
@@ -197,10 +313,36 @@ function safeImportErrorSummary(value: string | null): string | null {
 
 interface LiveOptions {
   sourceFactory: (url: string, lastEventId: string) => LiveEventSource;
-  onRefresh: (entityType: string, entityId: string) => void;
+  onRefresh: (entityType: string, entityId: string, payload: LiveEventPayload) => void;
   onState: (state: ConnectionState) => void;
   reconnectDelayMs: number;
   staleAfterMs: number;
+}
+
+/**
+ * The market-data events this client applies.
+ *
+ * The server writes each one as a *named* SSE event ("event: daily_bar.changed.v1"), and a
+ * browser EventSource routes a named event to a listener registered for that name — never to
+ * the generic 'message' one. Subscribing only to 'message' therefore receives nothing at all,
+ * which is a silent failure: the connection is open, the state says connected, and no update
+ * ever arrives.
+ */
+export const MARKET_DATA_EVENT_TYPES = [
+  'daily_bar.changed.v1',
+  'import_run.changed.v1',
+  'import_item.changed.v1',
+  'quality_finding.changed.v1',
+  'corporate_action.changed.v1',
+] as const;
+
+/** What a market-data event says about the change it reports. */
+export interface LiveEventPayload {
+  entity_id?: string;
+  entity_type?: string;
+  instrument_id?: string;
+  session_date?: string;
+  ex_date?: string;
 }
 
 export class MarketDataLive {
@@ -253,6 +395,11 @@ export class MarketDataLive {
       this.staleTimer = undefined;
       this.options.onState('connected');
     });
+    // Both: the named types the server actually sends, and 'message' so an unnamed event
+    // (or a future one) is still applied rather than dropped.
+    for (const type of MARKET_DATA_EVENT_TYPES) {
+      source.addEventListener(type, (event) => this.onMessage(event));
+    }
     source.addEventListener('message', (event) => this.onMessage(event));
     source.addEventListener('error', () => {
       if (this.source !== source) return;
@@ -278,9 +425,11 @@ export class MarketDataLive {
       if (this.seen.size > 200) this.seen.delete(this.seen.values().next().value ?? '');
     }
     try {
-      const data = JSON.parse(event.data) as { entity_type?: string; entity_id?: string };
+      const data = JSON.parse(event.data) as LiveEventPayload;
       const entityType = data.entity_type ?? event.type.split('.changed.')[0];
-      if (entityType && data.entity_id) this.options.onRefresh(entityType, data.entity_id);
+      // The payload travels with the callback so a view can refresh only the row or window
+      // the change concerns, instead of refetching everything and losing the person's place.
+      if (entityType && data.entity_id) this.options.onRefresh(entityType, data.entity_id, data);
     } catch {
       // Malformed invalidations are ignored; the stream remains usable.
     }

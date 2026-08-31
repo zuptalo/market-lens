@@ -89,7 +89,15 @@ a { color: inherit; }
 .instrument-results a { display: grid; grid-template-columns: minmax(10rem, 2fr) minmax(8rem, 1fr) minmax(10rem, 1fr); gap: .75rem; padding: 1rem; border: 1px solid color-mix(in srgb, currentColor 14%, transparent); border-radius: .8rem; text-decoration: none; }
 .instrument-results a:hover, .instrument-results a:focus-visible { border-color: #0f766e; background: color-mix(in srgb, #0f766e 8%, transparent); }
 .instrument-detail-view, .instrument-identity { display: grid; gap: 1.5rem; }
-.back-link { width: fit-content; font-weight: 700; }
+.back-link {
+  width: fit-content;
+  font-weight: 700;
+  /* Comfortably operable by touch. A one-line link is about sixteen pixels tall, which is a
+     target people miss on a phone. */
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+}
 .instrument-identity h2 { margin: .25rem 0; font-size: clamp(2rem, 6vw, 3.5rem); }
 .identity-meta { display: flex; flex-wrap: wrap; gap: .5rem 1rem; color: color-mix(in srgb, currentColor 68%, transparent); }
 .latest-known { padding: clamp(1rem, 3vw, 1.5rem); border: 1px solid color-mix(in srgb, currentColor 14%, transparent); border-radius: 1rem; }

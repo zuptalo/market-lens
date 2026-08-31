@@ -1,0 +1,88 @@
+import { mount } from '@vue/test-utils';
+import PrimeVue from 'primevue/config';
+import { describe, expect, it } from 'vitest';
+import InstrumentTable from './InstrumentTable.vue';
+import {
+  buildListingRow,
+  buildRowWithNoHistory,
+  buildRowWithTooFewSessions,
+} from '@/services/__fixtures__/marketData';
+
+function mountTable(overrides: Record<string, unknown> = {}) {
+  return mount(InstrumentTable, {
+    global: { plugins: [PrimeVue] },
+    props: {
+      rows: [buildListingRow(), buildRowWithTooFewSessions(), buildRowWithNoHistory()],
+      loading: false,
+      sort: 'name',
+      order: 'asc',
+      visibleColumns: ['sector', 'return20', 'volatility'],
+      ...overrides,
+    },
+  });
+}
+
+describe('InstrumentTable', () => {
+  it('asks the server to reorder the whole result set instead of sorting the page it holds', async () => {
+    const wrapper = mountTable();
+    const sortableHeader = wrapper.findAll('th').find((th) => th.text().includes('20-session'));
+    expect(sortableHeader).toBeTruthy();
+    await sortableHeader!.trigger('click');
+
+    // Sorting the rows already fetched would reorder three rows and quietly mislead: page two
+    // holds values that belong on page one. The table's only correct response is to ask for a
+    // new ordering (FR-005).
+    expect(wrapper.emitted('sort')).toBeTruthy();
+    expect(wrapper.emitted('sort')![0][0]).toEqual({ sort: 'return_20', order: 'asc' });
+  });
+
+  it('preserves the order the server returned rather than re-sorting locally', () => {
+    const rows = [
+      buildListingRow({ id: 'b', name: 'Beta AB' }),
+      buildListingRow({ id: 'a', name: 'Alpha AB' }),
+    ];
+    const wrapper = mountTable({ rows });
+    const text = wrapper.text();
+    // The server ordered these; a table that re-sorts by name would swap them and would then
+    // disagree with the cursor that produced them.
+    expect(text.indexOf('Beta AB')).toBeLessThan(text.indexOf('Alpha AB'));
+  });
+
+  it('shows an uncomputable statistic as an explicit absence, never as zero', () => {
+    const wrapper = mountTable({ rows: [buildRowWithTooFewSessions()] });
+    const text = wrapper.text();
+    expect(text).not.toContain('0.00%');
+    // The reader is told why the value is missing rather than being shown a number that
+    // looks like an observation.
+    expect(text).toMatch(/—|Not enough sessions/);
+  });
+
+  it('tells an instrument with no history apart from one that simply has not moved', () => {
+    const wrapper = mountTable({ rows: [buildRowWithNoHistory()] });
+    const text = wrapper.text();
+    expect(text).toContain('No stored history');
+    expect(text).not.toContain('0 sessions behind');
+  });
+
+  it('states each price in its own currency and never implies a comparison', () => {
+    const wrapper = mountTable();
+    expect(wrapper.text()).toContain('SEK');
+    expect(wrapper.text()).toContain('DKK');
+  });
+
+  it('hides an optional column the device has turned off', () => {
+    const wrapper = mountTable({ visibleColumns: ['sector'] });
+    const headers = wrapper.findAll('th').map((th) => th.text());
+    expect(headers.join(' ')).toContain('Sector');
+    expect(headers.join(' ')).not.toContain('Volatility');
+  });
+
+  it('labels every cell so the table can stack into cards on a narrow screen', () => {
+    const wrapper = mountTable();
+    // The mobile treatment is a stacked card per instrument; each cell carries its own label
+    // so it stays readable once the header row is no longer beside it.
+    const labelled = wrapper.findAll('td[data-label]');
+    expect(labelled.length).toBeGreaterThan(0);
+    expect(labelled.map((cell) => cell.attributes('data-label'))).toContain('Close');
+  });
+});

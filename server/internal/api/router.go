@@ -148,6 +148,7 @@ func NewRouter(deps Dependencies) http.Handler {
 		protected.HandleFunc("GET /api/v1/instruments", listInstrumentsHandler(deps.Instruments))
 		protected.HandleFunc("GET /api/v1/instruments/{id}", getInstrumentHandler(deps.Instruments))
 		protected.HandleFunc("GET /api/v1/instruments/{id}/prices", listInstrumentPricesHandler(deps.Instruments))
+		protected.HandleFunc("GET /api/v1/instruments/{id}/history", getInstrumentHistoryHandler(deps.Instruments))
 	}
 	if deps.Events != nil {
 		protected.HandleFunc("GET /api/v1/events", eventsHandler(deps.Events, deps.EventHeartbeat,
