@@ -296,15 +296,32 @@ func mapDividend(symbol string, row dividendResponse) (marketdata.ProviderAction
 	return marketdata.ProviderAction{ProviderActionID: sourceHash(canonical), Type: marketdata.ActionDividend, ExDate: date, Amount: &amount, Currency: currency, SourceHash: sourceHash(canonical)}, nil
 }
 
+// parseSplitRatio reads the split factor EODHD reports.
+//
+// It arrives as a fraction of two decimals — "2.000000/1.000000" for a two-for-one — and
+// big.Rat only accepts a fraction whose parts are integers. Handing it the whole string
+// rejected every real split, and because one unusable action fails the entire page, every
+// instrument that had ever split imported nothing at all.
+//
+// So each side is parsed on its own, where a decimal is perfectly acceptable, and the
+// division is done here.
 func parseSplitRatio(value string) (marketdata.Decimal, error) {
+	value = strings.TrimSpace(value)
 	if !strings.Contains(value, "/") {
 		return marketdata.ParseDecimal(value)
 	}
-	ratio, ok := new(big.Rat).SetString(value)
-	if !ok || ratio.Sign() <= 0 {
+
+	numerator, denominator, _ := strings.Cut(value, "/")
+	top, ok := new(big.Rat).SetString(strings.TrimSpace(numerator))
+	if !ok {
 		return "", errors.New("invalid split ratio")
 	}
-	return marketdata.ParseDecimal(ratio.FloatString(8))
+	bottom, ok := new(big.Rat).SetString(strings.TrimSpace(denominator))
+	// A zero denominator is not a split, and neither is a zero or negative factor.
+	if !ok || bottom.Sign() <= 0 || top.Sign() <= 0 {
+		return "", errors.New("invalid split ratio")
+	}
+	return marketdata.ParseDecimal(new(big.Rat).Quo(top, bottom).FloatString(8))
 }
 
 func statusError(response *http.Response) error {
