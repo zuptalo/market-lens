@@ -393,3 +393,39 @@ func inactivateMissing(ctx context.Context, tx pgx.Tx, universeID UUID, provider
 		WHERE provider=$1 AND instrument_id::text = ANY($2)`, provider, missing)
 	return err
 }
+
+// Listing answers the universe list. It defaults and bounds everything the caller may leave
+// open, and refuses anything outside the contract's enumerations rather than passing it to
+// the query and hoping.
+func (s *QueryService) Listing(ctx context.Context, filter ListingFilter) (ListingPage, error) {
+	if filter.Limit == 0 {
+		filter.Limit = 50
+	}
+	if filter.Limit < 1 || filter.Limit > 200 {
+		return ListingPage{}, fmt.Errorf("%w: limit must be between 1 and 200", ErrInvalidQuery)
+	}
+	if len(filter.Query) > 120 || len(filter.Cursor) > 512 || len(filter.Sector) > 120 {
+		return ListingPage{}, fmt.Errorf("%w: filter value is too long", ErrInvalidQuery)
+	}
+	if !validCode(filter.MIC, 4) || !validCode(filter.Country, 2) || !validCode(filter.Currency, 3) {
+		return ListingPage{}, fmt.Errorf("%w: invalid exchange, country, or currency code", ErrInvalidQuery)
+	}
+	if filter.Sort == "" {
+		filter.Sort = SortName
+	}
+	if _, ok := listingSorts[filter.Sort]; !ok {
+		return ListingPage{}, fmt.Errorf("%w: unsupported sort %q", ErrInvalidQuery, filter.Sort)
+	}
+	switch filter.Status {
+	case "", "active", "inactive":
+	default:
+		return ListingPage{}, fmt.Errorf("%w: unsupported status %q", ErrInvalidQuery, filter.Status)
+	}
+	// Freshness has to be measured against something. Left to the query it would silently
+	// become "whenever this row was computed", so the boundary fixes it here and the tests
+	// pass their own date.
+	if filter.AsOf == "" {
+		filter.AsOf = SessionDate(time.Now().UTC().Format("2006-01-02"))
+	}
+	return s.repository.Listing(ctx, filter)
+}

@@ -4,7 +4,7 @@ import {
 	MarketDataLive,
 	fetchDailyPrices,
 	fetchInstrument,
-	fetchInstruments,
+	fetchInstrumentListing,
 	fetchRecentImports,
   type LiveEvent,
   type LiveEventSource,
@@ -16,8 +16,11 @@ describe('instrument snapshots', () => {
       .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [{
         id: '33000000-0000-4000-8000-000000000001', isin: 'SE0000000100', ticker: 'ALFA',
         name: 'Alpha AB', exchange: { mic: 'XSTO', name: 'Nasdaq Stockholm', timezone: 'Europe/Stockholm' },
-        currency: 'SEK', country: 'SE', instrument_type: 'common_stock', active: true,
-        purchasability_status: 'unverified',
+        currency: 'SEK', country: 'SE', sector: 'Technology', industry: 'Software',
+        instrument_type: 'common_stock', status: 'active', purchasability_status: 'unverified',
+        latest_session: '2026-08-28', latest_close: '101.25', change_absolute: '1.25',
+        change_percent: 0.0125, return_20: null, return_90: null, volatility: null,
+        stored_sessions: 2, freshness: { state: 'current', sessions_behind: 0 },
       }], next_cursor: 'next' }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({
         id: '33000000-0000-4000-8000-000000000001', isin: 'SE0000000100', ticker: 'ALFA', name: 'Alpha AB',
@@ -29,8 +32,8 @@ describe('instrument snapshots', () => {
       }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [], next_cursor: null }) });
 
-    const page = await fetchInstruments({ query: 'al fa', mic: 'XSTO', active: true, limit: 20 }, fetcher);
-    expect(fetcher).toHaveBeenNthCalledWith(1, '/api/v1/instruments?q=al+fa&exchange=XSTO&active=true&limit=20', expect.objectContaining({ signal: undefined }));
+    const page = await fetchInstrumentListing({ query: 'al fa', mic: 'XSTO', status: 'active', limit: 20 }, fetcher);
+    expect(fetcher).toHaveBeenNthCalledWith(1, '/api/v1/instruments?q=al+fa&mic=XSTO&status=active&limit=20', expect.objectContaining({ signal: undefined }));
     expect(page.items[0]).toMatchObject({ ticker: 'ALFA', exchange: { mic: 'XSTO' } });
     expect(page.nextCursor).toBe('next');
 
@@ -57,7 +60,11 @@ describe('instrument snapshots', () => {
     pending[1].resolve({ ok: true, json: async () => ({ items: [{
       id: '33000000-0000-4000-8000-000000000002', isin: 'SE0000000200', ticker: 'NEW', name: 'New AB',
       exchange: { mic: 'XSTO', name: 'Nasdaq Stockholm', timezone: 'Europe/Stockholm' }, currency: 'SEK',
-      country: 'SE', instrument_type: 'common_stock', active: true, purchasability_status: 'unverified',
+      country: 'SE', sector: 'Technology', industry: 'Software', instrument_type: 'common_stock',
+      status: 'active', purchasability_status: 'unverified', latest_session: '2026-08-28',
+      latest_close: '101.25', change_absolute: '1.25', change_percent: 0.0125,
+      return_20: null, return_90: null, volatility: null, stored_sessions: 2,
+      freshness: { state: 'current', sessions_behind: 0 },
     }] }) });
     await second;
     pending[0].resolve({ ok: true, json: async () => ({ items: [] }) });

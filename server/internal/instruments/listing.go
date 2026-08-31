@@ -46,6 +46,13 @@ var listingSorts = map[ListingSort]sortExpression{
 	SortFreshness: {"s.sessions_behind", "int"},
 }
 
+// SupportedListingSort reports whether a sort key is one the contract defines, so the
+// transport boundary can answer 400 without reaching the database.
+func SupportedListingSort(sort ListingSort) bool {
+	_, ok := listingSorts[sort]
+	return ok
+}
+
 var errInvalidListingCursor = errors.New("invalid instrument listing cursor")
 
 type listingCursor struct {

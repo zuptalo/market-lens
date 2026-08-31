@@ -127,6 +127,7 @@ export interface ListingQuery {
   query?: string;
   mic?: string;
   country?: string;
+  currency?: string;
   sector?: string;
   status?: 'active' | 'inactive';
   sort?: ListingSort;

@@ -11,8 +11,6 @@ servers:
 x-market-lens-access-boundary:
   authenticated:
     - /instruments
-    - /instruments/{id}
-    - /instruments/{id}/prices
     - /instruments/{id}/history
   rule: >
     Every operation requires an active session. An instrument identifier that does not
@@ -48,6 +46,7 @@ paths:
         - { name: mic, in: query, schema: { type: string, pattern: '^[A-Z0-9]{4}$' } }
         - { name: country, in: query, schema: { type: string, pattern: '^[A-Z]{2}$' } }
         - { name: sector, in: query, schema: { type: string, maxLength: 120 } }
+        - { name: currency, in: query, schema: { type: string, pattern: '^[A-Z]{3}$' } }
         - { name: status, in: query, schema: { type: string, enum: [active, inactive] } }
         - name: sort
           in: query
@@ -150,6 +149,8 @@ components:
         industry: { type: string }
         country: { type: string }
         currency: { type: string }
+        instrument_type: { type: string, enum: [common_stock] }
+        purchasability_status: { type: string, enum: [user_confirmed, unverified, unavailable] }
         status: { type: string, enum: [active, inactive] }
         latest_session: { type: [string, 'null'], format: date }
         latest_close: { type: [string, 'null'], description: Decimal string in the listing currency }

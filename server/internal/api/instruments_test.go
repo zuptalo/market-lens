@@ -32,12 +32,15 @@ func TestInstrumentReadContracts(t *testing.T) {
 	}
 	router := NewRouter(authenticatedDependencies(Dependencies{Instruments: reader}))
 
-	response := performRequest(router, "/api/v1/instruments?q=alfa&exchange=XSTO&country=SE&currency=SEK&active=true&cursor=cursor&limit=1")
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"mic":"XSTO"`) || !strings.Contains(response.Body.String(), `"next_cursor":"next-page"`) {
-		t.Fatalf("search response = %d %s", response.Code, response.Body.String())
+	response := performRequest(router, "/api/v1/instruments?q=alfa&mic=XSTO&country=SE&currency=SEK&status=active&cursor=cursor&limit=1")
+	if response.Code != http.StatusOK {
+		t.Fatalf("listing response = %d %s", response.Code, response.Body.String())
 	}
-	if reader.search.Query != "alfa" || reader.search.MIC != "XSTO" || reader.search.Country != "SE" || reader.search.Currency != "SEK" || reader.search.Active == nil || !*reader.search.Active || reader.search.Cursor != "cursor" || reader.search.Limit != 1 {
-		t.Fatalf("search filter = %#v", reader.search)
+	if reader.listingFilter.Query != "alfa" || reader.listingFilter.MIC != "XSTO" ||
+		reader.listingFilter.Country != "SE" || reader.listingFilter.Currency != "SEK" ||
+		reader.listingFilter.Status != "active" || reader.listingFilter.Cursor != "cursor" ||
+		reader.listingFilter.Limit != 1 {
+		t.Fatalf("listing filter = %#v", reader.listingFilter)
 	}
 
 	response = performRequest(router, "/api/v1/instruments/"+id.String())
@@ -68,10 +71,10 @@ func TestInstrumentReadContractsValidateAndReturnNotFound(t *testing.T) {
 		want int
 	}{
 		{path: "/api/v1/instruments?q=" + strings.Repeat("a", 121), want: http.StatusBadRequest},
-		{path: "/api/v1/instruments?exchange=bad", want: http.StatusBadRequest},
+		{path: "/api/v1/instruments?mic=bad", want: http.StatusBadRequest},
 		{path: "/api/v1/instruments?country=SWE", want: http.StatusBadRequest},
 		{path: "/api/v1/instruments?currency=SE", want: http.StatusBadRequest},
-		{path: "/api/v1/instruments?active=perhaps", want: http.StatusBadRequest},
+		{path: "/api/v1/instruments?status=perhaps", want: http.StatusBadRequest},
 		{path: "/api/v1/instruments?limit=201", want: http.StatusBadRequest},
 		{path: "/api/v1/instruments/not-a-uuid", want: http.StatusBadRequest},
 		{path: "/api/v1/instruments/" + validID, want: http.StatusNotFound},
@@ -88,17 +91,19 @@ func TestInstrumentReadContractsValidateAndReturnNotFound(t *testing.T) {
 }
 
 type instrumentReaderStub struct {
-	page         instruments.SearchPage
-	inspection   instruments.Inspection
-	prices       instruments.PricePage
-	err          error
-	search       instruments.SearchFilter
-	pricesFilter instruments.PriceFilter
+	listing       instruments.ListingPage
+	listingFilter instruments.ListingFilter
+	page          instruments.SearchPage
+	inspection    instruments.Inspection
+	prices        instruments.PricePage
+	err           error
+	search        instruments.SearchFilter
+	pricesFilter  instruments.PriceFilter
 }
 
-func (s *instrumentReaderStub) Search(_ context.Context, filter instruments.SearchFilter) (instruments.SearchPage, error) {
-	s.search = filter
-	return s.page, s.err
+func (s *instrumentReaderStub) Listing(_ context.Context, filter instruments.ListingFilter) (instruments.ListingPage, error) {
+	s.listingFilter = filter
+	return s.listing, s.err
 }
 
 func (s *instrumentReaderStub) Inspect(context.Context, instruments.UUID) (instruments.Inspection, error) {
@@ -113,3 +118,121 @@ func (s *instrumentReaderStub) Prices(_ context.Context, _ instruments.UUID, fil
 func stringPointer(value string) *string { return &value }
 
 var _ = errors.Is
+
+// The listing endpoint is the one feature 005 changes most: it grows price, derived
+// statistics and freshness, and its query vocabulary moves to the words the contract uses.
+func TestListingEndpointAcceptsTheContractsQueryVocabulary(t *testing.T) {
+	id := mustAPIUUID(t, "33000000-0000-4000-8000-000000000001")
+	behind := 3
+	changePercent := 0.0125
+	return20 := 0.0412
+	latestClose := instruments.Decimal("101.25")
+	changeAbsolute := instruments.Decimal("1.25")
+	reader := &instrumentReaderStub{
+		listing: instruments.ListingPage{Items: []instruments.ListingRow{{
+			Instrument: instruments.Instrument{ID: id, ISIN: "SE0000000100", Ticker: "ALFA",
+				Name: "Alpha AB", Currency: "SEK", Country: "SE", Sector: "Technology",
+				Industry: "Software", Type: instruments.InstrumentTypeCommonStock, Active: true,
+				PurchasabilityStatus: instruments.PurchasabilityUnverified},
+			Exchange:       instruments.Exchange{MIC: "XSTO", Name: "Nasdaq Stockholm", Timezone: "Europe/Stockholm"},
+			LatestSession:  instruments.SessionDate("2026-06-30"),
+			LatestClose:    &latestClose,
+			ChangeAbsolute: &changeAbsolute,
+			ChangePercent:  &changePercent,
+			Return20:       &return20,
+			StoredSessions: 42,
+			Freshness:      instruments.Freshness{State: instruments.FreshnessStale, SessionsBehind: &behind},
+		}}, NextCursor: "next-page"},
+	}
+	router := NewRouter(authenticatedDependencies(Dependencies{Instruments: reader}))
+
+	response := performRequest(router,
+		"/api/v1/instruments?q=alfa&mic=XSTO&country=SE&sector=Technology&status=active"+
+			"&sort=return_20&order=desc&cursor=cursor&limit=25")
+	if response.Code != http.StatusOK {
+		t.Fatalf("listing response = %d %s", response.Code, response.Body.String())
+	}
+	if reader.listingFilter.Query != "alfa" || reader.listingFilter.MIC != "XSTO" ||
+		reader.listingFilter.Country != "SE" || reader.listingFilter.Sector != "Technology" ||
+		reader.listingFilter.Status != "active" || reader.listingFilter.Sort != instruments.SortReturn20 ||
+		!reader.listingFilter.Descending || reader.listingFilter.Cursor != "cursor" ||
+		reader.listingFilter.Limit != 25 {
+		t.Fatalf("the handler did not pass the contract's parameters through: %#v", reader.listingFilter)
+	}
+
+	var body struct {
+		Items []struct {
+			LatestClose    *string  `json:"latest_close"`
+			ChangeAbsolute *string  `json:"change_absolute"`
+			ChangePercent  *float64 `json:"change_percent"`
+			Return20       *float64 `json:"return_20"`
+			Return90       *float64 `json:"return_90"`
+			Volatility     *float64 `json:"volatility"`
+			StoredSessions int64    `json:"stored_sessions"`
+			Status         string   `json:"status"`
+			Sector         string   `json:"sector"`
+			Freshness      struct {
+				State          string `json:"state"`
+				SessionsBehind *int   `json:"sessions_behind"`
+			} `json:"freshness"`
+		} `json:"items"`
+		NextCursor *string `json:"next_cursor"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode listing response: %v — %s", err, response.Body.String())
+	}
+	if len(body.Items) != 1 {
+		t.Fatalf("listing returned %d rows", len(body.Items))
+	}
+	row := body.Items[0]
+	if row.LatestClose == nil || *row.LatestClose != "101.25" {
+		t.Errorf("latest close was %v; money must stay a decimal string", row.LatestClose)
+	}
+	if row.ChangeAbsolute == nil || *row.ChangeAbsolute != "1.25" {
+		t.Errorf("change was %v", row.ChangeAbsolute)
+	}
+	if row.Status != "active" {
+		t.Errorf("status was %q, expected the contract's active/inactive enumeration", row.Status)
+	}
+	if row.Sector != "Technology" || row.StoredSessions != 42 {
+		t.Errorf("sector or stored-session count was lost: %#v", row)
+	}
+	if row.Freshness.State != "stale" || row.Freshness.SessionsBehind == nil || *row.Freshness.SessionsBehind != 3 {
+		t.Errorf("freshness was not reported as the contract defines it: %#v", row.Freshness)
+	}
+	// An absent statistic must serialize as null. Rendering it as 0 would turn "we could not
+	// compute this" into "this instrument did not move" (FR-007).
+	if row.Return90 != nil || row.Volatility != nil {
+		t.Errorf("an uncomputed statistic serialized as a value: return_90=%v volatility=%v",
+			row.Return90, row.Volatility)
+	}
+	if !strings.Contains(response.Body.String(), `"return_90":null`) {
+		t.Errorf("an absent statistic was omitted rather than sent as null: %s", response.Body.String())
+	}
+}
+
+func TestListingEndpointRejectsParametersOutsideTheContract(t *testing.T) {
+	reader := &instrumentReaderStub{}
+	router := NewRouter(authenticatedDependencies(Dependencies{Instruments: reader}))
+	for _, path := range []string{
+		"/api/v1/instruments?sort=whatever",
+		"/api/v1/instruments?order=sideways",
+		"/api/v1/instruments?status=maybe",
+		"/api/v1/instruments?limit=201",
+		"/api/v1/instruments?mic=bad",
+		"/api/v1/instruments?country=SWE",
+	} {
+		response := performRequest(router, path)
+		if response.Code != http.StatusBadRequest {
+			t.Errorf("%s was accepted with %d %s", path, response.Code, response.Body.String())
+		}
+	}
+}
+
+func TestListingEndpointRequiresAnActiveSession(t *testing.T) {
+	router := NewRouter(Dependencies{Instruments: &instrumentReaderStub{}})
+	response := performRequest(router, "/api/v1/instruments?limit=10")
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("an anonymous listing request returned %d %s", response.Code, response.Body.String())
+	}
+}

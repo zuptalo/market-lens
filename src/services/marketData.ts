@@ -3,8 +3,10 @@ import type {
   DailyBarSummary,
   ImportRunSummary,
   InstrumentDetail,
-  InstrumentPage,
+  InstrumentListingPage,
+  InstrumentListingRow,
   InstrumentSummary,
+  ListingQuery,
   PricePage,
 } from '@/types/marketData';
 
@@ -20,16 +22,6 @@ export interface LiveEventSource {
 }
 
 export type Fetcher = (input: string, init?: RequestInit) => Promise<Pick<Response, 'ok' | 'json'>>;
-
-export interface InstrumentSearchParams {
-  query?: string;
-  mic?: string;
-  country?: string;
-  currency?: string;
-  active?: boolean;
-  cursor?: string;
-  limit?: number;
-}
 
 export interface PriceSearchParams {
   from?: string;
@@ -70,22 +62,6 @@ interface InstrumentDetailWire extends InstrumentWire {
   quality_summary: { open_warnings: number; open_errors: number };
 }
 
-export async function fetchInstruments(params: InstrumentSearchParams = {}, fetcher: Fetcher = fetch, signal?: AbortSignal): Promise<InstrumentPage> {
-  const query = new URLSearchParams();
-  if (params.query) query.set('q', params.query);
-  if (params.mic) query.set('exchange', params.mic);
-  if (params.country) query.set('country', params.country);
-  if (params.currency) query.set('currency', params.currency);
-  if (params.active !== undefined) query.set('active', String(params.active));
-  if (params.cursor) query.set('cursor', params.cursor);
-  if (params.limit !== undefined) query.set('limit', String(params.limit));
-  const response = await fetcher(`/api/v1/instruments?${query.toString()}`, { signal });
-  if (!response.ok) throw new Error('Unable to load instruments.');
-  const body = await response.json() as { items?: InstrumentWire[]; next_cursor?: string | null };
-  if (!Array.isArray(body.items)) throw new Error('Unable to load instruments.');
-  return { items: body.items.map(instrumentFromWire), nextCursor: body.next_cursor ?? null };
-}
-
 export async function fetchInstrument(id: string, fetcher: Fetcher = fetch, signal?: AbortSignal): Promise<InstrumentDetail> {
   const response = await fetcher(`/api/v1/instruments/${encodeURIComponent(id)}`, { signal });
   if (!response.ok) throw new Error('Unable to load instrument market data.');
@@ -111,19 +87,100 @@ export async function fetchDailyPrices(id: string, params: PriceSearchParams = {
   return { items: body.items.map(barFromWire), nextCursor: body.next_cursor ?? null };
 }
 
+
+/** Wire shape of one listing row. Mirrors the contract exactly so the mapping stays honest. */
+interface ListingRowWire {
+  id: string;
+  isin: string;
+  ticker: string;
+  name: string;
+  exchange: { mic: string; name: string; timezone?: string };
+  currency: string;
+  country: string;
+  sector: string;
+  industry: string;
+  instrument_type: 'common_stock';
+  status: 'active' | 'inactive';
+  purchasability_status: InstrumentSummary['purchasabilityStatus'];
+  latest_session: string | null;
+  latest_close: string | null;
+  change_absolute: string | null;
+  change_percent: number | null;
+  return_20: number | null;
+  return_90: number | null;
+  volatility: number | null;
+  stored_sessions: number;
+  freshness: { state: 'current' | 'stale' | 'no_history'; sessions_behind: number | null };
+}
+
+function listingRowFromWire(row: ListingRowWire): InstrumentListingRow {
+  return {
+    id: row.id,
+    ticker: row.ticker,
+    name: row.name,
+    isin: row.isin,
+    exchange: { mic: row.exchange.mic, name: row.exchange.name },
+    sector: row.sector || null,
+    industry: row.industry || null,
+    country: row.country,
+    currency: row.currency,
+    status: row.status,
+    latestSession: row.latest_session,
+    latestClose: row.latest_close,
+    changeAbsolute: row.change_absolute,
+    // `?? null` and never `?? 0`: an absent statistic stays absent all the way to the screen.
+    changePercent: row.change_percent ?? null,
+    return20: row.return_20 ?? null,
+    return90: row.return_90 ?? null,
+    volatility: row.volatility ?? null,
+    storedSessions: row.stored_sessions,
+    freshness: {
+      state: row.freshness.state,
+      sessionsBehind: row.freshness.sessions_behind ?? null,
+    },
+  };
+}
+
+export function listingQueryString(query: ListingQuery): string {
+  const params = new URLSearchParams();
+  if (query.query) params.set('q', query.query);
+  if (query.mic) params.set('mic', query.mic);
+  if (query.country) params.set('country', query.country);
+  if (query.currency) params.set('currency', query.currency);
+  if (query.sector) params.set('sector', query.sector);
+  if (query.status) params.set('status', query.status);
+  if (query.sort) params.set('sort', query.sort);
+  if (query.order) params.set('order', query.order);
+  if (query.cursor) params.set('cursor', query.cursor);
+  if (query.limit !== undefined) params.set('limit', String(query.limit));
+  return params.toString();
+}
+
+export async function fetchInstrumentListing(
+  query: ListingQuery = {},
+  fetcher: Fetcher = fetch,
+  signal?: AbortSignal,
+): Promise<InstrumentListingPage> {
+  const response = await fetcher(`/api/v1/instruments?${listingQueryString(query)}`, { signal });
+  if (!response.ok) throw new Error('Unable to load instruments.');
+  const body = await response.json() as { items?: ListingRowWire[]; next_cursor?: string | null };
+  if (!Array.isArray(body.items)) throw new Error('Unable to load instruments.');
+  return { items: body.items.map(listingRowFromWire), nextCursor: body.next_cursor ?? null };
+}
+
 export class InstrumentSearchClient {
   private controller?: AbortController;
   private sequence = 0;
 
-  constructor(private readonly fetcher: Fetcher, private readonly onResult: (page: InstrumentPage) => void) {}
+  constructor(private readonly fetcher: Fetcher, private readonly onResult: (page: InstrumentListingPage) => void) {}
 
-  async search(params: InstrumentSearchParams): Promise<void> {
+  async search(params: ListingQuery): Promise<void> {
     this.controller?.abort();
     const controller = new AbortController();
     this.controller = controller;
     const sequence = ++this.sequence;
     try {
-      const page = await fetchInstruments(params, this.fetcher, controller.signal);
+      const page = await fetchInstrumentListing(params, this.fetcher, controller.signal);
       if (sequence === this.sequence && !controller.signal.aborted) this.onResult(page);
     } catch (error) {
       if (!controller.signal.aborted) throw error;
