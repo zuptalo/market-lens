@@ -94,7 +94,7 @@ shows `development`; Playwright passes at 360x800, 768x1024, 1440x900, and 320x8
 - [x] T023 Update `specs/003-release-versioning/spec.md`, `ROADMAP.md`, and `specs/README.md` to in-review and run `make verify`, Playwright, Docker, Compose, and k3s validation
 - [x] T024 Commit/push `003-release-versioning`, create a conventionally titled PR through `gh`, and wait for every required check
 - [x] T025 Squash merge through `gh`, verify feature-branch deletion and protected linear `main`, then monitor automatic `v0.2.0` release and GHCR tags
-- [ ] T026 Mark feature 003 shipped in `specs/003-release-versioning/spec.md`, `ROADMAP.md`, and `specs/README.md` through the next protected PR if post-merge evidence requires a documentation update
+- [x] T026 Mark feature 003 shipped in `specs/003-release-versioning/spec.md`, `ROADMAP.md`, and `specs/README.md` through the next protected PR if post-merge evidence requires a documentation update
 - [x] T027 Create/switch to `002-instruments-market-data`, restore `.specify/feature.json` and the `AGENTS.md` active-plan pointer to feature 002, then run `/speckit-tasks`
 
 ---

@@ -185,8 +185,8 @@ required viewport.
 - [x] T064 Reconcile `specs/002-instruments-market-data/contracts/openapi.yaml`, operational configuration, host commands, annual calendar extension rules, provider limitations, and screenshots-free acceptance steps in `README.md`, `server/.env.example`, `docs/`, and `specs/002-instruments-market-data/quickstart.md`
 - [x] T065 Run `make verify`, the full Playwright viewport/theme suite, a versioned production Docker build, `docker compose config --quiet`, `deploy/k8s/test.sh`, migration upgrades, and the fixture-provider import twice; record outcomes in `specs/002-instruments-market-data/quickstart.md`
 - [x] T066 Update feature 002 to in-review in `specs/002-instruments-market-data/spec.md`, `ROADMAP.md`, and `specs/README.md`; run `git diff --check` and confirm no credentials, generated builds, browser output, coverage, or database data are tracked
-- [ ] T067 Push `002-instruments-market-data`, open a conventionally titled pull request, wait for `Required checks`, and squash merge only after every acceptance criterion is evidenced
-- [ ] T068 Verify the automatic immutable release and all GHCR aliases, then mark feature 002 shipped through the next protected pull request if post-merge evidence requires a documentation update
+- [x] T067 Push `002-instruments-market-data`, open a conventionally titled pull request, wait for `Required checks`, and squash merge only after every acceptance criterion is evidenced
+- [x] T068 Verify the automatic immutable release and all GHCR aliases, then mark feature 002 shipped through the next protected pull request if post-merge evidence requires a documentation update
 
 ---
 
