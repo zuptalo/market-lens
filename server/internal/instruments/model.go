@@ -200,3 +200,157 @@ type PricePage struct {
 	Items      []DailyBar
 	NextCursor string
 }
+
+// --- Instrument exploration read model (feature 005) ---
+//
+// Nothing below is stored. Every value is derived by the listing and history queries from
+// tables feature 002 already owns, so these types are the shape of an answer rather than the
+// shape of a row.
+//
+// Absent statistics are pointers on purpose. A 20-session return that cannot be computed is
+// *absent*, and rendering it as 0 would be a claim the data does not support (FR-007).
+
+// FreshnessState distinguishes an instrument that is current from one whose history has
+// fallen behind and from one that has no history at all. The last two are different facts
+// and the specification requires them to be told apart.
+type FreshnessState string
+
+const (
+	FreshnessCurrent   FreshnessState = "current"
+	FreshnessStale     FreshnessState = "stale"
+	FreshnessNoHistory FreshnessState = "no_history"
+)
+
+// Freshness reports how current an instrument's stored history is, measured in open
+// exchange sessions rather than calendar days.
+type Freshness struct {
+	State FreshnessState
+	// SessionsBehind counts the exchange's open sessions since the latest stored bar. It is
+	// absent when there is no history to be behind.
+	SessionsBehind *int
+}
+
+// ListingRow is one instrument as the universe list shows it.
+type ListingRow struct {
+	Instrument
+	Exchange Exchange
+
+	LatestSession  SessionDate
+	LatestClose    *Decimal
+	PreviousClose  *Decimal
+	ChangeAbsolute *Decimal
+	ChangePercent  *float64
+
+	Return20   *float64
+	Return90   *float64
+	Volatility *float64
+
+	// StoredSessions is the count of stored bars, so a reader can see *why* a statistic is
+	// absent instead of guessing.
+	StoredSessions int64
+	Freshness      Freshness
+}
+
+// ListingSort names a column the whole result set can be ordered by. Sorting happens in the
+// database over every matching row, never over the page already fetched.
+type ListingSort string
+
+const (
+	SortName          ListingSort = "name"
+	SortTicker        ListingSort = "ticker"
+	SortExchange      ListingSort = "exchange"
+	SortSector        ListingSort = "sector"
+	SortCountry       ListingSort = "country"
+	SortLatestClose   ListingSort = "latest_close"
+	SortChangePercent ListingSort = "change_percent"
+	SortReturn20      ListingSort = "return_20"
+	SortReturn90      ListingSort = "return_90"
+	SortVolatility    ListingSort = "volatility"
+	SortFreshness     ListingSort = "freshness"
+)
+
+// ListingFilter selects and orders the universe.
+type ListingFilter struct {
+	Query      string
+	MIC        string
+	Country    string
+	Sector     string
+	Currency   string
+	Status     string
+	Sort       ListingSort
+	Descending bool
+	Cursor     string
+	Limit      int
+	// AsOf anchors freshness to a date rather than to the clock. The service defaults it to
+	// today; tests set it so their answers do not change overnight.
+	AsOf SessionDate
+}
+
+// ListingPage is one page of the universe under a filter and ordering.
+type ListingPage struct {
+	Items      []ListingRow
+	NextCursor string
+}
+
+// SeriesBasis records whether the displayed closes are the provider's raw observations or
+// its adjusted ones. Showing an adjusted series as though it were raw is exactly the kind of
+// quiet distortion this feature exists to prevent (FR-014).
+type SeriesBasis string
+
+const (
+	SeriesRaw              SeriesBasis = "raw"
+	SeriesProviderAdjusted SeriesBasis = "provider_adjusted"
+)
+
+// ChartAction is a recorded corporate action anchored to the session it affects.
+type ChartAction struct {
+	ID        UUID
+	Type      string
+	ExDate    SessionDate
+	Ratio     *Decimal
+	Amount    *Decimal
+	Currency  *string
+	OldSymbol *string
+	NewSymbol *string
+}
+
+// ChartFinding is a data-quality finding anchored to the session it concerns.
+type ChartFinding struct {
+	ID          UUID
+	Rule        string
+	Status      string
+	Severity    string
+	SessionDate *SessionDate
+	Detail      *string
+}
+
+// HistoryWindow is everything the chart needs to draw one instrument's stored history
+// honestly: the bars that exist, the sessions that are absent, and the context that explains
+// a discontinuity.
+type HistoryWindow struct {
+	Instrument ListingRow
+	Coverage   HistoryCoverage
+
+	RequestedFrom SessionDate
+	RequestedTo   SessionDate
+
+	Bars []DailyBar
+	// MissingSessions are dates the exchange was open and no bar is stored. A day the
+	// exchange was closed never appears here — that distinction is the whole point.
+	MissingSessions []SessionDate
+
+	SeriesBasis SeriesBasis
+	Provider    *string
+	ObservedAt  *time.Time
+
+	Actions  []ChartAction
+	Findings []ChartFinding
+}
+
+// HistoryFilter bounds a history window. Sessions are counted in stored exchange sessions,
+// never in calendar days, because a calendar window means a different number of observations
+// on each exchange (research R7).
+type HistoryFilter struct {
+	Sessions int
+	To       SessionDate
+}
