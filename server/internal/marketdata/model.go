@@ -180,12 +180,23 @@ type SafeError struct {
 	Summary string
 }
 
+// Every code the system can produce needs an entry here. A code that is missing does not fail
+// loudly: NormalizeSafeError falls back to re-deriving one from the summary, the summaries are
+// deliberately free of anything the substring matching keys on, and the failure silently
+// becomes the generic "provider_error". That is how an unknown symbol, an exhausted quota and
+// an expired key all came to report the same thing.
 var canonicalSafeErrors = map[string]string{
 	"provider_error":          "Market-data provider request failed.",
 	"cancelled":               "Market-data request was cancelled.",
 	"provider_timeout":        "Market-data provider request timed out.",
 	"provider_rate_limited":   "Market-data provider rate limit was reached.",
 	"provider_authentication": "Market-data provider authentication failed.",
+	"provider_credentials":    "Market-data credentials are unavailable.",
+	"provider_entitlement":    "The market-data plan does not cover this request.",
+	"provider_not_found":      "Market-data provider has no data for this instrument.",
+	"provider_payload":        "Market-data provider returned an invalid payload.",
+	"provider_request":        "Market-data provider request is invalid.",
+	"provider_unavailable":    "Market-data provider is unavailable.",
 	"storage_error":           "Market-data storage request failed.",
 	"validation_error":        "Market-data validation failed.",
 	"import_conflict":         "Market-data import scope is already active.",
