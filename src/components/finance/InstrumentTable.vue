@@ -186,49 +186,91 @@ function freshnessLabel(row: InstrumentListingRow): string {
  * one DOM, one accessibility tree, and no reflow flicker.
  */
 @media (max-width: 767px) {
-  .instrument-table :deep(thead) {
-    /* Visually hidden rather than removed: the cells still reference these headers. */
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
+  /*
+   * Stop being a table.
+   *
+   * Making only the rows `display: block` is not enough and fails in a way that looks like a
+   * styling nitpick and is actually unusable: the table keeps its own layout and its columns'
+   * intrinsic width — 880px against a 360px screen — so the container scrolls sideways and
+   * every "card" collapses to a fraction of the width, hugging the left edge with the rest of
+   * the screen empty. The table, its body and its rows all have to leave table layout
+   * together, and the min-width PrimeVue sets for horizontal scrolling has to go with them.
+   */
+  .instrument-table :deep(.p-datatable-table),
+  .instrument-table :deep(.p-datatable-tbody) {
+    display: block;
+    width: 100%;
+    min-width: 0;
   }
 
-  .instrument-table :deep(tbody tr) {
+  .instrument-table :deep(.p-datatable-table-container) {
+    overflow-x: visible;
+  }
+
+  /*
+   * Two traps here, both of which left a blank 43-pixel band above the first card.
+   *
+   * The selector must use PrimeVue's own class: a bare `thead` type selector loses to
+   * `.p-datatable-thead` and silently does nothing.
+   *
+   * And the usual visually-hidden recipe — absolute, one pixel, clipped — does not work on a
+   * table header. Chrome does not blockify internal table boxes, so position, width and
+   * height are all ignored on a `table-header-group` and it keeps its natural height. Only
+   * removing it from layout actually removes it.
+   *
+   * Removing it costs nothing here: once stacked, each cell renders its own label from its
+   * data-label attribute, so no cell depends on the header row for meaning, and sorting moves
+   * into the filter sheet where a small screen can reach it.
+   */
+  .instrument-table :deep(.p-datatable-thead) {
+    display: none;
+  }
+
+  .instrument-table :deep(.p-datatable-tbody > tr) {
     display: block;
+    width: 100%;
     margin-block-end: 0.75rem;
     border: 1px solid var(--p-content-border-color, rgb(0 0 0 / 0.15));
     border-radius: 0.5rem;
     padding: 0.5rem 0.75rem;
   }
 
-  .instrument-table :deep(tbody td) {
+  .instrument-table :deep(.p-datatable-tbody > tr > td) {
     display: flex;
     justify-content: space-between;
+    align-items: baseline;
     gap: 1rem;
+    width: auto;
     border: 0;
     padding: 0.3rem 0;
     text-align: end;
   }
 
-  .instrument-table :deep(tbody td::before) {
+  .instrument-table :deep(.p-datatable-tbody > tr > td::before) {
     content: attr(data-label);
     font-weight: 600;
     text-align: start;
     opacity: 0.75;
+    /* The label keeps its own line; the value takes the rest and wraps within it. */
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  /* The value side gets the remaining width instead of being squeezed into a column. */
+  .instrument-table :deep(.p-datatable-tbody > tr > td > *) {
+    min-width: 0;
   }
 
   /* The identity cell leads the card and needs no repeated label. */
-  .instrument-table :deep(tbody td:first-child) {
+  .instrument-table :deep(.p-datatable-tbody > tr > td:first-child) {
     display: block;
     text-align: start;
     padding-block-end: 0.5rem;
   }
 
-  .instrument-table :deep(tbody td:first-child::before) {
+  .instrument-table :deep(.p-datatable-tbody > tr > td:first-child::before) {
     content: none;
   }
 }
+
 </style>
