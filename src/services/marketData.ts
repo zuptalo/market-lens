@@ -7,7 +7,7 @@ import type {
   InstrumentListingRow,
   InstrumentSummary,
   ListingQuery,
-  PricePage,
+  HistoryWindow,
 } from '@/types/marketData';
 
 export interface LiveEvent {
@@ -22,13 +22,6 @@ export interface LiveEventSource {
 }
 
 export type Fetcher = (input: string, init?: RequestInit) => Promise<Pick<Response, 'ok' | 'json'>>;
-
-export interface PriceSearchParams {
-  from?: string;
-  to?: string;
-  cursor?: string;
-  limit?: number;
-}
 
 interface InstrumentWire {
   id: string;
@@ -73,20 +66,6 @@ export async function fetchInstrument(id: string, fetcher: Fetcher = fetch, sign
     qualitySummary: { openWarnings: body.quality_summary.open_warnings, openErrors: body.quality_summary.open_errors },
   };
 }
-
-export async function fetchDailyPrices(id: string, params: PriceSearchParams = {}, fetcher: Fetcher = fetch, signal?: AbortSignal): Promise<PricePage> {
-  const query = new URLSearchParams();
-  if (params.from) query.set('from', params.from);
-  if (params.to) query.set('to', params.to);
-  if (params.cursor) query.set('cursor', params.cursor);
-  if (params.limit !== undefined) query.set('limit', String(params.limit));
-  const response = await fetcher(`/api/v1/instruments/${encodeURIComponent(id)}/prices?${query.toString()}`, { signal });
-  if (!response.ok) throw new Error('Unable to load instrument history.');
-  const body = await response.json() as { items?: DailyBarWire[]; next_cursor?: string | null };
-  if (!Array.isArray(body.items)) throw new Error('Unable to load instrument history.');
-  return { items: body.items.map(barFromWire), nextCursor: body.next_cursor ?? null };
-}
-
 
 /** Wire shape of one listing row. Mirrors the contract exactly so the mapping stays honest. */
 interface ListingRowWire {
@@ -166,6 +145,86 @@ export async function fetchInstrumentListing(
   const body = await response.json() as { items?: ListingRowWire[]; next_cursor?: string | null };
   if (!Array.isArray(body.items)) throw new Error('Unable to load instruments.');
   return { items: body.items.map(listingRowFromWire), nextCursor: body.next_cursor ?? null };
+}
+
+interface HistoryWindowWire {
+  instrument: ListingRowWire;
+  coverage: { first_session: string | null; last_session: string | null; stored_sessions: number };
+  requested_from: string | null;
+  requested_to: string | null;
+  bars: Array<{
+    session_date: string; open: string; high: string; low: string; close: string;
+    adjusted_close: string | null; volume: number;
+  }>;
+  missing_sessions: string[];
+  series_basis: 'raw' | 'provider_adjusted';
+  provider: string | null;
+  observed_at: string | null;
+  actions: Array<{
+    id: string; action_type: HistoryWindow['actions'][number]['actionType']; ex_date: string;
+    ratio: string | null; amount: string | null; currency: string | null;
+    old_symbol: string | null; new_symbol: string | null;
+  }>;
+  findings: Array<{
+    id: string; rule: string; status: string; session_date: string | null; detail: string | null;
+  }>;
+}
+
+export async function fetchInstrumentHistory(
+  id: string,
+  params: { sessions?: number; to?: string } = {},
+  fetcher: Fetcher = fetch,
+  signal?: AbortSignal,
+): Promise<HistoryWindow> {
+  const query = new URLSearchParams();
+  if (params.sessions !== undefined) query.set('sessions', String(params.sessions));
+  if (params.to) query.set('to', params.to);
+  const response = await fetcher(
+    `/api/v1/instruments/${encodeURIComponent(id)}/history?${query.toString()}`, { signal });
+  if (!response.ok) throw new Error('Unable to load instrument history.');
+  const body = await response.json() as HistoryWindowWire;
+  return {
+    instrument: listingRowFromWire(body.instrument),
+    coverage: {
+      firstSession: body.coverage.first_session,
+      lastSession: body.coverage.last_session,
+      storedSessions: body.coverage.stored_sessions,
+    },
+    requestedFrom: body.requested_from,
+    requestedTo: body.requested_to,
+    bars: body.bars.map((bar) => ({
+      sessionDate: bar.session_date,
+      open: bar.open,
+      high: bar.high,
+      low: bar.low,
+      close: bar.close,
+      adjustedClose: bar.adjusted_close,
+      volume: bar.volume,
+    })),
+    // Kept as dates rather than collapsed to a count: the chart has to interrupt the series
+    // at exactly these sessions, and a number cannot say where.
+    missingSessions: [...body.missing_sessions],
+    seriesBasis: body.series_basis,
+    provider: body.provider,
+    observedAt: body.observed_at,
+    actions: body.actions.map((action) => ({
+      id: action.id,
+      actionType: action.action_type,
+      exDate: action.ex_date,
+      ratio: action.ratio,
+      amount: action.amount,
+      currency: action.currency,
+      oldSymbol: action.old_symbol,
+      newSymbol: action.new_symbol,
+    })),
+    findings: body.findings.map((finding) => ({
+      id: finding.id,
+      rule: finding.rule,
+      status: finding.status,
+      sessionDate: finding.session_date,
+      detail: finding.detail,
+    })),
+  };
 }
 
 export class InstrumentSearchClient {

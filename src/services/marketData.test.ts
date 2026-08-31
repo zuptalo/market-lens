@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
 	InstrumentSearchClient,
 	MarketDataLive,
-	fetchDailyPrices,
 	fetchInstrument,
 	fetchInstrumentListing,
 	fetchRecentImports,
@@ -42,8 +41,6 @@ describe('instrument snapshots', () => {
     expect(detail.history).toEqual({ firstSession: '2026-08-27', lastSession: '2026-08-28', barCount: 2 });
     expect(detail.qualitySummary.openWarnings).toBe(1);
 
-    const history = await fetchDailyPrices(page.items[0].id, { from: '2026-08-01', to: '2026-08-28' }, fetcher);
-    expect(history.items).toEqual([]);
   });
 
   it('cancels superseded searches and suppresses stale responses', async () => {

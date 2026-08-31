@@ -153,7 +153,7 @@ what is displayed, and that a gap in the stored history is visible as a gap.
 - [ ] T049 [US2] Rebuild `src/views/InstrumentMarketDataView.vue` around identity, `PriceChart.vue`, and `ChartRangeControls.vue`, stating the coverage range, the window actually shown, and the count of missing sessions in view as text (makes T038 green)
 - [ ] T050 [US2] Give the detail view its per-breakpoint layout in `src/views/InstrumentMarketDataView.vue`: full-width chart panel with a legible minimum height and a row of range targets below 768px, identity beside the chart at tablet width, and context panels beside a larger chart at desktop width (completes T037)
 
-- [ ] T050a [US2] Decide and record the fate of `GET /api/v1/instruments/{id}/prices` and `fetchDailyPrices` in `src/services/marketData.ts`, which T049 orphans: either keep both with a test that still exercises them, or retire the client function and leave the endpoint documented by feature 002's contract. Do not leave dead client code behind
+- [x] T050a [US2] **Decided: retired.** `fetchDailyPrices` and `InstrumentIdentity.vue` are removed from the client, superseded by the history window and the rebuilt detail view. `GET /api/v1/instruments/{id}/prices` stays: feature 002 owns and documents it, and it remains a valid paginated raw-bar API. Original task: decide and record the fate of `GET /api/v1/instruments/{id}/prices` and `fetchDailyPrices` in `src/services/marketData.ts`, which T049 orphans: either keep both with a test that still exercises them, or retire the client function and leave the endpoint documented by feature 002's contract. Do not leave dead client code behind
 
 **Checkpoint**: One instrument's stored history is readable, interactive, and honest about
 what it does not contain.
