@@ -1,6 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import PrimeVue from 'primevue/config';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('lightweight-charts', () => import('@/components/finance/__mocks__/lightweight-charts'));
 vi.mock('vue-router', () => ({
@@ -158,6 +158,9 @@ describe('InstrumentMarketDataView', () => {
 
 describe('InstrumentMarketDataView live updates', () => {
   beforeEach(() => {
+    // Live changes are coalesced over a short window rather than answered per event, so
+    // these tests advance past it instead of asserting an immediate refetch.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     __reset();
     vi.stubGlobal('EventSource', QuietEventSource);
     stubFetch();
@@ -185,6 +188,8 @@ describe('InstrumentMarketDataView live updates', () => {
       JSON.stringify({ entity_id: 'bar-1', instrument_id: INSTRUMENT_ID, session_date: '2026-06-03' }),
     );
     await flushPromises();
+    await vi.advanceTimersByTimeAsync(500);
+    await flushPromises();
 
     // The change was for this instrument, so the window is re-read.
     expect(vi.mocked(fetch).mock.calls.length).toBeGreaterThan(callsBefore);
@@ -202,6 +207,8 @@ describe('InstrumentMarketDataView live updates', () => {
       'daily_bar.changed.v1',
       JSON.stringify({ entity_id: 'bar-9', instrument_id: 'some-other-instrument' }),
     );
+    await flushPromises();
+    await vi.advanceTimersByTimeAsync(500);
     await flushPromises();
 
     // Refetching for an instrument nobody is looking at wastes a request and can only
@@ -221,14 +228,75 @@ describe('InstrumentMarketDataView live updates', () => {
     source.deliver('daily_bar.changed.v1', payload, '42');
     source.deliver('daily_bar.changed.v1', payload, '42');
     await flushPromises();
+    await vi.advanceTimersByTimeAsync(500);
+    await flushPromises();
 
     expect(vi.mocked(fetch).mock.calls.length).toBe(callsBefore + 1);
   });
+
+  afterEach(() => vi.useRealTimers());
 
   it('reports the connection state so a stale view is never presented as current', async () => {
     const wrapper = mountView();
     await flushPromises();
     // The status component renders one of connected / reconnecting / stale / offline.
     expect(wrapper.text()).toMatch(/connected|reconnecting|stale|offline/i);
+  });
+});
+
+describe('InstrumentMarketDataView under an event storm', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    __reset();
+    QuietEventSource.instances = [];
+    vi.stubGlobal('EventSource', QuietEventSource);
+    stubFetch();
+  });
+
+  afterEach(() => vi.useRealTimers());
+
+  it('coalesces a burst of bars for this instrument into one reload', async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    const before = vi.mocked(fetch).mock.calls.length;
+
+    // An import over this instrument's ten-year history publishes thousands of these.
+    const source = QuietEventSource.instances.at(-1)!;
+    for (let index = 0; index < 200; index += 1) {
+      source.deliver(
+        'daily_bar.changed.v1',
+        JSON.stringify({ entity_type: 'daily_bar', entity_id: `bar-${index}`, instrument_id: INSTRUMENT_ID }),
+        String(index),
+      );
+    }
+    await flushPromises();
+    await vi.advanceTimersByTimeAsync(2_000);
+    await flushPromises();
+
+    const issued = vi.mocked(fetch).mock.calls.length - before;
+    expect(issued, `200 events issued ${issued} history requests`).toBeLessThanOrEqual(2);
+    expect(issued).toBeGreaterThan(0);
+    wrapper.unmount();
+  });
+
+  it('issues nothing for a burst about other instruments', async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    const before = vi.mocked(fetch).mock.calls.length;
+
+    const source = QuietEventSource.instances.at(-1)!;
+    for (let index = 0; index < 50; index += 1) {
+      source.deliver(
+        'daily_bar.changed.v1',
+        JSON.stringify({ entity_type: 'daily_bar', entity_id: `x-${index}`, instrument_id: `other-${index}` }),
+        String(500 + index),
+      );
+    }
+    await flushPromises();
+    await vi.advanceTimersByTimeAsync(2_000);
+    await flushPromises();
+
+    expect(vi.mocked(fetch).mock.calls.length - before).toBe(0);
+    wrapper.unmount();
   });
 });

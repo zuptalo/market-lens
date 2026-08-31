@@ -20,6 +20,9 @@ type ClientEvent = clientevents.Event
 type EventReader interface {
 	Audience(context.Context, string) (clientevents.Audience, error)
 	ListAuthorized(context.Context, clientevents.Audience, int64, int) ([]ClientEvent, error)
+	// Head is the identifier of the most recent event, which is where a *new* subscriber
+	// starts. See eventResumeID for why that is not zero.
+	Head(context.Context) (int64, error)
 }
 
 // maxRevalidateInterval bounds how long a revoked or deactivated session may keep an already
@@ -62,6 +65,16 @@ func eventsHandler(reader EventReader, heartbeat time.Duration, batchLimit int,
 		if !ok {
 			httpx.Error(w, http.StatusBadRequest, "invalid event resume ID")
 			return
+		}
+		if after < 0 {
+			// No resume point was given, so this is a new subscriber rather than a
+			// reconnection. Start it at the current end of the log.
+			head, headErr := reader.Head(r.Context())
+			if headErr != nil {
+				httpx.Error(w, http.StatusInternalServerError, "event streaming is unavailable")
+				return
+			}
+			after = head
 		}
 		flusher, ok := w.(http.Flusher)
 		if !ok {
@@ -140,13 +153,25 @@ func streamStillAuthorized(ctx context.Context, reader EventReader, revalidator 
 	return true
 }
 
+// eventResumeID returns where the stream should resume, or -1 when the caller named no
+// resume point at all.
+//
+// The distinction matters more than it looks. A client that names an identifier is
+// reconnecting and must be replayed exactly what it missed — that is the durable-outbox
+// contract, and dropping it would let a reconnecting client silently miss committed changes.
+// A client that names nothing is *new*, and replaying the entire history at it is neither
+// useful nor survivable: after one backfill the log holds hundreds of thousands of events,
+// and a browser handed all of them on every page load simply stops responding.
+//
+// An explicit "0" is still honoured as "everything", because asking for the whole history on
+// purpose is a legitimate thing to do. Only the absence of a resume point means "from now".
 func eventResumeID(r *http.Request) (int64, bool) {
 	raw := r.Header.Get("Last-Event-ID")
 	if raw == "" {
 		raw = r.URL.Query().Get("last_event_id")
 	}
 	if raw == "" {
-		return 0, true
+		return -1, true
 	}
 	value, err := strconv.ParseInt(raw, 10, 64)
 	return value, err == nil && value >= 0

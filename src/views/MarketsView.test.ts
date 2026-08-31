@@ -1,9 +1,20 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import PrimeVue from 'primevue/config';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import MarketsView from './MarketsView.vue';
 
-class QuietEventSource extends EventTarget { close(): void {} }
+class QuietEventSource extends EventTarget {
+  static instances: QuietEventSource[] = [];
+  constructor() {
+    super();
+    QuietEventSource.instances.push(this);
+  }
+  close(): void {}
+  /** Dispatch under the event's own name, which is what the server writes. */
+  deliver(type: string, data: string, lastEventId = '1'): void {
+    this.dispatchEvent(new MessageEvent(type, { data, lastEventId }));
+  }
+}
 
 function wireRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -140,4 +151,104 @@ describe('MarketsView', () => {
     expect(listingCall).not.toContain('exchange=');
     expect(listingCall).not.toContain('active=');
   });
+});
+
+describe('MarketsView under an event storm', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    requestedUrls = [];
+    window.localStorage.clear();
+    QuietEventSource.instances = [];
+    vi.stubGlobal('EventSource', QuietEventSource);
+    stubFetch();
+  });
+
+  it('coalesces a burst of events into a small number of requests', async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    const before = requestedUrls.length;
+
+    // An import publishes one daily_bar event per stored bar. A backfill over the curated
+    // universe is hundreds of thousands of them. One request per event is a denial of service
+    // the page performs on itself.
+    const source = QuietEventSource.instances.at(-1);
+    expect(source, 'the view opened no event stream').toBeDefined();
+    for (let index = 0; index < 200; index += 1) {
+      source!.deliver(
+        'daily_bar.changed.v1',
+        JSON.stringify({
+          entity_type: 'daily_bar',
+          entity_id: `bar-${index}`,
+          instrument_id: '11111111-1111-4111-8111-111111111111',
+          session_date: '2026-06-30',
+        }),
+        String(index),
+      );
+    }
+    await flushPromises();
+    await vi.advanceTimersByTimeAsync(2_000);
+    await flushPromises();
+
+    const issued = requestedUrls.length - before;
+    expect(issued, `200 events issued ${issued} requests`).toBeLessThanOrEqual(3);
+    // It must still actually refresh — coalescing to zero would be a different bug.
+    expect(issued).toBeGreaterThan(0);
+    wrapper.unmount();
+  });
+
+  it('issues no request at all for a burst naming instruments that are not on screen', async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    const before = requestedUrls.length;
+
+    const source = QuietEventSource.instances.at(-1)!;
+    for (let index = 0; index < 50; index += 1) {
+      source.deliver(
+        'daily_bar.changed.v1',
+        JSON.stringify({ entity_type: 'daily_bar', entity_id: `bar-${index}`, instrument_id: `absent-${index}` }),
+        String(1000 + index),
+      );
+    }
+    await flushPromises();
+    await vi.advanceTimersByTimeAsync(2_000);
+    await flushPromises();
+
+    expect(requestedUrls.length - before).toBe(0);
+    wrapper.unmount();
+  });
+
+  it('does not start a second request while one is still in flight', async () => {
+    let release: ((value: unknown) => void) | undefined;
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      requestedUrls.push(url);
+      if (url.includes('/api/v1/instruments?')) {
+        await new Promise((resolve) => { release = resolve; });
+        return { ok: true, json: async () => ({ items: [wireRow()], next_cursor: null }) };
+      }
+      return { ok: true, json: async () => ({ items: [] }) };
+    }));
+
+    const wrapper = mountView();
+    await flushPromises();
+    const before = requestedUrls.length;
+
+    const source = QuietEventSource.instances.at(-1)!;
+    for (let index = 0; index < 20; index += 1) {
+      source.deliver(
+        'daily_bar.changed.v1',
+        JSON.stringify({ entity_type: 'daily_bar', entity_id: `b-${index}`, instrument_id: '11111111-1111-4111-8111-111111111111' }),
+        String(2000 + index),
+      );
+    }
+    await flushPromises();
+    await vi.advanceTimersByTimeAsync(2_000);
+    await flushPromises();
+
+    expect(requestedUrls.length - before, 'overlapping in-flight requests').toBeLessThanOrEqual(1);
+    release?.(undefined);
+    wrapper.unmount();
+  });
+
+  afterEach(() => vi.useRealTimers());
 });

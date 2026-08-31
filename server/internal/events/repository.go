@@ -59,6 +59,15 @@ func Insert(ctx context.Context, tx pgx.Tx, event Event) error {
 	return nil
 }
 
+// Head is the identifier of the most recent event, or zero when the log is empty.
+func (r *Repository) Head(ctx context.Context) (int64, error) {
+	var head int64
+	if err := r.pool.QueryRow(ctx, `SELECT coalesce(max(id), 0) FROM client_events`).Scan(&head); err != nil {
+		return 0, fmt.Errorf("read event head: %w", err)
+	}
+	return head, nil
+}
+
 func (r *Repository) ListAuthorized(ctx context.Context, audience Audience, after int64, limit int) ([]Event, error) {
 	if r == nil || r.pool == nil || !validAudience(audience) || after < 0 || limit < 1 || limit > 1000 {
 		return nil, errors.New("event replay audience or bounds are invalid")

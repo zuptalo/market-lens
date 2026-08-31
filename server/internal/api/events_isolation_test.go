@@ -234,3 +234,62 @@ func TestAnAnonymousCallerReceivesNoCorporateActionEvent(t *testing.T) {
 		t.Fatalf("an anonymous caller was served an event: %s", recorder.Body.String())
 	}
 }
+
+// A client connecting with no Last-Event-ID is a *new* subscriber. It wants what happens from
+// now on, not the entire history of the system.
+//
+// Resuming such a client from event 0 replays every event ever recorded, on every page load.
+// Locally that is over 350,000 events after one backfill — enough to hang the tab on its own,
+// and enough to drown the view in work even after the client stopped issuing one request per
+// event. Real resumption still replays: a client that names the last identifier it applied
+// gets exactly what it missed, which is what the durable-outbox contract requires.
+func TestANewSubscriberStreamsFromNowRatherThanFromTheBeginningOfHistory(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	reader := &eventReaderStub{head: 359050, afterList: cancel}
+	router := NewRouter(authenticatedDependencies(Dependencies{
+		Events: reader, EventHeartbeat: time.Hour, EventBatchLimit: 50,
+	}))
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, authenticatedAPIRequest(http.MethodGet, "/api/v1/events").WithContext(ctx))
+
+	if reader.after != 359050 {
+		t.Fatalf("a new subscriber resumed from %d; it must start at the current head (%d), "+
+			"or every page load replays the whole history", reader.after, 359050)
+	}
+}
+
+func TestAResumingSubscriberStillReplaysExactlyWhatItMissed(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	reader := &eventReaderStub{head: 359050, afterList: cancel}
+	router := NewRouter(authenticatedDependencies(Dependencies{
+		Events: reader, EventHeartbeat: time.Hour, EventBatchLimit: 50,
+	}))
+	recorder := httptest.NewRecorder()
+	request := authenticatedAPIRequest(http.MethodGet, "/api/v1/events").WithContext(ctx)
+	request.Header.Set("Last-Event-ID", "41")
+	router.ServeHTTP(recorder, request)
+
+	// The head must not override an explicit resume point; that would silently drop
+	// everything the client missed while it was disconnected.
+	if reader.after != 41 {
+		t.Fatalf("a resuming subscriber replayed from %d, expected 41", reader.after)
+	}
+}
+
+func TestAnExplicitZeroStillReplaysFromTheBeginning(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	reader := &eventReaderStub{head: 359050, afterList: cancel}
+	router := NewRouter(authenticatedDependencies(Dependencies{
+		Events: reader, EventHeartbeat: time.Hour, EventBatchLimit: 50,
+	}))
+	recorder := httptest.NewRecorder()
+	request := authenticatedAPIRequest(http.MethodGet, "/api/v1/events").WithContext(ctx)
+	// Asking for everything on purpose remains possible; only the *absence* of a resume point
+	// means "from now".
+	request.Header.Set("Last-Event-ID", "0")
+	router.ServeHTTP(recorder, request)
+
+	if reader.after != 0 {
+		t.Fatalf("an explicit zero replayed from %d, expected 0", reader.after)
+	}
+}

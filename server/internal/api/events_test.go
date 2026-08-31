@@ -88,6 +88,16 @@ type eventReaderStub struct {
 	resolveErr   error
 	deactivated  bool
 	resolveCalls int
+	head         int64
+	headCalls    int
+}
+
+// Head stands in for the current end of the event log, which a new subscriber starts from.
+func (s *eventReaderStub) Head(context.Context) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.headCalls++
+	return s.head, nil
 }
 
 // Audience stands in for the durable user record the real reader consults.

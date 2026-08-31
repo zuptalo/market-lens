@@ -165,6 +165,10 @@ func (r *cancellingEventReader) Audience(ctx context.Context, userID string) (cl
 	return r.repository.Audience(ctx, userID)
 }
 
+func (r *cancellingEventReader) Head(ctx context.Context) (int64, error) {
+	return r.repository.Head(ctx)
+}
+
 func (r *cancellingEventReader) ListAuthorized(ctx context.Context, audience clientevents.Audience, after int64, limit int) ([]clientevents.Event, error) {
 	events, err := r.repository.ListAuthorized(ctx, audience, after, limit)
 	if err == nil && len(events) == 0 {
