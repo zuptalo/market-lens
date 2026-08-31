@@ -332,3 +332,30 @@ test('authorization state stays legible and reachable at every supported viewpor
   await expect(page).toHaveURL(/\/login\?redirect=/);
   expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
 });
+
+test('a fresh installation explains itself instead of showing a dead sign-in form', async ({ page }) => {
+  await page.route('**/api/v1/setup/status', (route) => route.fulfill({ json: { setup_required: true } }));
+  await page.route('**/api/v1/account', (route) => route.fulfill({
+    status: 401, json: { error: { code: 'authentication_required', message: 'Authentication is required.' } },
+  }));
+
+  // Somebody who has just deployed this lands here, and it has to tell them what to do.
+  await page.goto('/');
+  await expect(page).toHaveURL(/\/login/);
+  await expect(page.getByRole('heading', { name: 'This installation has not been set up yet' })).toBeVisible();
+  await expect(page.getByText('market-lens auth setup-link')).toBeVisible();
+  await expect(page.locator('input[type="email"]')).toHaveCount(0);
+
+  // The instruction must not assume one deployment shape over another.
+  const body = (await page.locator('body').innerText()).toLowerCase();
+  for (const assumption of ['kubectl', 'k3s', 'kubernetes', 'docker compose exec', 'helm']) {
+    expect(body, `setup guidance assumes ${assumption}`).not.toContain(assumption);
+  }
+
+  // It stays readable on the narrowest supported screen, which is where somebody checking
+  // a new deployment from a phone will see it.
+  await page.setViewportSize({ width: 320, height: 800 });
+  await expect(page.getByRole('heading', { name: 'This installation has not been set up yet' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1)).toBe(false);
+  await expect(page.getByRole('button', { name: 'Copy command' })).toBeVisible();
+});
