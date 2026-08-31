@@ -61,7 +61,9 @@ func TestLoadProductionFailsClosedWithoutStrongSecretOrSecureCookies(t *testing.
 		secret        string
 		secureCookies string
 	}{
-		{name: "missing secret", secret: "", secureCookies: "true"},
+		// "missing secret" was removed by feature 009: an absent AUTH_SECRET is now
+		// self-provisioned from the database rather than rejected. See
+		// TestLoadProductionWithoutAuthSecretSucceeds, which asserts the replacement.
 		{name: "short secret", secret: "too-short", secureCookies: "true"},
 		{name: "insecure cookies", secret: authTestSecret, secureCookies: "false"},
 	}
@@ -145,4 +147,38 @@ func assertConfigField(t *testing.T, value reflect.Value, name string, want any)
 	if got := field.Interface(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("%s = %#v, want %#v", name, got, want)
 	}
+}
+
+// TestLoadProductionWithoutAuthSecretSucceeds is feature 009's initial red. A production
+// start must need only DATABASE_URL; the signing key is provisioned from the database after
+// migration, so configuration loading can no longer demand it. Loading must still surface an
+// explicitly supplied value, because a supplied value continues to take precedence.
+func TestLoadProductionWithoutAuthSecretSucceeds(t *testing.T) {
+	setValidAuthEnvironment(t)
+	t.Setenv("ENV", "production")
+	t.Setenv("AUTH_SECRET", "")
+	t.Setenv("AUTH_SECURE_COOKIES", "true")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("production configuration without AUTH_SECRET failed: %v", err)
+	}
+	auth := requiredStructField(t, reflect.ValueOf(cfg), "Auth")
+	assertConfigField(t, auth, "Secret", "")
+}
+
+// A supplied AUTH_SECRET must still reach the application unchanged, so that an existing
+// deployment keeps signing with the value it has always used and nobody is signed out.
+func TestLoadProductionCarriesSuppliedAuthSecret(t *testing.T) {
+	setValidAuthEnvironment(t)
+	t.Setenv("ENV", "production")
+	t.Setenv("AUTH_SECRET", authTestSecret)
+	t.Setenv("AUTH_SECURE_COOKIES", "true")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth := requiredStructField(t, reflect.ValueOf(cfg), "Auth")
+	assertConfigField(t, auth, "Secret", authTestSecret)
 }

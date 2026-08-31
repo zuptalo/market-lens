@@ -147,9 +147,17 @@ test('searches, inspects, and returns with instrument state across responsive in
   if (isMobile) await page.getByTestId('open-filters').click();
   const search = page.getByRole('searchbox', { name: 'Search instruments' });
   await search.fill('ALFA');
-  await page.getByLabel('Exchange').selectOption('XSTO');
+  // The exchange filter is a combobox rather than a native select, so it is driven the way a
+  // person does: open it and choose the option by its name.
+  await page.getByRole('combobox', { name: 'Exchange' }).click();
+  await page.getByRole('option', { name: 'XSTO', exact: true }).click();
   await expect(page).toHaveURL(/q=ALFA/);
-  if (isMobile) await page.keyboard.press('Escape');
+  if (isMobile) {
+    // The sheet is modal: its mask intercepts pointer events, so it has to be dismissed
+    // before the list underneath can be tapped. That is the real interaction on a phone.
+    await page.getByRole('button', { name: 'Close' }).click();
+    await expect(page.locator('.p-drawer-mask')).toHaveCount(0);
+  }
 
   const result = page.getByRole('link', { name: /Alpha AB.*ALFA.*XSTO/i });
   if (isMobile) await result.tap(); else await result.press('Enter');
@@ -174,7 +182,10 @@ test('searches, inspects, and returns with instrument state across responsive in
   await page.getByRole('link', { name: 'Back to instruments' }).click();
   if (isMobile) await page.getByTestId('open-filters').click();
   await expect(search).toHaveValue('ALFA');
-  await expect(page.getByLabel('Exchange')).toHaveValue('XSTO');
+  // A combobox reports its selection as text, not as an input value.
+  // Scoped by role: the active-filter chip also names the exchange, which is the point of a
+  // removable chip but makes a bare label lookup ambiguous.
+  await expect(page.getByRole('combobox', { name: 'Exchange' })).toContainText('XSTO');
   await page.setViewportSize({ width: 320, height: 800 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
 });

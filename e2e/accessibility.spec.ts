@@ -31,6 +31,7 @@ test('every control on the sign-in page has a name, a focus ring, and enough con
   await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
 
   await expectAccessibleNames(page);
+  await expectLabelsPointAtSomething(page);
   await expectVisibleFocusIndicator(page, 'Email');
   await expectReadableContrast(page);
 });
@@ -41,6 +42,7 @@ test('the account page stays operable by keyboard alone', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Account settings' })).toBeVisible();
 
   await expectAccessibleNames(page);
+  await expectLabelsPointAtSomething(page);
   await expectReadableContrast(page);
 
   // Tabbing must reach every control that does something, in an order a person can follow.
@@ -55,6 +57,24 @@ test('the account page stays operable by keyboard alone', async ({ page }) => {
     await page.keyboard.press('Tab');
     const active = await page.evaluate(() => document.activeElement?.tagName ?? '');
     expect(active).not.toBe('BODY');
+  }
+});
+
+// The market-data filters are the densest set of controls in the application and, until this
+// test existed, the only screen the accessibility suite never opened - which is how five
+// labels pointing at nothing went unnoticed there.
+test('the market data filters are labelled and readable', async ({ page }) => {
+  await mockAccount(page, true);
+  await page.goto('/markets');
+  await expect(page.getByRole('heading', { name: 'Instruments' })).toBeVisible();
+
+  await expectAccessibleNames(page);
+  await expectLabelsPointAtSomething(page);
+  await expectReadableContrast(page);
+
+  for (const size of [{ width: 320, height: 800 }, { width: 360, height: 800 }, { width: 1440, height: 900 }]) {
+    await page.setViewportSize(size);
+    expect(await horizontallyOverflows(page), (await widestElements(page)).join('; ')).toBe(false);
   }
 });
 
@@ -95,7 +115,7 @@ for (const viewport of VIEWPORTS) {
     await expect(page.getByRole('heading', { name: 'Account settings' })).toBeVisible();
 
     // The page may scroll down; it may never scroll sideways, and no control may be clipped.
-    expect(await horizontallyOverflows(page)).toBe(false);
+    expect(await horizontallyOverflows(page), (await widestElements(page)).join('; ')).toBe(false);
     const clipped = await page.evaluate(() => {
       const width = document.documentElement.clientWidth;
       return Array.from(document.querySelectorAll<HTMLElement>('button, a[href], input'))
@@ -151,6 +171,20 @@ async function horizontallyOverflows(page: Page): Promise<boolean> {
   return page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
 }
 
+// widestElements names what is pushing the page sideways. Knowing that something overflows is
+// not enough to fix it, and hunting for the element by hand is most of the work.
+async function widestElements(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const limit = document.documentElement.clientWidth;
+    return Array.from(document.querySelectorAll<HTMLElement>('*'))
+      .map((element) => ({ element, rect: element.getBoundingClientRect() }))
+      .filter(({ rect }) => rect.right > limit + 1)
+      .slice(0, 6)
+      .map(({ element, rect }) => `${element.tagName.toLowerCase()}.${element.className || '-'}`
+        + ` right=${Math.round(rect.right)} limit=${limit}`);
+  });
+}
+
 // expectAccessibleNames fails on any control a screen reader would announce as unlabelled.
 async function expectAccessibleNames(page: Page): Promise<void> {
   const unnamed = await page.evaluate(() => {
@@ -169,15 +203,48 @@ async function expectAccessibleNames(page: Page): Promise<void> {
   expect(unnamed, 'controls with no accessible name').toEqual([]);
 }
 
+// expectLabelsPointAtSomething catches a label whose `for` names an element that does not
+// exist. A composite control renders its id somewhere other than where a plain input does, so
+// this breaks quietly during a component migration - and an aria-label on the wrapper is
+// enough to keep every other accessibility check passing while it does.
+async function expectLabelsPointAtSomething(page: Page): Promise<void> {
+  const dangling = await page.evaluate(() => {
+    const labelable = new Set(['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON', 'METER', 'OUTPUT', 'PROGRESS']);
+    return Array.from(document.querySelectorAll<HTMLLabelElement>('label[for]'))
+      .map((label) => ({ label, target: document.getElementById(label.htmlFor) }))
+      // Existing is not enough. A composite control puts a plain `id` on its outer wrapper,
+      // which is neither focusable nor labelable: clicking the label focuses nothing and the
+      // association is not reported. The target has to be something a person can land on.
+      .filter(({ target }) => !target || (!labelable.has(target.tagName) && target.tabIndex < 0))
+      .map(({ label, target }) => `${label.textContent?.trim()} -> #${label.htmlFor}`
+        + ` (${target ? `${target.tagName.toLowerCase()}, tabindex ${target.tabIndex}` : 'missing'})`);
+  });
+  expect(dangling, 'labels pointing at nothing a person can focus').toEqual([]);
+}
+
 // expectVisibleFocusIndicator proves keyboard focus is actually visible, not merely present.
 async function expectVisibleFocusIndicator(page: Page, label: string): Promise<void> {
   const field = page.getByLabel(label);
-  await field.focus();
+
+  // Focus is moved with the keyboard rather than element.focus(). A ring is drawn on
+  // :focus-visible, and whether a programmatic focus satisfies that is a browser heuristic
+  // about the last input modality - which made this assertion pass or fail depending on what
+  // ran before it. Tabbing to the control is both deterministic and what a keyboard user does.
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  let reached = false;
+  for (let step = 0; step < 40 && !reached; step += 1) {
+    await page.keyboard.press('Tab');
+    reached = await field.evaluate((element) => element === document.activeElement);
+  }
+  expect(reached, `could not reach ${label} with the keyboard`).toBe(true);
+
   const indicator = await field.evaluate((element) => {
     const style = getComputedStyle(element);
     return {
       outlineWidth: style.outlineWidth, outlineStyle: style.outlineStyle,
       boxShadow: style.boxShadow, borderColor: style.borderColor,
+      // Whether the ring should apply at all depends on this, so report it alongside.
+      focusVisible: element.matches(':focus-visible'),
     };
   });
   const visible = (indicator.outlineStyle !== 'none' && parseFloat(indicator.outlineWidth) > 0)
@@ -267,7 +334,14 @@ async function measureContrast(page: Page): Promise<string[]> {
       const size = parseFloat(style.fontSize);
       const large = size >= 24 || (size >= 18.66 && parseInt(style.fontWeight, 10) >= 700);
       if (ratio < (large ? 3 : 4.5)) {
-        offending.push(`${text.slice(0, 40)} @ ${ratio.toFixed(2)}:1`);
+        // The colours are reported too: knowing a ratio failed is not enough to find out
+        // which layer produced it, and that is most of the work in fixing one.
+        const rgb = (value: RGBA) => `rgb(${value.slice(0, 3).map(Math.round).join(',')})`;
+        offending.push(
+          `${text.slice(0, 40)} @ ${ratio.toFixed(2)}:1 `
+          + `[${element.tagName.toLowerCase()}.${element.className || '-'} `
+          + `fg ${rgb(foreground)} on bg ${rgb(background)}]`,
+        );
       }
     }
     return offending;

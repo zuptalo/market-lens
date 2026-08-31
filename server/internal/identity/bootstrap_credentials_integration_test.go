@@ -38,12 +38,17 @@ func (stub *credentialValidatorStub) ValidateCredential(_ context.Context, key s
 }
 
 func TestBootstrapCredentialsRejectProviderFailureWithoutConsumingSetup(t *testing.T) {
+	// Feature 010 replaced the two sentinels with field-level errors, so the setup form can
+	// say which input to fix. The assertions below are correspondingly more specific: the
+	// field, the code, and whether the dependency was merely unreachable.
 	for _, tt := range []struct {
-		name string
-		err  error
+		name            string
+		err             error
+		wantCode        string
+		wantUnreachable bool
 	}{
-		{name: "invalid entitlement", err: ErrProviderCredentialInvalid},
-		{name: "provider unavailable", err: ErrProviderUnavailable},
+		{name: "invalid entitlement", err: ErrProviderCredentialInvalid, wantCode: "rejected"},
+		{name: "provider unavailable", err: ErrProviderUnavailable, wantCode: "unreachable", wantUnreachable: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			pool := testdb.Open(t)
@@ -58,8 +63,19 @@ func TestBootstrapCredentialsRejectProviderFailureWithoutConsumingSetup(t *testi
 			}
 
 			_, err = service.BootstrapOwner(context.Background(), credentialBootstrapRequest(setup.Token))
-			if !errors.Is(err, tt.err) {
-				t.Fatalf("bootstrap error = %v, want %v", err, tt.err)
+			var validation *SetupValidationError
+			if !errors.As(err, &validation) {
+				t.Fatalf("bootstrap error = %v, want a field-level setup validation error", err)
+			}
+			if validation.Unreachable != tt.wantUnreachable {
+				t.Errorf("unreachable = %t, want %t", validation.Unreachable, tt.wantUnreachable)
+			}
+			if len(validation.Fields) != 1 || validation.Fields[0].Field != "eodhd_api_key" ||
+				validation.Fields[0].Code != tt.wantCode {
+				t.Fatalf("reported fields = %#v, want one eodhd_api_key %q", validation.Fields, tt.wantCode)
+			}
+			if strings.Contains(validation.Fields[0].Message, testEODHDKey) {
+				t.Fatalf("message echoed the submitted key: %q", validation.Fields[0].Message)
 			}
 			var owners, usableCapabilities int
 			if err := pool.QueryRow(context.Background(), `SELECT

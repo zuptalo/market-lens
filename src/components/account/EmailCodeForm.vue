@@ -1,5 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, nextTick, ref } from 'vue';
+import InputText from 'primevue/inputtext';
+import Button from 'primevue/button';
+import Message from 'primevue/message';
 
 const props = defineProps<{
   email: string;
@@ -25,12 +28,17 @@ function normalise(value: string): string {
   return value.replace(/\D/g, '').slice(0, 6);
 }
 
-function onInput(event: Event): void {
+// Normalising has to survive the component's own render. PrimeVue writes the raw typed value
+// back to the element as it re-renders, and when the cleaned value equals the one already held
+// there is no further render to correct it - so the element is fixed up after that render
+// rather than during the event, which is what keeps a pasted "01 23-45" showing as "012345".
+async function onInput(event: Event): Promise<void> {
   const input = event.target as HTMLInputElement;
   const cleaned = normalise(input.value);
-  input.value = cleaned;
   code.value = cleaned;
   if (cleaned.length === 6) localError.value = null;
+  await nextTick();
+  if (input.value !== cleaned) input.value = cleaned;
 }
 
 function submit(): void {
@@ -49,15 +57,15 @@ function submit(): void {
     <p class="email-code-form__recipient">
       We sent a six-digit code to <strong>{{ email }}</strong>.
     </p>
-    <p v-if="message" role="status">{{ message }}</p>
-    <p v-if="error" role="alert">{{ error }}</p>
-    <p v-else-if="localError" role="alert">{{ localError }}</p>
+    <Message v-if="message" role="status" severity="info" :closable="false">{{ message }}</Message>
+    <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
+    <Message v-else-if="localError" severity="error" :closable="false">{{ localError }}</Message>
 
     <label for="member-code">Six-digit passcode</label>
-    <input
+    <InputText
       id="member-code"
       name="code"
-      :value="code"
+      v-model="code"
       inputmode="numeric"
       autocomplete="one-time-code"
       pattern="[0-9]{6}"
@@ -65,14 +73,15 @@ function submit(): void {
       maxlength="20"
       required
       aria-describedby="member-code-hint"
+      fluid
       @input="onInput"
-    >
+    />
     <p id="member-code-hint" class="email-code-form__hint">The code expires in 10 minutes and can be used once.</p>
 
-    <button type="submit" :disabled="busy">{{ busy ? 'Verifying…' : 'Verify passcode' }}</button>
-    <button type="button" data-resend :disabled="busy || !canResend" @click="emit('resend')">
+    <Button type="submit" :disabled="busy" :label="busy ? 'Verifying…' : 'Verify passcode'" />
+    <Button type="button" data-resend severity="secondary" :disabled="busy || !canResend" @click="emit('resend')">
       <template v-if="canResend">Send a new code</template>
       <template v-else>Send a new code in {{ resendIn }}s</template>
-    </button>
+    </Button>
   </form>
 </template>

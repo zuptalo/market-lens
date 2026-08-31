@@ -64,12 +64,33 @@ type IntegrationStatusReader interface {
 	Statuses(context.Context) ([]credentials.Status, error)
 }
 
+// IntegrationAdministration lets the owner check a configuration before committing to it, and
+// change it only once it is proven to work.
+type IntegrationAdministration interface {
+	IntegrationSettings(context.Context, identity.Actor) (identity.IntegrationSettings, error)
+	VerifyIntegrations(context.Context, identity.Actor, identity.IntegrationUpdate) (identity.IntegrationOutcomes, error)
+	UpdateIntegrations(context.Context, identity.Actor, identity.IntegrationUpdate) (identity.IntegrationOutcomes, error)
+}
+
+// InstanceConfiguration describes which configuration values this installation provisioned
+// for itself and which the operator must retain. It holds no secret and no derivative of one:
+// the signing key generation is an ordinal, and the credential key is reported only as
+// present or absent. The credential key is always external to the database, which is why its
+// source is a constant rather than a field.
+type InstanceConfiguration struct {
+	SigningKeySource      string
+	SigningKeyGeneration  int
+	ExternalKeyConfigured bool
+}
+
 type Dependencies struct {
 	Database                Database
 	Authenticator           SessionAuthenticator
 	Identity                OwnerIdentity
 	Authentication          OwnerAuthentication
 	Integrations            IntegrationStatusReader
+	IntegrationAdmin        IntegrationAdministration
+	InstanceConfiguration   InstanceConfiguration
 	MemberAuth              MemberAuthentication
 	Members                 MemberAdministration
 	Invitations             InvitationAdministration
@@ -136,7 +157,12 @@ func NewRouter(deps Dependencies) http.Handler {
 	protected.HandleFunc("GET /api/v1/account", accountHandler(deps.Authentication))
 	// Every owner route passes the same administration boundary, so a new one cannot be added
 	// without it. Ownership is read from the persisted principal alone.
-	protected.Handle("GET /api/v1/owner/integrations", httpx.RequireOwner(ownerIntegrationStatusHandler(deps.Integrations)))
+	protected.Handle("GET /api/v1/owner/integrations",
+		httpx.RequireOwner(ownerIntegrationStatusHandler(deps.Integrations, deps.IntegrationAdmin, deps.InstanceConfiguration)))
+	protected.Handle("POST /api/v1/owner/integrations/verify",
+		httpx.RequireOwner(httpx.RequireCSRF(ownerIntegrationChangeHandler(deps.IntegrationAdmin, false))))
+	protected.Handle("PUT /api/v1/owner/integrations",
+		httpx.RequireOwner(httpx.RequireCSRF(ownerIntegrationChangeHandler(deps.IntegrationAdmin, true))))
 	protected.Handle("GET /api/v1/owner/members", httpx.RequireOwner(listMembersHandler(deps.Members)))
 	protected.Handle("POST /api/v1/owner/members/{memberId}/unlock", httpx.RequireOwner(httpx.RequireCSRF(unlockMemberHandler(deps.Members))))
 	protected.Handle("PATCH /api/v1/owner/members/{memberId}/status", httpx.RequireOwner(httpx.RequireCSRF(memberStatusHandler(deps.Members))))

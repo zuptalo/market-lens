@@ -3,6 +3,8 @@ package httpx
 import (
 	"context"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"market-lens/server/internal/authorization"
@@ -36,11 +38,46 @@ func PrincipalFromContext(request *http.Request) (Principal, bool) {
 func RequirePrincipal(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if _, ok := PrincipalFromContext(request); !ok {
+			// A person typing an address is not a script calling an API. Answering a page
+			// request with a JSON error is a dead end, so navigation is sent to sign-in
+			// while every data request still receives a refusal it can act on.
+			if destination, ok := signInDestination(request); ok {
+				http.Redirect(writer, request, destination, http.StatusFound)
+				return
+			}
 			writeAuthError(writer, http.StatusUnauthorized, "authentication_required", "Authentication is required.")
 			return
 		}
 		next.ServeHTTP(writer, request)
 	})
+}
+
+// signInDestination reports where an unauthenticated page request should be sent. It answers
+// only for browser navigation: an API path is never redirected, whatever it claims to accept,
+// so an Accept header cannot turn a refusal into a redirect.
+func signInDestination(request *http.Request) (string, bool) {
+	if request.Method != http.MethodGet && request.Method != http.MethodHead {
+		return "", false
+	}
+	if strings.HasPrefix(request.URL.Path, "/api/") {
+		return "", false
+	}
+	if !strings.Contains(request.Header.Get("Accept"), "text/html") {
+		return "", false
+	}
+	target := "/login"
+	// Only a bare local path is ever reflected back, so the redirect cannot be pointed at
+	// another site by asking for one.
+	if path := request.URL.EscapedPath(); localPath(path) {
+		target += "?redirect=" + url.QueryEscape(path)
+	}
+	return target, true
+}
+
+// localPath accepts only a single-slash absolute path, which excludes "//host" and any
+// scheme-bearing value a browser would treat as another origin.
+func localPath(path string) bool {
+	return strings.HasPrefix(path, "/") && !strings.HasPrefix(path, "//") && !strings.Contains(path, ":")
 }
 
 func RequireCSRF(next http.Handler) http.Handler {

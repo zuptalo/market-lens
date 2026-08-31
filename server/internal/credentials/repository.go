@@ -262,3 +262,116 @@ func (repository *Repository) SMTPSettings(ctx context.Context, cipher *Cipher) 
 		Username: payload.Username, Password: payload.Password,
 	}, nil
 }
+
+// StoredCredentialsExist reports whether any provider credential is encrypted in the
+// database. This, not the presence of an environment variable, is what decides whether
+// EXTERNAL_CREDENTIAL_KEY is required: an installation with nothing stored has nothing to
+// lose, while one with ciphertext cannot read it without the key. The key itself is never
+// stored here, because it protects secrets held inside this same database.
+func (repository *Repository) StoredCredentialsExist(ctx context.Context) (bool, error) {
+	if repository == nil || repository.pool == nil {
+		return false, errors.New("external credential repository is unavailable")
+	}
+	var exists bool
+	if err := repository.pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM external_service_credentials)`).Scan(&exists); err != nil {
+		return false, errors.New("detect stored external credentials")
+	}
+	return exists, nil
+}
+
+// Replacement is one integration's new plaintext, ready to be sealed.
+type Replacement struct {
+	Kind      Kind
+	Plaintext []byte
+}
+
+// Replace stores new values for one or more integrations in a single transaction, so a change
+// touching both can never leave one updated and the other stale. It re-seals under the current
+// key version and keeps each row's id, because that id is bound into the ciphertext.
+//
+// It records the change and publishes it, naming the integration and never a value.
+func (repository *Repository) Replace(ctx context.Context, cipher *Cipher, ownerID string,
+	now time.Time, replacements []Replacement) error {
+	if repository == nil || repository.pool == nil || cipher == nil || len(replacements) == 0 {
+		return errors.New("external credential replacement input is invalid")
+	}
+	tx, err := repository.pool.Begin(ctx)
+	if err != nil {
+		return errors.New("begin external credential replacement")
+	}
+	defer tx.Rollback(ctx)
+
+	kinds := make([]string, 0, len(replacements))
+	for _, replacement := range replacements {
+		kinds = append(kinds, string(replacement.Kind))
+	}
+	rows, err := tx.Query(ctx, `SELECT kind, id::text FROM external_service_credentials
+		WHERE kind = ANY($1) FOR UPDATE`, kinds)
+	if err != nil {
+		return errors.New("lock external credentials for replacement")
+	}
+	identifiers := map[string]string{}
+	for rows.Next() {
+		var kind, id string
+		if err := rows.Scan(&kind, &id); err != nil {
+			rows.Close()
+			return errors.New("scan external credential for replacement")
+		}
+		identifiers[kind] = id
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return errors.New("load external credentials for replacement")
+	}
+
+	changed := make([]string, 0, len(replacements))
+	for _, replacement := range replacements {
+		id, ok := identifiers[string(replacement.Kind)]
+		if !ok {
+			return errors.New("external credential is not configured")
+		}
+		metadata := Metadata{
+			ID: id, Kind: replacement.Kind, PayloadVersion: 1, KeyVersion: cipher.KeyVersion(),
+		}
+		ciphertext, err := cipher.Seal(metadata, replacement.Plaintext)
+		if err != nil {
+			return err
+		}
+		// The schema requires a validation time for the provider credential and none for
+		// mail, so the two are written with the shape their own constraint demands.
+		var validatedAt *time.Time
+		if replacement.Kind == KindEODHDAPI {
+			validated := now.UTC()
+			validatedAt = &validated
+		}
+		result, err := tx.Exec(ctx, `UPDATE external_service_credentials
+			SET ciphertext=$1, payload_version=$2, key_version=$3, validated_at=$4, updated_at=$5
+			WHERE id=$6`, ciphertext, metadata.PayloadVersion, metadata.KeyVersion,
+			validatedAt, now.UTC(), id)
+		if err != nil || result.RowsAffected() != 1 {
+			return errors.New("replace external credential")
+		}
+		changed = append(changed, string(replacement.Kind))
+	}
+
+	metadata, err := json.Marshal(map[string]any{"integrations": changed})
+	if err != nil {
+		return errors.New("describe the external credential replacement")
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO security_audit_events
+		(occurred_at,event_type,actor_user_id,subject_user_id,outcome,metadata)
+		VALUES ($1,'integration.updated.v1',$2,$2,'succeeded',$3)`, now.UTC(), ownerID, metadata); err != nil {
+		return errors.New("audit the external credential replacement")
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO client_events
+		(event_type,version,scope,entity_type,entity_id,payload,occurred_at)
+		VALUES ('integration.updated.v1',1,'owner','credential','external-services',$1,$2)`,
+		metadata, now.UTC()); err != nil {
+		return errors.New("publish the external credential replacement")
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return errors.New("commit the external credential replacement")
+	}
+	return nil
+}

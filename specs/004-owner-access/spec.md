@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-28
 
-**Status**: in-review
+**Status**: shipped
 <!-- Market Lens spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: Establish exactly one first owner for a new Market Lens deployment, secure

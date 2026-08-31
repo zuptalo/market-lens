@@ -253,6 +253,54 @@ paths:
                     items: { $ref: '#/components/schemas/IntegrationStatus' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/OwnerRequired' }
+    put:
+      tags: [Owner administration]
+      operationId: updateIntegrations
+      summary: Store a configuration, after proving it works
+      description: >-
+        Added by feature 011. Verifies every submitted integration and stores nothing unless
+        all of them pass, so an installation is never left holding a configuration that does
+        not work. Integrations are independent; an omitted SMTP password retains the stored
+        one, while an explicitly empty username and password remove authentication.
+      security: [{ sessionCookie: [], csrfHeader: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IntegrationUpdate' }
+      responses:
+        '200':
+          description: >-
+            Stored. Reports each integration's own result, so the confirmation can say which
+            half of the configuration was checked rather than only that the request succeeded.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IntegrationCheckResult' }
+        '400': { $ref: '#/components/responses/InvalidSetup' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/OwnerRequired' }
+        '503': { description: A dependency could not be reached, so nothing was stored }
+  /owner/integrations/verify:
+    post:
+      tags: [Owner administration]
+      operationId: verifyIntegrations
+      summary: Check a configuration without storing it
+      security: [{ sessionCookie: [], csrfHeader: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IntegrationUpdate' }
+      responses:
+        '200':
+          description: The submitted configuration works; nothing was stored
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IntegrationCheckResult' }
+        '400': { $ref: '#/components/responses/InvalidSetup' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/OwnerRequired' }
+        '503': { description: A dependency could not be reached }
   /owner/invitations/{invitationId}/resend:
     post:
       tags: [Owner administration]
@@ -385,6 +433,32 @@ components:
     Cursor: { name: cursor, in: query, schema: { type: string, maxLength: 512 } }
     Limit: { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 25 } }
   responses:
+    InvalidSetup:
+      description: >-
+        One or more submitted values need attention. Every field the caller must fix is named
+        in one response, with a machine-readable code. Added by feature 010 and reused here so
+        setup and settings report problems identically.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error:
+                type: object
+                required: [code, message, fields]
+                properties:
+                  code: { type: string, enum: [invalid_setup, dependency_unreachable] }
+                  message: { type: string }
+                  fields:
+                    type: array
+                    items:
+                      type: object
+                      required: [field, code, message]
+                      properties:
+                        field: { type: string }
+                        code: { type: string }
+                        message: { type: string }
     Authenticated:
       description: >-
         Authenticated; sets a secure HttpOnly session cookie plus a script-readable
@@ -461,6 +535,50 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
   schemas:
+    IntegrationCheckResult:
+      type: object
+      required: [verified, results]
+      properties:
+        verified: { type: boolean }
+        results:
+          type: object
+          description: >-
+            Each integration's own outcome. `not_checked` is a real answer rather than a
+            silence: a value of the wrong shape stops every network call, so reporting the
+            other integration as verified would claim something that never happened.
+          required: [eodhd, smtp]
+          properties:
+            eodhd: { type: string, enum: [verified, failed, not_checked] }
+            smtp: { type: string, enum: [verified, failed, not_checked] }
+    IntegrationUpdate:
+      type: object
+      minProperties: 1
+      description: >-
+        Whichever integrations are being changed. Each is independent, because the stored
+        provider key can never be read back and so cannot be required in order to change a
+        mail setting.
+      properties:
+        smtp:
+          type: object
+          required: [host, port, from]
+          properties:
+            host: { type: string, maxLength: 253 }
+            port: { type: integer, minimum: 1, maximum: 65535 }
+            from: { type: string, format: email }
+            username: { type: string, maxLength: 320 }
+            password:
+              type: [string, "null"]
+              description: >-
+                Omit to keep the stored password; send an empty string together with an empty
+                username to remove authentication. Never returned by any endpoint.
+        eodhd:
+          type: object
+          required: [api_key]
+          properties:
+            api_key:
+              type: string
+              maxLength: 1024
+              description: Write-only. Never returned by any endpoint.
     Error:
       type: object
       required: [error]

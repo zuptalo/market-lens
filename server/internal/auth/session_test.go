@@ -86,3 +86,21 @@ func validSession(created time.Time) Session {
 		OriginDigest: bytes.Repeat([]byte{0x53}, 32),
 	}
 }
+
+// A rotation of the instance signing key ends every session, and the audit trail must record
+// why. Reusing "administrative" would have hidden the cause from an operator reading it
+// afterwards, so rotation has a reason of its own. The literal is used deliberately: it is
+// the value the database CHECK constraint in migration 0011 permits.
+func TestSessionAcceptsSigningKeyRotationAsRevokeReason(t *testing.T) {
+	created := time.Date(2026, time.August, 31, 12, 0, 0, 0, time.UTC)
+	session := validSession(created)
+	if err := session.Revoke(RevokeReason("signing_key_rotated"), created.Add(time.Hour)); err != nil {
+		t.Fatalf("signing key rotation was rejected as a revocation reason: %v", err)
+	}
+	if session.RevokedReason != RevokeSigningKeyRotated {
+		t.Fatalf("revoked reason = %q, want %q", session.RevokedReason, RevokeSigningKeyRotated)
+	}
+	if session.ActiveAt(created.Add(2*time.Hour), true) {
+		t.Fatal("session remained active after a signing key rotation")
+	}
+}

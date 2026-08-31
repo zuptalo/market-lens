@@ -73,9 +73,19 @@ proportion to the change. Never disable a failing check to hide a regression.
 
 <!-- SPECKIT START -->
 For durable cross-session context, read `docs/product-vision.md`, `ROADMAP.md`, and
-`specs/README.md`. The current Instruments and Daily Market Data implementation is
-governed by `specs/002-instruments-market-data/spec.md`; resume from the next incomplete
-task in its `tasks.md` and read its `plan.md` and supporting artifacts for technology
-choices, structure, commands, contracts, and boundaries. Owner Access and Invitations is
-fully designed and task-ready under `specs/004-owner-access/`.
+`specs/README.md`, which is the authority on lifecycle status. Everything specified so far is
+shipped: `v0.5.0` carries features 002, 003, 004 and 009 through 012.
+
+The next product feature is Instrument Exploration and Financial Charts. Its specification,
+plan, research, data model and contracts are reviewed on the `005-instrument-exploration`
+branch and are not yet on `main`; task breakdown and implementation remain.
+
+Two constraints that outlive any single feature:
+
+- `AUTH_SECRET` is self-provisioned and database-resident, while `EXTERNAL_CREDENTIAL_KEY`
+  must never be stored in the database, because it encrypts provider credentials held inside
+  that same database.
+- No custom UI component may be built where PrimeVue provides one. This is enforced by
+  `src/components/library-usage.test.ts`, which also fails if the stylesheet restyles a
+  control the theme owns. The single permitted exception, and its reason, is recorded there.
 <!-- SPECKIT END -->

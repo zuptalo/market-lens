@@ -3,8 +3,10 @@ package auth
 import (
 	"context"
 	"crypto/hmac"
+	"encoding/json"
 	"errors"
 	"hash/fnv"
+	"io"
 	"time"
 
 	clientevents "market-lens/server/internal/events"
@@ -931,4 +933,183 @@ func (repository *Repository) PruneRateEvents(ctx context.Context, now time.Time
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+// ResolveSigningKey returns the key this instance must sign with, provisioning one when the
+// installation has none.
+//
+// It is safe to call from any number of instances starting at once and takes no lock: the
+// insert is ON CONFLICT DO NOTHING against the singleton unique index, so a loser of the race
+// simply reads the winner's row and adopts it. That is why 100 simultaneous first starts
+// converge on one key rather than 100.
+func (repository *Repository) ResolveSigningKey(ctx context.Context, supplied string,
+	random io.Reader, now time.Time) (SigningKeyResolution, error) {
+	stored, err := repository.signingKeyRecord(ctx)
+	if err != nil {
+		return SigningKeyResolution{}, err
+	}
+	resolution, err := ResolveSigningKey(stored, supplied, random)
+	if err != nil || resolution.Provision == nil {
+		return resolution, err
+	}
+
+	inserted, err := repository.insertSigningKey(ctx, resolution.Provision, now)
+	if err != nil {
+		return SigningKeyResolution{}, err
+	}
+	if inserted {
+		return resolution, nil
+	}
+
+	// Another instance provisioned first. Re-decide against what it stored, so the loser
+	// adopts the winner's key instead of failing or minting a second one.
+	stored, err = repository.signingKeyRecord(ctx)
+	if err != nil {
+		return SigningKeyResolution{}, err
+	}
+	if stored == nil {
+		return SigningKeyResolution{}, errors.New("the instance signing key disappeared during provisioning")
+	}
+	return ResolveSigningKey(stored, supplied, random)
+}
+
+func (repository *Repository) signingKeyRecord(ctx context.Context) (*SigningKeyRecord, error) {
+	var record SigningKeyRecord
+	var source string
+	err := repository.pool.QueryRow(ctx,
+		`SELECT source,key_material,fingerprint,generation FROM instance_signing_key`).
+		Scan(&source, &record.KeyMaterial, &record.Fingerprint, &record.Generation)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, errors.New("read the instance signing key")
+	}
+	record.Source = SigningKeySource(source)
+	return &record, nil
+}
+
+// insertSigningKey reports whether this caller was the one that created the key.
+func (repository *Repository) insertSigningKey(ctx context.Context, record *SigningKeyRecord,
+	now time.Time) (bool, error) {
+	id, err := newAuthUUID()
+	if err != nil {
+		return false, err
+	}
+	result, err := repository.pool.Exec(ctx, `INSERT INTO instance_signing_key
+		(id,source,key_material,fingerprint,generation,created_at)
+		VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`,
+		id, string(record.Source), record.KeyMaterial, record.Fingerprint, record.Generation, now.UTC())
+	if err != nil {
+		return false, errors.New("provision the instance signing key")
+	}
+	return result.RowsAffected() == 1, nil
+}
+
+// RotateSigningKey replaces the instance signing key and, in the same transaction, ends
+// everything whose digest was computed under the old one.
+func (repository *Repository) RotateSigningKey(ctx context.Context, newKey []byte,
+	now time.Time) (SigningKeyRecord, error) {
+	if len(newKey) < 32 {
+		return SigningKeyRecord{}, errors.New("a replacement signing key must contain at least 32 bytes")
+	}
+	tx, err := repository.pool.Begin(ctx)
+	if err != nil {
+		return SigningKeyRecord{}, errors.New("begin instance signing key rotation")
+	}
+	defer tx.Rollback(ctx)
+
+	var generation int
+	err = tx.QueryRow(ctx,
+		`SELECT generation FROM instance_signing_key FOR UPDATE`).Scan(&generation)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return SigningKeyRecord{}, errors.New("this installation has no signing key to rotate")
+	}
+	if err != nil {
+		return SigningKeyRecord{}, errors.New("lock the instance signing key")
+	}
+
+	record := SigningKeyRecord{
+		Source: SigningKeyProvisioned, KeyMaterial: newKey,
+		Fingerprint: SigningKeyFingerprint(newKey), Generation: generation + 1,
+	}
+	if _, err := tx.Exec(ctx, `UPDATE instance_signing_key
+		SET source='provisioned',key_material=$1,fingerprint=$2,generation=$3,rotated_at=$4`,
+		record.KeyMaterial, record.Fingerprint, record.Generation, now.UTC()); err != nil {
+		return SigningKeyRecord{}, errors.New("replace the instance signing key")
+	}
+
+	// Every row below carries a digest computed under the key just replaced, so none of them
+	// can ever be verified again. Clearing them here is what makes the rotation leave the
+	// installation on exactly one usable key rather than between two.
+	if _, err := tx.Exec(ctx, `UPDATE sessions SET revoked_at=$1,revoked_reason=$2
+		WHERE revoked_at IS NULL`, now.UTC(), string(RevokeSigningKeyRotated)); err != nil {
+		return SigningKeyRecord{}, errors.New("end sessions for the instance signing key rotation")
+	}
+	if _, err := tx.Exec(ctx, `UPDATE auth_capabilities SET revoked_at=$1
+		WHERE consumed_at IS NULL AND revoked_at IS NULL`, now.UTC()); err != nil {
+		return SigningKeyRecord{}, errors.New("revoke capabilities for the instance signing key rotation")
+	}
+	if _, err := tx.Exec(ctx, `UPDATE invitations SET state='revoked',revoked_at=$1,updated_at=$1
+		WHERE state='pending'`, now.UTC()); err != nil {
+		return SigningKeyRecord{}, errors.New("revoke invitations for the instance signing key rotation")
+	}
+	if _, err := tx.Exec(ctx, `UPDATE member_login_challenges SET state='revoked',invalidated_at=$1
+		WHERE state='active'`, now.UTC()); err != nil {
+		return SigningKeyRecord{}, errors.New("revoke login codes for the instance signing key rotation")
+	}
+	// Rate buckets are keyed by a digest under the old key, so they would neither match nor
+	// expire. Removing them does not unlock anybody: member lockouts live in
+	// member_login_state, which rotation deliberately leaves alone.
+	if _, err := tx.Exec(ctx, `DELETE FROM auth_rate_events`); err != nil {
+		return SigningKeyRecord{}, errors.New("clear rate buckets for the instance signing key rotation")
+	}
+
+	metadata, err := json.Marshal(map[string]any{"generation": record.Generation})
+	if err != nil {
+		return SigningKeyRecord{}, errors.New("describe the instance signing key rotation")
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO security_audit_events
+		(occurred_at,event_type,outcome,metadata)
+		VALUES ($1,'signing_key.rotated.v1','succeeded',$2)`, now.UTC(), metadata); err != nil {
+		return SigningKeyRecord{}, errors.New("audit the instance signing key rotation")
+	}
+	if err := clientevents.Insert(ctx, tx, clientevents.Event{
+		Type: "signing_key.rotated.v1", Version: 1, Scope: "owner",
+		EntityType: "instance", EntityID: "signing-key", Payload: metadata, OccurredAt: now.UTC(),
+	}); err != nil {
+		return SigningKeyRecord{}, errors.New("publish the instance signing key rotation")
+	}
+	// Every account whose sessions just ended learns why through the event it already handles.
+	rows, err := tx.Query(ctx, `SELECT DISTINCT user_id::text FROM sessions
+		WHERE revoked_at=$1 AND revoked_reason=$2`, now.UTC(), string(RevokeSigningKeyRotated))
+	if err != nil {
+		return SigningKeyRecord{}, errors.New("list accounts affected by the instance signing key rotation")
+	}
+	affected := make([]string, 0, 8)
+	for rows.Next() {
+		var userID string
+		if err := rows.Scan(&userID); err != nil {
+			rows.Close()
+			return SigningKeyRecord{}, errors.New("scan accounts affected by the instance signing key rotation")
+		}
+		affected = append(affected, userID)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return SigningKeyRecord{}, errors.New("list accounts affected by the instance signing key rotation")
+	}
+	for _, userID := range affected {
+		if err := clientevents.Insert(ctx, tx, clientevents.Event{
+			Type: "sessions.revoked.v1", Version: 1, Scope: "user", SubjectUserID: userID,
+			EntityType: "sessions", EntityID: userID, OccurredAt: now.UTC(),
+		}); err != nil {
+			return SigningKeyRecord{}, errors.New("publish session revocation for the instance signing key rotation")
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return SigningKeyRecord{}, errors.New("commit the instance signing key rotation")
+	}
+	return record, nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,11 +56,18 @@ func TestAnonymousCanLoadOnlyAuthenticationSPAShellRoutes(t *testing.T) {
 	if favicon.Code != http.StatusOK || favicon.Body.String() != "icon" {
 		t.Fatalf("GET favicon status=%d body=%q", favicon.Code, favicon.Body.String())
 	}
+	// A request that is not browser navigation — no HTML in Accept — receives a refusal it
+	// can act on rather than a redirect it would have to follow to discover the same thing.
+	// Browser navigation to these same paths is sent to sign-in instead; see
+	// TestAnonymousNavigationIsSentToSignInWhileDataStaysRefused.
 	for _, path := range []string{"/", "/markets", "/account"} {
 		response := httptest.NewRecorder()
 		router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
 		if response.Code != http.StatusUnauthorized {
 			t.Fatalf("anonymous GET %s status=%d body=%q", path, response.Code, response.Body.String())
+		}
+		if strings.Contains(response.Body.String(), "auth shell") {
+			t.Fatalf("anonymous GET %s served the application shell", path)
 		}
 	}
 }
@@ -381,3 +389,71 @@ func (stub *scopedSessionStub) RevokeSession(_ context.Context, userID, _ string
 }
 
 func (stub *scopedSessionStub) RevokeAllSessions(context.Context, string) error { return nil }
+
+func TestAnonymousNavigationIsSentToSignInWhileDataStaysRefused(t *testing.T) {
+	staticDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(staticDir, "index.html"), []byte("app shell"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	router := NewRouter(Dependencies{
+		Database: databaseStub{}, StaticDir: staticDir,
+		Instruments: &instrumentReaderStub{}, MarketData: &marketDataReaderStub{}, Events: &eventReaderStub{},
+	})
+
+	// Somebody typing the bare domain is a person, not a script. Answering them with a JSON
+	// error is a dead end; they are sent to sign in, and told where they were going.
+	for _, path := range []string{"/", "/markets", "/account", "/markets/33000000-0000-4000-8000-000000000001"} {
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		request.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		if response.Code != http.StatusFound {
+			t.Fatalf("anonymous navigation to %s = %d %s, want a redirect to sign-in",
+				path, response.Code, response.Body.String())
+		}
+		location := response.Header().Get("Location")
+		if !strings.HasPrefix(location, "/login?redirect=") {
+			t.Fatalf("anonymous navigation to %s redirected to %q", path, location)
+		}
+		// The redirect must stay on this site: a Location carrying a scheme or an authority
+		// would send somebody to another origin because they asked for one.
+		if target, err := url.Parse(location); err != nil || target.Scheme != "" || target.Host != "" {
+			t.Fatalf("redirect target for %s leaves this origin: %q (%v)", path, location, err)
+		}
+		// No protected content may be served alongside the redirect.
+		if strings.Contains(response.Body.String(), "app shell") {
+			t.Fatalf("anonymous navigation to %s was served the application shell", path)
+		}
+	}
+
+	// An off-site destination is never reachable through the redirect, however it is asked
+	// for. Whatever this answers, the Location must name no other origin.
+	for _, hostileTarget := range []string{"//evil.example.com/", "/\\evil.example.com", "https://evil.example.com/"} {
+		hostile := httptest.NewRequest(http.MethodGet, hostileTarget, nil)
+		hostile.Header.Set("Accept", "text/html")
+		hostileResponse := httptest.NewRecorder()
+		router.ServeHTTP(hostileResponse, hostile)
+		location := hostileResponse.Header().Get("Location")
+		if location == "" {
+			continue
+		}
+		target, err := url.Parse(location)
+		if err != nil || target.Scheme != "" || target.Host != "" {
+			t.Fatalf("request for %q produced an off-origin redirect: %q (%v)", hostileTarget, location, err)
+		}
+	}
+
+	// Data is unaffected: an API caller still receives a refusal it can act on, and the
+	// Accept header must not be a way to turn one into a redirect.
+	for _, path := range []string{
+		"/api/v1/instruments", "/api/v1/market-data/imports", "/api/v1/events", "/api/v1/account",
+	} {
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		request.Header.Set("Accept", "text/html")
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		if response.Code != http.StatusUnauthorized {
+			t.Fatalf("anonymous %s = %d, want 401 regardless of Accept", path, response.Code)
+		}
+	}
+}

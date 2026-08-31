@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import Button from 'primevue/button';
 
 /**
  * Range, zoom, pan and overlay controls for the price chart.
@@ -53,50 +54,46 @@ const availableOverlays = computed(() =>
 <template>
   <div class="chart-controls">
     <div class="control-group" role="group" aria-label="Chart range">
-      <button
+      <Button
         v-for="range in availableRanges"
         :key="range.sessions"
         type="button"
+        size="small"
+        :label="range.label"
+        :outlined="props.sessions !== range.sessions"
         :aria-pressed="props.sessions === range.sessions"
-        :class="{ selected: props.sessions === range.sessions }"
         @click="$emit('range', range.sessions)"
-      >
-        {{ range.label }}
-      </button>
+      />
     </div>
 
     <div class="control-group" role="group" aria-label="Zoom and pan">
-      <button type="button" aria-label="Pan back" @click="$emit('pan', 'back')">
-        <span aria-hidden="true">←</span>
-      </button>
-      <button type="button" aria-label="Zoom out" @click="$emit('zoom', 'out')">
-        <span aria-hidden="true">−</span>
-      </button>
-      <button type="button" aria-label="Zoom in" @click="$emit('zoom', 'in')">
-        <span aria-hidden="true">+</span>
-      </button>
-      <button type="button" aria-label="Pan forward" @click="$emit('pan', 'forward')">
-        <span aria-hidden="true">→</span>
-      </button>
+      <Button type="button" size="small" outlined label="←" aria-label="Pan back" @click="$emit('pan', 'back')" />
+      <Button type="button" size="small" outlined label="−" aria-label="Zoom out" @click="$emit('zoom', 'out')" />
+      <Button type="button" size="small" outlined label="+" aria-label="Zoom in" @click="$emit('zoom', 'in')" />
+      <Button type="button" size="small" outlined label="→" aria-label="Pan forward" @click="$emit('pan', 'forward')" />
     </div>
 
     <div class="control-group" role="group" aria-label="Moving averages">
-      <button
+      <Button
         v-for="windowLength in availableOverlays"
         :key="windowLength"
         type="button"
+        size="small"
+        :label="`MA${windowLength}`"
+        :outlined="!props.overlays.includes(windowLength)"
         :aria-label="`${windowLength}-session moving average`"
         :aria-pressed="props.overlays.includes(windowLength)"
-        :class="{ selected: props.overlays.includes(windowLength) }"
         @click="$emit('toggle-overlay', windowLength)"
-      >
-        MA{{ windowLength }}
-      </button>
+      />
     </div>
   </div>
 </template>
 
 <style scoped>
+/*
+ * Layout only. The selected state is carried by aria-pressed and shown through the library's
+ * own outlined/solid variants, so nothing here restyles chrome the theme owns.
+ */
 .chart-controls {
   display: flex;
   flex-wrap: wrap;
@@ -108,34 +105,6 @@ const availableOverlays = computed(() =>
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
-}
-
-.chart-controls button {
-  /* Comfortably operable by touch on the smallest supported screen. */
-  min-height: 2.75rem;
-  min-width: 2.75rem;
-  padding-inline: 0.75rem;
-  border: 1px solid var(--p-content-border-color, rgb(0 0 0 / 0.25));
-  border-radius: 0.4rem;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  font: inherit;
-}
-
-/*
- * The selected state is carried by aria-pressed and shown with a border weight and a
- * background, not by colour alone.
- */
-.chart-controls button.selected {
-  border-width: 2px;
-  font-weight: 600;
-  background: var(--p-highlight-background, rgb(0 0 0 / 0.08));
-}
-
-.chart-controls button:focus-visible {
-  outline: 2px solid var(--p-primary-color, currentColor);
-  outline-offset: 2px;
 }
 
 @media (max-width: 767px) {

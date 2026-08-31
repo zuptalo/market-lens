@@ -1,5 +1,5 @@
 import { reactive } from 'vue';
-import type { AcceptInvitationInput, Account, AccountStatus, AuthenticationResult, AuthState, Invitation, InvitationPage, Member, MemberCodeInput, MemberPage, OwnerLoginInput, OwnerSetupInput, Session } from '@/types/auth';
+import type { AcceptInvitationInput, Account, AccountStatus, AuthenticationResult, AuthState, Invitation, InvitationPage, Member, MemberCodeInput, MemberPage, OwnerLoginInput, OwnerSetupInput, IntegrationSettingsView, IntegrationUpdateInput, Session, IntegrationResults } from '@/types/auth';
 import type { AuthEventCallbacks } from '@/services/events';
 import { AuthClient } from '@/services/auth';
 import { AuthorizedEventStream } from '@/services/events';
@@ -17,6 +17,9 @@ export interface AuthAPI {
   members(cursor?: string): Promise<MemberPage>;
   unlockMember(memberID: string, csrfToken: string): Promise<void>;
   setMemberStatus(memberID: string, status: AccountStatus, csrfToken: string): Promise<Member>;
+  integrationSettings(): Promise<IntegrationSettingsView>;
+  verifyIntegrations(update: IntegrationUpdateInput, csrfToken: string): Promise<IntegrationResults>;
+  updateIntegrations(update: IntegrationUpdateInput, csrfToken: string): Promise<IntegrationResults>;
   invitations(cursor?: string): Promise<InvitationPage>;
   createInvitation(email: string, csrfToken: string): Promise<Invitation>;
   resendInvitation(invitationID: string, csrfToken: string): Promise<Invitation>;
@@ -158,6 +161,13 @@ export function createAuthStore(api: AuthAPI, streamFactory: () => AuthEventStre
     },
     async setMemberStatus(memberID: string, status: AccountStatus): Promise<Member> {
       return api.setMemberStatus(memberID, status, requireCSRF('manage members'));
+    },
+    async integrationSettings(): Promise<IntegrationSettingsView> { return api.integrationSettings(); },
+    async verifyIntegrations(update: IntegrationUpdateInput): Promise<IntegrationResults> {
+      return api.verifyIntegrations(update, requireCSRF('change integrations'));
+    },
+    async updateIntegrations(update: IntegrationUpdateInput): Promise<IntegrationResults> {
+      return api.updateIntegrations(update, requireCSRF('change integrations'));
     },
     async invitations(cursor = ''): Promise<InvitationPage> { return api.invitations(cursor); },
     async createInvitation(email: string): Promise<Invitation> {

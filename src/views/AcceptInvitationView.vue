@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
+import InputText from 'primevue/inputtext';
+import Button from 'primevue/button';
+import Message from 'primevue/message';
 import { useRouter } from 'vue-router';
 import { useAuth } from '@/composables/useAuth';
 
@@ -50,20 +53,21 @@ async function submit(): Promise<void> {
         Confirm your details to join. You will sign in with a six-digit code sent to your email,
         so there is nothing to remember.
       </p>
-      <p v-if="error" role="alert">{{ error }}</p>
+      <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
 
       <label for="invitation-display-name">Display name</label>
-      <input
+      <InputText
         id="invitation-display-name"
         v-model="displayName"
         name="displayName"
         autocomplete="name"
         maxlength="120"
         required
-      >
+        fluid
+      />
 
       <label for="invitation-email">Email</label>
-      <input
+      <InputText
         id="invitation-email"
         v-model="email"
         name="email"
@@ -72,9 +76,10 @@ async function submit(): Promise<void> {
         autocomplete="email"
         maxlength="320"
         required
-      >
+        fluid
+      />
 
-      <button type="submit" :disabled="busy">{{ busy ? 'Joining…' : 'Join Market Lens' }}</button>
+      <Button type="submit" :disabled="busy" :label="busy ? 'Joining…' : 'Join Market Lens'" />
     </form>
   </section>
 </template>

@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { onUnmounted, ref } from 'vue';
+import { onMounted, onUnmounted, ref } from 'vue';
+import Button from 'primevue/button';
 import { useRoute, useRouter } from 'vue-router';
 import OwnerAuth from '@/components/account/OwnerAuth.vue';
 import EmailCodeForm from '@/components/account/EmailCodeForm.vue';
+import SetupRequiredNotice from '@/components/account/SetupRequiredNotice.vue';
 import { useAuth } from '@/composables/useAuth';
 
 const auth = useAuth();
@@ -11,7 +13,19 @@ const router = useRouter();
 const busy = ref(false);
 const error = ref<string | null>(null);
 const resendIn = ref(0);
+// A fresh installation has no accounts, so offering a sign-in form is a dead end. Until the
+// status is known, sign-in is shown: somebody who does have an account must never be locked
+// out because this one status read failed.
+const setupRequired = ref(false);
 let resendTimer: ReturnType<typeof setInterval> | undefined;
+
+onMounted(async () => {
+  try {
+    setupRequired.value = (await auth.setupStatus()).setupRequired;
+  } catch {
+    setupRequired.value = false;
+  }
+});
 
 // A code may only be requested once a minute, so the countdown reflects the real ceiling
 // instead of inviting a request the server would silently drop.
@@ -80,7 +94,8 @@ async function resend(): Promise<void> {
 
 <template>
   <section class="auth-view">
-    <template v-if="auth.state.signInStep === 'otp'">
+    <SetupRequiredNotice v-if="setupRequired" />
+    <template v-else-if="auth.state.signInStep === 'otp'">
       <EmailCodeForm
         :email="auth.state.signInEmail"
         :message="auth.state.signInMessage"
@@ -90,9 +105,9 @@ async function resend(): Promise<void> {
         @submit="verifyCode"
         @resend="resend"
       />
-      <button type="button" data-owner-password :disabled="busy" @click="auth.selectOwnerPassword()">
-        Use owner password
-      </button>
+      <Button
+        type="button" data-owner-password severity="secondary" label="Use owner password"
+        :disabled="busy" @click="auth.selectOwnerPassword()" />
     </template>
     <OwnerAuth
       v-else

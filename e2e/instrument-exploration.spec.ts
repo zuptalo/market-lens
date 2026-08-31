@@ -220,7 +220,8 @@ test('asks the server to sort the whole result set', async ({ page, isMobile }) 
     // The stacked card layout has no header row on screen, so the sheet carries the sort
     // control. Without it a phone could not sort at all.
     await openFilters(page, isMobile);
-    await page.getByLabel('Sort by').selectOption('return_20');
+    await page.getByRole('combobox', { name: 'Sort by' }).click();
+    await page.getByRole('option', { name: '20-session return', exact: true }).click();
   } else {
     await page.getByRole('columnheader', { name: /20-session/ }).click();
   }
@@ -234,7 +235,7 @@ test('sorts from the sheet on a small screen and from the headers on a large one
   await openFilters(page, isMobile);
   // Whichever the viewport, a sort control is reachable by keyboard.
   const control = isMobile
-    ? page.getByLabel('Sort by')
+    ? page.getByRole('combobox', { name: 'Sort by' })
     : page.getByRole('columnheader', { name: /Close/ });
   await control.focus();
   await expect(control).toBeFocused();

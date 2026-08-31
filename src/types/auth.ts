@@ -113,3 +113,28 @@ export interface AcceptInvitationInput {
   email: string;
   displayName: string;
 }
+
+/** The non-secret view of one installation's integrations. Secrets are write-only: the API
+ * reports that they are set, never their values, so nothing here can be prefilled. */
+export interface IntegrationSettingsView {
+  eodhd: { configured: boolean; validatedAt: string | null };
+  smtp: {
+    configured: boolean;
+    host: string;
+    port: number;
+    from: string;
+    username: string;
+    passwordConfigured: boolean;
+  };
+}
+
+/** A submitted change. Each integration is optional so they can be changed independently, and
+ * an omitted SMTP password keeps the stored one. */
+export interface IntegrationUpdateInput {
+  smtp?: { host: string; port: number; from: string; username: string; password?: string };
+  eodhd?: { apiKey: string };
+}
+
+/** Each integration's own outcome from the last check or save. `not_checked` is a real
+ * answer: a value of the wrong shape stops every network call. */
+export type IntegrationResults = Partial<Record<'eodhd' | 'smtp', string>>;

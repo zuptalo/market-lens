@@ -48,11 +48,15 @@ type ServiceDependencies struct {
 	OwnerIdleTimeout       time.Duration
 	SessionAbsoluteTimeout time.Duration
 	EODHDValidator         EODHDCredentialValidator
+	SMTPVerifier           SMTPVerifier
 	CredentialCipher       *credentials.Cipher
-	MemberAccess           MemberAdministration
-	Mail                   appmail.Sender
-	AppBaseURL             string
-	Logger                 *slog.Logger
+	// Credentials is the encrypted provider-credential store. Owner settings read and
+	// replace through it; bootstrap writes through the same transaction it creates the owner in.
+	Credentials  *credentials.Repository
+	MemberAccess MemberAdministration
+	Mail         appmail.Sender
+	AppBaseURL   string
+	Logger       *slog.Logger
 }
 
 type Service struct {
@@ -64,7 +68,9 @@ type Service struct {
 	ownerIdleTimeout       time.Duration
 	sessionAbsoluteTimeout time.Duration
 	eodhdValidator         EODHDCredentialValidator
+	smtpVerifier           SMTPVerifier
 	credentialCipher       *credentials.Cipher
+	credentials            *credentials.Repository
 	memberAccess           MemberAdministration
 	mail                   appmail.Sender
 	appBaseURL             string
@@ -99,9 +105,12 @@ func NewService(dependencies ServiceDependencies) (*Service, error) {
 	if dependencies.Repository == nil || dependencies.Passwords == nil || dependencies.Secrets == nil || dependencies.Now == nil {
 		return nil, errors.New("identity service dependencies are incomplete")
 	}
-	if dependencies.EODHDValidator == nil || dependencies.CredentialCipher == nil {
+	if dependencies.EODHDValidator == nil {
 		return nil, errors.New("identity setup credential dependencies are incomplete")
 	}
+	// The cipher may be absent: a deployment configured with only DATABASE_URL has no
+	// EXTERNAL_CREDENTIAL_KEY yet and must still start and serve sign-in. Owner setup is the
+	// one operation that cannot proceed without it, and refuses at the point of use below.
 	if dependencies.SetupTTL <= 0 || dependencies.OwnerIdleTimeout <= 0 ||
 		dependencies.SessionAbsoluteTimeout < dependencies.OwnerIdleTimeout {
 		return nil, errors.New("identity service lifetimes are invalid")
@@ -110,7 +119,8 @@ func NewService(dependencies ServiceDependencies) (*Service, error) {
 		repository: dependencies.Repository, passwords: dependencies.Passwords, secrets: dependencies.Secrets,
 		now: dependencies.Now, setupTTL: dependencies.SetupTTL, ownerIdleTimeout: dependencies.OwnerIdleTimeout,
 		sessionAbsoluteTimeout: dependencies.SessionAbsoluteTimeout,
-		eodhdValidator:         dependencies.EODHDValidator, credentialCipher: dependencies.CredentialCipher,
+		eodhdValidator:         dependencies.EODHDValidator, smtpVerifier: dependencies.SMTPVerifier,
+		credentialCipher: dependencies.CredentialCipher, credentials: dependencies.Credentials,
 		memberAccess: dependencies.MemberAccess, mail: dependencies.Mail,
 		appBaseURL: strings.TrimRight(dependencies.AppBaseURL, "/"), log: dependencies.Logger,
 	}, nil
@@ -144,26 +154,53 @@ func (service *Service) BootstrapOwner(ctx context.Context, request BootstrapReq
 	if request.Capability == "" || len(request.Capability) > 512 {
 		return BootstrapResult{}, ErrCapabilityUnavailable
 	}
-	if utf8.RuneCountInString(request.Password) < 12 || utf8.RuneCountInString(request.Password) > 1024 {
-		return BootstrapResult{}, errors.New("owner password does not meet length requirements")
-	}
+	// The origin is derived from the request, not typed by anyone, so it is not a field the
+	// operator could correct and stays a plain rejection.
 	if request.Origin == "" || len(request.Origin) > 256 || strings.ContainsFunc(request.Origin, unicode.IsControl) {
 		return BootstrapResult{}, errors.New("request origin is invalid")
 	}
-	email, normalizedEmail, err := NormalizeEmail(request.Email)
-	if err != nil {
-		return BootstrapResult{}, err
+
+	// Everything below is collected rather than returned on first failure, so somebody filling
+	// in ten inputs is told about all their mistakes at once instead of one per round trip.
+	validation := &SetupValidationError{}
+	email, normalizedEmail, emailErr := NormalizeEmail(request.Email)
+	if emailErr != nil {
+		validation.add("email", "invalid_format", "Enter a valid email address, such as you@example.com.")
 	}
-	if err := validateSetupCredentials(request); err != nil {
-		return BootstrapResult{}, err
+	if name := strings.TrimSpace(request.DisplayName); name == "" || name != request.DisplayName ||
+		utf8.RuneCountInString(request.DisplayName) > 120 || strings.ContainsFunc(request.DisplayName, unicode.IsControl) {
+		validation.add("display_name", "invalid_format",
+			"Enter a display name of 1 to 120 characters, with no leading or trailing spaces.")
 	}
+	switch length := utf8.RuneCountInString(request.Password); {
+	case length < 12:
+		validation.add("password", "too_short", "Password must be at least 12 characters.")
+	case length > 1024:
+		validation.add("password", "too_long", "Password must be at most 1024 characters.")
+	}
+	validateSetupCredentials(request, validation)
+
+	// A request that cannot succeed must not spend a provider call or open a connection to
+	// somebody's mail server, so the network checks run only once the shape is right.
+	if len(validation.Fields) > 0 {
+		return BootstrapResult{}, validation
+	}
+
 	if err := service.eodhdValidator.ValidateCredential(ctx, request.EODHDAPIKey); err != nil {
 		var providerError *marketdata.ProviderError
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, ErrProviderUnavailable) ||
 			errors.As(err, &providerError) && providerError.Transient {
-			return BootstrapResult{}, ErrProviderUnavailable
+			validation.Unreachable = true
+			validation.add("eodhd_api_key", "unreachable",
+				"EODHD could not be reached, so the API key could not be checked. Try again shortly.")
+		} else {
+			validation.add("eodhd_api_key", "rejected",
+				"EODHD rejected this API key. Check it in your EODHD account and paste it again.")
 		}
-		return BootstrapResult{}, ErrProviderCredentialInvalid
+	}
+	service.verifySetupMail(ctx, request.SMTP, validation)
+	if len(validation.Fields) > 0 {
+		return BootstrapResult{}, validation
 	}
 
 	now := service.now().UTC()
@@ -232,26 +269,87 @@ func (service *Service) BootstrapOwner(ctx context.Context, request BootstrapReq
 	}, nil
 }
 
-func validateSetupCredentials(request BootstrapRequest) error {
-	if strings.TrimSpace(request.EODHDAPIKey) == "" || len(request.EODHDAPIKey) > 1024 ||
-		strings.ContainsFunc(request.EODHDAPIKey, unicode.IsControl) {
-		return errors.New("EODHD API key is invalid")
+// validateSetupCredentials records what is wrong with each provider input. It used to answer
+// "SMTP configuration is invalid" for eight different problems across five inputs, which told
+// the operator nothing about which one to change.
+func validateSetupCredentials(request BootstrapRequest, validation *SetupValidationError) {
+	validateEODHDKeyShape(request.EODHDAPIKey, validation)
+	validateSMTPShape(request.SMTP, validation)
+}
+
+func validateEODHDKeyShape(key string, validation *SetupValidationError) {
+	if strings.TrimSpace(key) == "" || len(key) > 1024 || strings.ContainsFunc(key, unicode.IsControl) {
+		validation.add("eodhd_api_key", "invalid_format",
+			"Enter your EODHD API key. It cannot be blank or contain control characters.")
 	}
-	smtp := request.SMTP
+}
+
+// validateSMTPShape is shared by bootstrap and by the owner settings screen, so the two can
+// never drift into different ideas of a valid mail configuration.
+func validateSMTPShape(smtp SMTPSetupConfiguration, validation *SetupValidationError) {
 	if strings.TrimSpace(smtp.Host) != smtp.Host || smtp.Host == "" || len(smtp.Host) > 253 ||
-		strings.ContainsFunc(smtp.Host, unicode.IsControl) || smtp.Port < 1 || smtp.Port > 65535 {
-		return errors.New("SMTP configuration is invalid")
+		strings.ContainsFunc(smtp.Host, unicode.IsControl) {
+		validation.add("smtp_host", "invalid_format",
+			"Enter the mail server host name, such as smtp.example.com, with no surrounding spaces.")
+	}
+	if smtp.Port < 1 || smtp.Port > 65535 {
+		validation.add("smtp_port", "out_of_range", "SMTP port must be between 1 and 65535. It is usually 587.")
 	}
 	address, err := mail.ParseAddress(smtp.From)
 	if err != nil || address.Address != smtp.From || address.Name != "" || strings.ContainsAny(smtp.From, "\r\n") {
-		return errors.New("SMTP configuration is invalid")
+		validation.add("smtp_from", "invalid_format",
+			"Enter the plain address that mail is sent from, such as market-lens@example.com.")
 	}
-	if len(smtp.Username) > 320 || len(smtp.Password) > 1024 ||
-		strings.ContainsFunc(smtp.Username, unicode.IsControl) || strings.ContainsFunc(smtp.Password, unicode.IsControl) ||
-		(smtp.Username == "") != (smtp.Password == "") {
-		return errors.New("SMTP configuration is invalid")
+	if len(smtp.Username) > 320 || strings.ContainsFunc(smtp.Username, unicode.IsControl) {
+		validation.add("smtp_username", "invalid_format",
+			"The SMTP username is too long or contains control characters.")
 	}
-	return nil
+	if len(smtp.Password) > 1024 || strings.ContainsFunc(smtp.Password, unicode.IsControl) {
+		validation.add("smtp_password", "invalid_format",
+			"The SMTP password is too long or contains control characters.")
+	}
+	// Authentication needs both halves. Supplying one is always a mistake, and saying which
+	// half is missing is more useful than calling the whole section invalid.
+	if smtp.Username != "" && smtp.Password == "" {
+		validation.add("smtp_password", "required",
+			"Enter the SMTP password that goes with this username, or clear the username to connect without authentication.")
+	}
+	if smtp.Username == "" && smtp.Password != "" {
+		validation.add("smtp_username", "required",
+			"Enter the SMTP username that goes with this password, or clear the password to connect without authentication.")
+	}
+}
+
+// verifySetupMail proves the mail configuration works before setup stores it. The operator
+// chose to block setup on any failure: an installation whose mail does not work cannot invite
+// anybody or issue a login code, so completing setup against broken mail produces something
+// that looks healthy and is a dead end.
+func (service *Service) verifySetupMail(ctx context.Context, config SMTPSetupConfiguration,
+	validation *SetupValidationError) {
+	if service.smtpVerifier == nil {
+		return
+	}
+	err := service.smtpVerifier.VerifySMTP(ctx, config)
+	switch {
+	case err == nil:
+		return
+	case errors.Is(err, ErrSMTPAuthRejected):
+		// Both halves are named, because either one could be the wrong part.
+		validation.add("smtp_username", "auth_rejected",
+			"The mail server rejected these credentials. Check the username and password.")
+		validation.add("smtp_password", "auth_rejected",
+			"The mail server rejected these credentials. Check the username and password.")
+	case errors.Is(err, ErrSMTPSenderRejected):
+		validation.add("smtp_from", "sender_rejected",
+			"The mail server refused this sender address. It usually has to be an address that server is allowed to send as.")
+	case errors.Is(err, ErrSMTPTLSFailed):
+		validation.add("smtp_host", "tls_failed",
+			"The connection to the mail server could not be encrypted. Check the host and port.")
+	default:
+		validation.Unreachable = true
+		validation.add("smtp_host", "unreachable",
+			"Could not reach the mail server. Check the host and port, and that it accepts connections from here.")
+	}
 }
 
 func (service *Service) sealSetupCredentials(request BootstrapRequest, now time.Time) ([]credentials.StoredCredential, error) {
@@ -275,6 +373,12 @@ func (service *Service) sealSetupCredentials(request BootstrapRequest, now time.
 			Host: request.SMTP.Host, Port: request.SMTP.Port, From: request.SMTP.From,
 			Username: request.SMTP.Username, Password: request.SMTP.Password,
 		}},
+	}
+	if service.credentialCipher == nil {
+		// Naming the value and what it is for, without echoing anything the caller submitted.
+		return nil, errors.New("EXTERNAL_CREDENTIAL_KEY is not configured, so provider " +
+			"credentials cannot be encrypted and stored; supply one and keep it with your " +
+			"database backups, because it is never stored in the database")
 	}
 	result := make([]credentials.StoredCredential, 0, len(items))
 	for _, item := range items {

@@ -3,7 +3,12 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/hex"
 	"errors"
+	"log/slog"
+	"market-lens/server/internal/auth"
+	"market-lens/server/internal/config"
 	"strings"
 	"testing"
 	"time"
@@ -177,4 +182,82 @@ func mustCommandUUID(t *testing.T, value string) instruments.UUID {
 		t.Fatal(err)
 	}
 	return id
+}
+
+// FR-009 at start: the operator is told which values the installation provisioned for itself
+// and which they must retain, and no secret appears in the line. SC-007's "three values down
+// to one" is only true if the report says so.
+func TestLogInstanceConfigurationNamesRetainedValuesWithoutSecrets(t *testing.T) {
+	provisionedKey := bytes.Repeat([]byte{0x5e}, 48)
+	suppliedSecret := "an-operator-supplied-auth-secret-value-32b"
+	credentialKey := bytes.Repeat([]byte{0x44}, 32)
+
+	tests := []struct {
+		name              string
+		signingKey        auth.SigningKeyResolution
+		external          config.ExternalCredentialConfig
+		credentialsStored bool
+		wantSigningKey    string
+		wantRetain        string
+		wantWarning       bool
+	}{
+		{
+			name:           "nothing to retain beyond the database",
+			signingKey:     auth.SigningKeyResolution{Key: provisionedKey, Source: auth.SigningKeyProvisioned, Generation: 1},
+			external:       config.ExternalCredentialConfig{},
+			wantSigningKey: "provisioned",
+			wantRetain:     "[]",
+			wantWarning:    true,
+		},
+		{
+			name:              "credential key must be retained once credentials are stored",
+			signingKey:        auth.SigningKeyResolution{Key: provisionedKey, Source: auth.SigningKeyProvisioned, Generation: 2},
+			external:          config.ExternalCredentialConfig{Key: credentialKey, KeyVersion: 1, Configured: true},
+			credentialsStored: true,
+			wantSigningKey:    "provisioned",
+			wantRetain:        "EXTERNAL_CREDENTIAL_KEY",
+			wantWarning:       false,
+		},
+		{
+			name:           "an existing deployment still retains both",
+			signingKey:     auth.SigningKeyResolution{Key: []byte(suppliedSecret), Source: auth.SigningKeySupplied, Generation: 1},
+			external:       config.ExternalCredentialConfig{Key: credentialKey, KeyVersion: 1, Configured: true},
+			wantSigningKey: "supplied",
+			wantRetain:     "AUTH_SECRET",
+			wantWarning:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var captured bytes.Buffer
+			logInstanceConfiguration(slog.New(slog.NewTextHandler(&captured, &slog.HandlerOptions{Level: slog.LevelDebug})),
+				tt.signingKey, tt.external, tt.credentialsStored)
+			output := captured.String()
+
+			if !strings.Contains(output, "signing_key="+tt.wantSigningKey) {
+				t.Errorf("configuration report does not name the signing key source: %s", output)
+			}
+			if !strings.Contains(output, tt.wantRetain) {
+				t.Errorf("configuration report does not name %q: %s", tt.wantRetain, output)
+			}
+			if warned := strings.Contains(output, "level=WARN"); warned != tt.wantWarning {
+				t.Errorf("credential key warning = %t, want %t: %s", warned, tt.wantWarning, output)
+			}
+			// Nothing secret may appear, in any encoding.
+			for _, secret := range []string{
+				string(tt.signingKey.Key), string(provisionedKey), suppliedSecret, string(credentialKey),
+				base64.StdEncoding.EncodeToString(tt.signingKey.Key),
+				base64.StdEncoding.EncodeToString(credentialKey),
+				hex.EncodeToString(tt.signingKey.Key),
+			} {
+				if secret == "" {
+					continue
+				}
+				if strings.Contains(output, secret) {
+					t.Fatalf("configuration report disclosed a secret: %s", output)
+				}
+			}
+		})
+	}
 }

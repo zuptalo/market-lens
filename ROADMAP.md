@@ -23,10 +23,13 @@ without a reviewed feature spec and valid red test.
 | 0 | Application foundation | Shipped | Repository baseline | — | Go/Vue app, migrations, embedded SPA, health/readiness, themes, tests, Docker/Compose, and CI. |
 | Ops-A | Optional public k3s deployment | In progress | [`001-k3s-deployment`](specs/001-k3s-deployment/spec.md) | Foundation | Same image runs on target k3s with PostgreSQL, TLS, and image rollout; not a product prerequisite. |
 | Release-A | Protected versioned delivery | Shipped | [`003-release-versioning`](specs/003-release-versioning/spec.md) and [plan](specs/003-release-versioning/plan.md) | Foundation | PR-only squash delivery, automatic SemVer/GHCR releases, protected main, and visible runtime version. |
-| 1 | Instruments and daily market data | In review | [`002-instruments-market-data`](specs/002-instruments-market-data/spec.md) and [plan](specs/002-instruments-market-data/plan.md) | Foundation | 100 Nordic listings, about ten years of daily OHLCV, action context, quality findings, observable imports, read-only inspection, and durable resumable SSE updates. |
-| Security-A | Owner bootstrap, authentication, and invitations | In review | [`004-owner-access`](specs/004-owner-access/spec.md) | Foundation; required before browser access beyond bootstrap and all private data | Exactly one first owner, secure sessions/recovery, roles, and expiring single-use verified-email invitations with cross-user isolation. |
+| 1 | Instruments and daily market data | Shipped | [`002-instruments-market-data`](specs/002-instruments-market-data/spec.md) and [plan](specs/002-instruments-market-data/plan.md) | Foundation | 100 Nordic listings, about ten years of daily OHLCV, action context, quality findings, observable imports, read-only inspection, and durable resumable SSE updates. |
+| Security-A | Owner bootstrap, authentication, and invitations | Shipped | [`004-owner-access`](specs/004-owner-access/spec.md) | Foundation; required before browser access beyond bootstrap and all private data | Exactly one first owner, secure sessions/recovery, roles, and expiring single-use verified-email invitations with cross-user isolation. |
+| Ops-B | Self-provisioned signing key | Shipped | [`009-self-provisioned-keys`](specs/009-self-provisioned-keys/spec.md) and [plan](specs/009-self-provisioned-keys/plan.md) | Security-A | A production deployment needs only `DATABASE_URL`; the signing key is provisioned into the database so a backup restores every session, while `EXTERNAL_CREDENTIAL_KEY` stays outside the data it protects. |
+| Ops-C | Owner-correctable configuration | Shipped | [`010-setup-error-clarity`](specs/010-setup-error-clarity/spec.md), [`011-integration-settings`](specs/011-integration-settings/spec.md) | Security-A | Setup names every field to fix and verifies SMTP before storing it; the owner can then see, check and change provider configuration, so an expired key no longer means a new database. |
+| Experience-B | One component library everywhere | Shipped | [`012-primevue-consistency`](specs/012-primevue-consistency/spec.md) | Security-A | Every screen uses PrimeVue rather than hand-rolled controls, enforced by a test. |
 | Experience-A | Installable PWA and device lifecycle | Backlog | Not yet specified | Security-A; SSE foundation | Chrome/Edge installability on mobile/tablet/desktop, offline/stale behavior, devices, and permission lifecycle. |
-| 2 | Instrument exploration and financial charts | In review | [`005-instrument-exploration`](specs/005-instrument-exploration/spec.md) | Milestone 1; Security-A | Search/browse, instrument detail, responsive candlestick/volume history, overlays, and basic statistics. |
+| 2 | Instrument exploration and financial charts | In review | [`005-instrument-exploration`](specs/005-instrument-exploration/spec.md) | Milestone 1 | Search/browse, instrument detail, responsive candlestick/volume history, overlays, and basic statistics. |
 | 3 | Reusable feature engine | Backlog | Not yet specified | Milestone 1; benchmark/FX inputs as needed | Deterministic timestamped returns, trend, momentum, relative strength, volatility, ATR, RSI/MACD, drawdown, volume, and regime features with leakage tests. |
 | 4 | Deterministic strategies and signals | Backlog | Not yet specified | Milestone 3 | Versioned momentum/trend strategy, parameters, immutable actions/scores/confidence/explanations and reproducibility. |
 | 5 | Reproducible backtesting | Backlog | Not yet specified | Milestone 4; benchmark data | Historical simulation, accounting, brokerage/FX/slippage, benchmarks, metrics, curves, and traceable trades/signals. |
@@ -39,14 +42,19 @@ without a reviewed feature spec and valid red test.
 
 ## Current focus
 
-Owner bootstrap and authenticated application access is the current product feature.
-Feature 002's implementation and local acceptance matrix are complete, but its public
-deployment was rolled back to `v0.2.0` and final shipped-state evidence remains paused
-until Feature 004 protects every market page, REST snapshot, and SSE stream.
+Everything specified so far is shipped and running: `v0.5.0` carries features 002, 003, 004
+and 009 through 012. Production needs only `DATABASE_URL` plus the credential key it must
+retain, and the owner can correct provider configuration from the browser.
 
-The market-data backend/provider work may continue independently, but its browser/SSE
-delivery cannot be declared deployable until Feature 004's owner bootstrap, session,
-and protected-by-default application boundary is implemented and verified.
+The next product feature is **Milestone 2, instrument exploration and financial charts**. Its
+specification, plan, research, data model and contracts are written and reviewed on the
+`005-instrument-exploration` branch; task breakdown and implementation remain. One decision is
+still open and belongs in the specification rather than the implementation: which charting
+component is used. The project rule is that no custom UI component is built where the chosen
+library provides one, so this must be settled before any chart code is written.
+
+Market data is already delivered behind that boundary: every page, REST snapshot and SSE
+stream requires an authenticated session, with cross-user isolation proven by test.
 
 Milestones 2–5 are the next planning sequence. Create separate feature specs so their
 acceptance criteria, data ownership, responsive behavior, and test-first proof can be

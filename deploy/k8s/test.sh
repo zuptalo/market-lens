@@ -32,11 +32,26 @@ grep -Fq 'runAsUser: 100' "$DIR/20-market-lens.yaml"
 grep -Fq 'runAsGroup: 101' "$DIR/20-market-lens.yaml"
 grep -Fq 'secretKeyRef:' "$DIR/10-postgres.yaml"
 grep -Fq 'secretKeyRef:' "$DIR/20-market-lens.yaml"
+# The signing key is self-provisioned into the database. AUTH_SECRET is still injected when
+# a deployment already holds one, so an upgrade keeps using it and signs nobody out, but the
+# reference must be optional or a fresh installation would never start.
 grep -Fq 'name: AUTH_SECRET' "$DIR/20-market-lens.yaml"
 grep -Fq 'key: AUTH_SECRET' "$DIR/20-market-lens.yaml"
+grep -Fq 'optional: true' "$DIR/20-market-lens.yaml"
 grep -Fq 'AUTH_SECURE_COOKIES: "true"' "$DIR/20-market-lens.yaml"
-grep -Fq -- '--from-literal=AUTH_SECRET="$auth_secret"' "$DIR/install.sh"
-grep -Fq '.data.AUTH_SECRET' "$DIR/install.sh"
+# The installer must no longer mint a signing key, and must never remove one it finds.
+if grep -Fq -- '--from-literal=AUTH_SECRET=' "$DIR/install.sh"; then
+  echo "the installer still generates AUTH_SECRET; the signing key is self-provisioned" >&2
+  exit 1
+fi
+if grep -Eq 'patch secret .*AUTH_SECRET' "$DIR/install.sh"; then
+  echo "the installer still writes AUTH_SECRET into an existing secret" >&2
+  exit 1
+fi
+if grep -Eq 'AUTH_SECRET.*(null|delete|remove)' "$DIR/install.sh"; then
+  echo "the installer must never remove an existing AUTH_SECRET; that would sign every user out" >&2
+  exit 1
+fi
 grep -Fq 'name: EXTERNAL_CREDENTIAL_KEY' "$DIR/20-market-lens.yaml"
 grep -Fq 'key: EXTERNAL_CREDENTIAL_KEY' "$DIR/20-market-lens.yaml"
 grep -Fq 'name: EXTERNAL_CREDENTIAL_KEY_VERSION' "$DIR/20-market-lens.yaml"

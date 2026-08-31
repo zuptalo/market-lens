@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import Button from 'primevue/button';
+import Checkbox from 'primevue/checkbox';
 import Drawer from 'primevue/drawer';
 import MarketDataStatus from '@/components/finance/MarketDataStatus.vue';
 import InstrumentFilters from '@/components/finance/InstrumentFilters.vue';
@@ -305,10 +306,16 @@ onBeforeUnmount(() => {
 
       <ul v-if="activeFilters.length" class="active-filters" aria-label="Active filters">
         <li v-for="chip in activeFilters" :key="chip.key">
-          <button type="button" @click="chip.clear()">
-            {{ chip.label }}<span aria-hidden="true"> ×</span>
-            <span class="sr-only">Remove filter</span>
-          </button>
+          <Button
+            type="button"
+            size="small"
+            severity="secondary"
+            rounded
+            outlined
+            :label="`${chip.label} ×`"
+            :aria-label="`Remove filter ${chip.label}`"
+            @click="chip.clear()"
+          />
         </li>
       </ul>
 
@@ -329,10 +336,15 @@ onBeforeUnmount(() => {
         class="empty-state"
         role="status"
       >
-        No instruments match these filters.
-        <button type="button" data-testid="clear-filters" @click="clearFilters()">
-          Clear all filters
-        </button>
+        <span>No instruments match these filters.</span>
+        <Button
+          type="button"
+          size="small"
+          severity="secondary"
+          label="Clear all filters"
+          data-testid="clear-filters"
+          @click="clearFilters()"
+        />
       </p>
 
       <Button
@@ -363,15 +375,14 @@ onBeforeUnmount(() => {
     <Drawer v-model:visible="columnsOpen" header="Columns" position="bottom">
       <ul class="column-options">
         <li v-for="column in OPTIONAL_COLUMNS" :key="column">
-          <label>
-            <input
-              type="checkbox"
-              :checked="preference.columns.value.includes(column)"
-              :aria-label="COLUMN_LABELS[column]"
-              @change="toggleColumn(column)"
-            >
-            {{ COLUMN_LABELS[column] }}
-          </label>
+          <Checkbox
+            :input-id="`column-${column}`"
+            :model-value="preference.columns.value.includes(column)"
+            binary
+            :aria-label="COLUMN_LABELS[column]"
+            @update:model-value="toggleColumn(column)"
+          />
+          <label :for="`column-${column}`">{{ COLUMN_LABELS[column] }}</label>
         </li>
       </ul>
       <p class="column-note">Remembered on this device.</p>
@@ -396,17 +407,6 @@ onBeforeUnmount(() => {
   margin: 0 0 1rem;
 }
 
-.active-filters button {
-  border: 1px solid var(--p-content-border-color, rgb(0 0 0 / 0.2));
-  border-radius: 999px;
-  padding: 0.25rem 0.75rem;
-  /* Comfortably operable by touch without hunting for the target. */
-  min-height: 2.75rem;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-}
-
 .empty-state {
   display: flex;
   flex-wrap: wrap;
@@ -423,7 +423,7 @@ onBeforeUnmount(() => {
   gap: 0.5rem;
 }
 
-.column-options label {
+.column-options li {
   display: flex;
   align-items: center;
   gap: 0.5rem;

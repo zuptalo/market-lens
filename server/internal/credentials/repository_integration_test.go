@@ -246,3 +246,39 @@ func TestCredentialRepositorySMTPSettingsAreUnavailableBeforeSetup(t *testing.T)
 		t.Fatal("SMTP settings were available before owner setup stored them")
 	}
 }
+
+// FR-008 and SC-006. Requiring the credential key is a question about what is stored, not
+// about what the environment happens to hold. A fresh installation must be able to start
+// without it; an installation with ciphertext must refuse, and say so without describing
+// anything about the ciphertext it cannot read.
+func TestCredentialRequirementFollowsStoredCiphertextNotTheEnvironment(t *testing.T) {
+	pool := testdb.Open(t)
+	ctx := context.Background()
+	if err := db.Migrate(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	repository := NewRepository(pool)
+
+	stored, err := repository.StoredCredentialsExist(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored {
+		t.Fatal("an empty installation reported stored provider credentials")
+	}
+
+	seedCredentialOwner(t, ctx, pool)
+	cipher, err := NewCipher(bytes.Repeat([]byte{0x41}, 32), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	insertCredentialSet(t, ctx, pool, cipher, time.Date(2026, time.August, 31, 12, 0, 0, 0, time.UTC))
+
+	stored, err = repository.StoredCredentialsExist(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stored {
+		t.Fatal("an installation holding encrypted provider credentials reported none")
+	}
+}
