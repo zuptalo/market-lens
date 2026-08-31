@@ -178,6 +178,11 @@ function fakeAPI() {
     setMemberStatus: vi.fn(), invitations: vi.fn().mockResolvedValue({ items: [], nextCursor: '' }),
     createInvitation: vi.fn(), resendInvitation: vi.fn(), revokeInvitation: vi.fn(),
     acceptInvitation: vi.fn().mockResolvedValue(authenticated),
+    integrationSettings: vi.fn().mockResolvedValue({
+      eodhd: { configured: true, validatedAt: null },
+      smtp: { configured: true, host: 'smtp.example.test', port: 587, from: 'a@example.test', username: '', passwordConfigured: false },
+    }),
+    verifyIntegrations: vi.fn().mockResolvedValue({}), updateIntegrations: vi.fn().mockResolvedValue({}),
   } satisfies AuthAPI & Record<string, ReturnType<typeof vi.fn>>;
 }
 

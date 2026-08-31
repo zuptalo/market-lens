@@ -138,7 +138,10 @@ test('searches, inspects, and returns with instrument state across responsive in
   await page.goto('/markets');
   const search = page.getByRole('searchbox', { name: 'Search instruments' });
   await search.fill('ALFA');
-  await page.getByLabel('Exchange').selectOption('XSTO');
+  // The exchange filter is a combobox rather than a native select, so it is driven the way a
+  // person does: open it and choose the option by its name.
+  await page.getByLabel('Exchange').click();
+  await page.getByRole('option', { name: 'XSTO', exact: true }).click();
   await expect(page).toHaveURL(/q=ALFA/);
   const result = page.getByRole('link', { name: /Alpha AB.*ALFA.*XSTO/i });
   if (isMobile) await result.tap(); else await result.press('Enter');
@@ -162,7 +165,8 @@ test('searches, inspects, and returns with instrument state across responsive in
 
   await page.getByRole('link', { name: 'Back to instruments' }).click();
   await expect(search).toHaveValue('ALFA');
-  await expect(page.getByLabel('Exchange')).toHaveValue('XSTO');
+  // A combobox reports its selection as text, not as an input value.
+  await expect(page.getByLabel('Exchange')).toContainText('XSTO');
   await page.setViewportSize({ width: 320, height: 800 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
 });

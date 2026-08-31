@@ -73,9 +73,16 @@ proportion to the change. Never disable a failing check to hide a regression.
 
 <!-- SPECKIT START -->
 For durable cross-session context, read `docs/product-vision.md`, `ROADMAP.md`, and
-`specs/README.md`. The current Instruments and Daily Market Data implementation is
-governed by `specs/002-instruments-market-data/spec.md`; resume from the next incomplete
-task in its `tasks.md` and read its `plan.md` and supporting artifacts for technology
-choices, structure, commands, contracts, and boundaries. Owner Access and Invitations is
-fully designed and task-ready under `specs/004-owner-access/`.
+`specs/README.md`, and trust `specs/README.md` for lifecycle status — feature 002's entry
+still reads in-review and has not yet been re-marked against current release evidence.
+The current feature is Self-Provisioned Signing Key, governed by
+`specs/009-self-provisioned-keys/spec.md` and planned in
+`specs/009-self-provisioned-keys/plan.md`; read its `research.md`, `data-model.md`,
+`contracts/`, and `quickstart.md` for decisions, schema, commands, and the red-green
+checkpoints, then work from the next incomplete task in its `tasks.md`.
+
+Its central constraint: `AUTH_SECRET` becomes self-provisioned and database-resident,
+while `EXTERNAL_CREDENTIAL_KEY` must never be stored in the database, because it encrypts
+provider credentials held inside that same database. Instrument Exploration and Charts is
+specified and planned under `specs/005-instrument-exploration/` and is not started.
 <!-- SPECKIT END -->

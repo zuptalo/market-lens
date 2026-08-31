@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import InputText from 'primevue/inputtext';
+import Select from 'primevue/select';
+import Message from 'primevue/message';
 import MarketDataStatus from '@/components/finance/MarketDataStatus.vue';
 import { InstrumentSearchClient, MarketDataLive, fetchRecentImports, type LiveEvent, type LiveEventSource } from '@/services/marketData';
 import type { ConnectionState, ImportRunSummary, InstrumentPage } from '@/types/marketData';
@@ -84,6 +87,20 @@ onBeforeUnmount(() => {
   searchClient.cancel(); requestController?.abort(); live.stop();
   window.removeEventListener('online', online); window.removeEventListener('offline', offline);
 });
+
+// Filter choices as data. As markup they were five near-identical <select> blocks that had to
+// be kept in step by hand.
+function withAll(label: string, values: string[]): { label: string; value: string }[] {
+  return [{ label, value: '' }, ...values.map((value) => ({ label: value, value }))];
+}
+const exchangeOptions = withAll('All exchanges', ['XSTO', 'XCSE', 'XHEL', 'XOSL']);
+const countryOptions = withAll('All countries', ['SE', 'DK', 'FI', 'NO']);
+const currencyOptions = withAll('All currencies', ['SEK', 'DKK', 'EUR', 'NOK']);
+const activeOptions = [
+  { label: 'All statuses', value: '' },
+  { label: 'Active', value: 'true' },
+  { label: 'Inactive', value: 'false' },
+];
 </script>
 
 <template>
@@ -92,14 +109,39 @@ onBeforeUnmount(() => {
     <section class="instrument-browser" aria-labelledby="instrument-browser-heading">
       <div class="status-heading"><div><p class="eyebrow">Curated universe</p><h2 id="instrument-browser-heading">Instruments</h2></div></div>
       <div class="instrument-filters">
-        <label>Search<input v-model="query" type="search" aria-label="Search instruments" placeholder="Ticker, company, or ISIN"></label>
-        <label>Exchange<select v-model="mic" aria-label="Exchange"><option value="">All exchanges</option><option v-for="value in ['XSTO','XCSE','XHEL','XOSL']" :key="value">{{ value }}</option></select></label>
-        <label>Country<select v-model="country" aria-label="Country"><option value="">All countries</option><option v-for="value in ['SE','DK','FI','NO']" :key="value">{{ value }}</option></select></label>
-        <label>Currency<select v-model="currency" aria-label="Currency"><option value="">All currencies</option><option v-for="value in ['SEK','DKK','EUR','NOK']" :key="value">{{ value }}</option></select></label>
-        <label>Active status<select v-model="active" aria-label="Active status"><option value="">All statuses</option><option value="true">Active</option><option value="false">Inactive</option></select></label>
+        <div class="instrument-filters__field">
+          <label for="markets-search">Search</label>
+          <InputText
+            id="markets-search" v-model="query" type="search" aria-label="Search instruments"
+            placeholder="Ticker, company, or ISIN" fluid />
+        </div>
+        <div class="instrument-filters__field">
+          <label for="markets-exchange">Exchange</label>
+          <Select
+            input-id="markets-exchange" placeholder="All exchanges" v-model="mic" aria-label="Exchange" fluid
+            :options="exchangeOptions" option-label="label" option-value="value" />
+        </div>
+        <div class="instrument-filters__field">
+          <label for="markets-country">Country</label>
+          <Select
+            input-id="markets-country" placeholder="All countries" v-model="country" aria-label="Country" fluid
+            :options="countryOptions" option-label="label" option-value="value" />
+        </div>
+        <div class="instrument-filters__field">
+          <label for="markets-currency">Currency</label>
+          <Select
+            input-id="markets-currency" placeholder="All currencies" v-model="currency" aria-label="Currency" fluid
+            :options="currencyOptions" option-label="label" option-value="value" />
+        </div>
+        <div class="instrument-filters__field">
+          <label for="markets-active">Active status</label>
+          <Select
+            input-id="markets-active" placeholder="All statuses" v-model="active" aria-label="Active status" fluid
+            :options="activeOptions" option-label="label" option-value="value" />
+        </div>
       </div>
       <p v-if="instrumentLoading" role="status">Loading instruments…</p>
-      <p v-else-if="instrumentError" role="alert" class="status-error">{{ instrumentError }}</p>
+      <Message v-else-if="instrumentError" severity="error" :closable="false">{{ instrumentError }}</Message>
       <p v-else-if="instruments.items.length === 0" role="status" class="empty-state">No instruments match these filters.</p>
       <ul v-else class="instrument-results" aria-label="Instrument results">
         <li v-for="instrument in instruments.items" :key="instrument.id"><a :href="`/markets/${instrument.id}?return=${encodeURIComponent(currentQuery)}`" :aria-label="`${instrument.name}, ${instrument.ticker}, ${instrument.exchange.mic}`"><strong>{{ instrument.name }}</strong><span>{{ instrument.ticker }} · {{ instrument.exchange.mic }}</span><span>{{ instrument.currency }} · {{ instrument.isin }}</span></a></li>

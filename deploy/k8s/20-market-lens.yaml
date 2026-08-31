@@ -72,11 +72,16 @@ spec:
                 secretKeyRef:
                   name: market-lens-secrets
                   key: DATABASE_URL
+            # Optional: new installations provision their own signing key into the
+            # database. An existing deployment that already holds an AUTH_SECRET keeps
+            # supplying it here, and the application prefers it, so an upgrade never
+            # re-keys an installation or signs anybody out.
             - name: AUTH_SECRET
               valueFrom:
                 secretKeyRef:
                   name: market-lens-secrets
                   key: AUTH_SECRET
+                  optional: true
             - name: EXTERNAL_CREDENTIAL_KEY
               valueFrom:
                 secretKeyRef:

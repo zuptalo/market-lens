@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue';
+import Button from 'primevue/button';
 import { useRoute, useRouter } from 'vue-router';
 import OwnerAuth from '@/components/account/OwnerAuth.vue';
 import EmailCodeForm from '@/components/account/EmailCodeForm.vue';
@@ -104,9 +105,9 @@ async function resend(): Promise<void> {
         @submit="verifyCode"
         @resend="resend"
       />
-      <button type="button" data-owner-password :disabled="busy" @click="auth.selectOwnerPassword()">
-        Use owner password
-      </button>
+      <Button
+        type="button" data-owner-password severity="secondary" label="Use owner password"
+        :disabled="busy" @click="auth.selectOwnerPassword()" />
     </template>
     <OwnerAuth
       v-else

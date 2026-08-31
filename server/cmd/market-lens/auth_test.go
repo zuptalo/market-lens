@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"io"
 	"log/slog"
@@ -11,10 +12,14 @@ import (
 	"testing"
 	"time"
 
+	"market-lens/server/internal/auth"
 	"market-lens/server/internal/config"
 	"market-lens/server/internal/credentials"
 	"market-lens/server/internal/db"
 	"market-lens/server/internal/identity"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"market-lens/server/internal/testdb"
 )
 
@@ -105,7 +110,7 @@ func TestExecuteAuthCommandRoutesOnlyExactSetupLink(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
 
 	if err := executeAuthCommand(context.Background(), []string{"auth", "setup-link"}, issuer,
-		nil, nil, config.ExternalCredentialConfig{}, nil, &output, logger); err != nil {
+		nil, nil, nil, config.ExternalCredentialConfig{}, nil, &output, logger); err != nil {
 		t.Fatal(err)
 	}
 	if issued != 1 || !strings.Contains(output.String(), capability.Token) {
@@ -119,7 +124,7 @@ func TestExecuteAuthCommandRoutesOnlyExactSetupLink(t *testing.T) {
 		{"auth", "unknown"},
 		{"marketdata", "setup-link"},
 	} {
-		if err := executeAuthCommand(context.Background(), args, issuer, nil, nil,
+		if err := executeAuthCommand(context.Background(), args, issuer, nil, nil, nil,
 			config.ExternalCredentialConfig{}, nil, &bytes.Buffer{}, logger); err == nil {
 			t.Fatalf("invalid auth command was accepted: %v", args)
 		}
@@ -134,7 +139,7 @@ func TestExecuteAuthCommandRoutesOwnerPasswordResetToInteractiveFlow(t *testing.
 		setupCapabilityIssuerFunc(func(context.Context) (identity.SetupCapability, error) {
 			t.Fatal("owner password reset attempted setup capability issuance")
 			return identity.SetupCapability{}, nil
-		}), &ownerPasswordResetterStub{}, nil, config.ExternalCredentialConfig{}, &passwordTerminalStub{terminal: false},
+		}), &ownerPasswordResetterStub{}, nil, nil, config.ExternalCredentialConfig{}, &passwordTerminalStub{terminal: false},
 		&bytes.Buffer{}, slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
 	if err == nil || !strings.Contains(err.Error(), "interactive terminal") {
 		t.Fatalf("non-interactive owner reset error = %v, want safe interactive-terminal rejection", err)
@@ -235,7 +240,7 @@ func TestExecuteAuthCommandRoutesCredentialKeyRotationWithoutSecretArguments(t *
 	var output bytes.Buffer
 	err := executeAuthCommand(context.Background(),
 		[]string{"auth", "credential-key", "rotate", "--new-version", "2"}, nil, nil,
-		rotator, commandTestExternalCredentials(), terminal, &output,
+		rotator, nil, commandTestExternalCredentials(), terminal, &output,
 		slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
 	if err != nil {
 		t.Fatal(err)
@@ -248,7 +253,7 @@ func TestExecuteAuthCommandRoutesCredentialKeyRotationWithoutSecretArguments(t *
 		{"auth", "credential-key", "rotate", "--new-version", "4294967296"},
 		{"auth", "credential-key", "rotate", "--new-version", "2", "--key", encoded},
 	} {
-		if err := executeAuthCommand(context.Background(), args, nil, nil, rotator,
+		if err := executeAuthCommand(context.Background(), args, nil, nil, rotator, nil,
 			commandTestExternalCredentials(), terminal, &bytes.Buffer{},
 			slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))); err == nil {
 			t.Fatalf("unsafe credential-key command accepted: %v", args)
@@ -259,11 +264,25 @@ func TestExecuteAuthCommandRoutesCredentialKeyRotationWithoutSecretArguments(t *
 type passwordTerminalStub struct {
 	terminal  bool
 	passwords [][]byte
+	lines     []string
 	err       error
 	reads     int
+	lineReads int
 }
 
 func (stub *passwordTerminalStub) IsTerminal() bool { return stub.terminal }
+
+func (stub *passwordTerminalStub) ReadLine(string) (string, error) {
+	if stub.err != nil {
+		return "", stub.err
+	}
+	if stub.lineReads >= len(stub.lines) {
+		return "", io.EOF
+	}
+	line := stub.lines[stub.lineReads]
+	stub.lineReads++
+	return line, nil
+}
 
 func (stub *passwordTerminalStub) ReadPassword(string) ([]byte, error) {
 	if stub.err != nil {
@@ -312,14 +331,14 @@ func TestNewIdentityServiceWiresConfiguredSetupLifetimeAndKeyedPersistence(t *te
 		OwnerIdleTimeout:       8 * time.Hour,
 		SessionAbsoluteTimeout: 30 * 24 * time.Hour,
 	}
-	service, err := newIdentityService(authConfig, commandTestExternalCredentials(), commandEODHDValidator{}, pool,
-		slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
+	service, err := newIdentityService(authConfig, []byte(authConfig.Secret), commandTestExternalCredentials(),
+		commandEODHDValidator{}, commandSMTPVerifier{}, pool, slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var output bytes.Buffer
 	if err := executeAuthCommand(context.Background(), []string{"auth", "setup-link"}, service,
-		nil, nil, config.ExternalCredentialConfig{}, nil, &output,
+		nil, nil, nil, config.ExternalCredentialConfig{}, nil, &output,
 		slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))); err != nil {
 		t.Fatal(err)
 	}
@@ -354,8 +373,8 @@ func TestNewAuthenticationServiceAcceptsSessionCreatedBySharedIdentityConfigurat
 		OwnerIdleTimeout:       8 * time.Hour,
 		SessionAbsoluteTimeout: 30 * 24 * time.Hour,
 	}
-	identityService, err := newIdentityService(authConfig, commandTestExternalCredentials(), commandEODHDValidator{}, pool,
-		slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
+	identityService, err := newIdentityService(authConfig, []byte(authConfig.Secret), commandTestExternalCredentials(),
+		commandEODHDValidator{}, commandSMTPVerifier{}, pool, slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -372,8 +391,8 @@ func TestNewAuthenticationServiceAcceptsSessionCreatedBySharedIdentityConfigurat
 	if err != nil {
 		t.Fatal(err)
 	}
-	authenticationService, err := newAuthenticationService(authConfig, commandTestExternalCredentials(), pool,
-		slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
+	authenticationService, err := newAuthenticationService(authConfig, []byte(authConfig.Secret),
+		commandTestExternalCredentials(), pool, slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -390,6 +409,14 @@ type commandEODHDValidator struct{}
 
 func (commandEODHDValidator) ValidateCredential(context.Context, string) error { return nil }
 
+// commandSMTPVerifier stands in for a reachable mail server. Setup now refuses when SMTP
+// cannot be verified, so a test that is not about mail must not depend on a real one.
+type commandSMTPVerifier struct{}
+
+func (commandSMTPVerifier) VerifySMTP(context.Context, identity.SMTPSetupConfiguration) error {
+	return nil
+}
+
 func commandTestExternalCredentials() config.ExternalCredentialConfig {
 	return config.ExternalCredentialConfig{
 		Key: bytes.Repeat([]byte{0x44}, 32), KeyVersion: 1, Configured: true,
@@ -400,4 +427,301 @@ type setupCapabilityIssuerFunc func(context.Context) (identity.SetupCapability, 
 
 func (function setupCapabilityIssuerFunc) IssueSetupCapability(ctx context.Context) (identity.SetupCapability, error) {
 	return function(ctx)
+}
+
+// TestResolvedSigningKeyReachesBothServicesAcrossARestart proves the wiring feature 009
+// introduces: the key is a property of the database, not of the process or its environment.
+// A session created by services built from a freshly provisioned key must still authenticate
+// against services built from the key a later start reads back.
+func TestResolvedSigningKeyReachesBothServicesAcrossARestart(t *testing.T) {
+	pool := testdb.Open(t)
+	ctx := context.Background()
+	if err := db.Migrate(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	authConfig := config.AuthConfig{
+		SetupTTL:               15 * time.Minute,
+		OwnerIdleTimeout:       8 * time.Hour,
+		SessionAbsoluteTimeout: 30 * 24 * time.Hour,
+	}
+	logger := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
+
+	// A production start with no AUTH_SECRET at all.
+	first, err := resolveInstanceSigningKey(ctx, authConfig, pool)
+	if err != nil {
+		t.Fatalf("a start with only a database connection failed: %v", err)
+	}
+	if first.Source != auth.SigningKeyProvisioned || len(first.Key) == 0 {
+		t.Fatalf("resolution = source %q keylen %d", first.Source, len(first.Key))
+	}
+
+	identityService, err := newIdentityService(authConfig, first.Key, commandTestExternalCredentials(),
+		commandEODHDValidator{}, commandSMTPVerifier{}, pool, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	setup, err := identityService.IssueSetupCapability(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := identityService.BootstrapOwner(ctx, identity.BootstrapRequest{
+		Capability: setup.Token, Email: "owner@example.com", Password: "correct horse battery staple",
+		DisplayName: "Market Owner", DeviceLabel: "Command test", Origin: "192.0.2.0/24",
+		EODHDAPIKey: "command-test-eodhd-key",
+		SMTP:        identity.SMTPSetupConfiguration{Host: "smtp.example.test", Port: 587, From: "access@example.test"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The restart: nothing carried over except the database.
+	second, err := resolveInstanceSigningKey(ctx, authConfig, pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(first.Key, second.Key) {
+		t.Fatal("the restart resolved a different signing key")
+	}
+	authenticationService, err := newAuthenticationService(authConfig, second.Key,
+		commandTestExternalCredentials(), pool, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	principal, err := authenticationService.AuthenticateSession(ctx, created.SessionToken)
+	if err != nil {
+		t.Fatalf("session issued before the restart was refused after it: %v", err)
+	}
+	if principal.UserID != created.User.ID {
+		t.Fatalf("authenticated principal = %#v", principal)
+	}
+}
+
+// The four start-up outcomes from contracts/cli.md. Requiring EXTERNAL_CREDENTIAL_KEY is a
+// question about stored ciphertext, so a fresh production installation starts with only
+// DATABASE_URL (SC-001) while one whose credentials would become unreadable refuses (SC-006).
+// No refusal may describe what is stored.
+func TestExternalCredentialConfigurationIsRequiredOnlyWhenCredentialsAreStored(t *testing.T) {
+	configured := commandTestExternalCredentials()
+	wrongKey := config.ExternalCredentialConfig{
+		Key: bytes.Repeat([]byte{0x99}, 32), KeyVersion: 1, Configured: true,
+	}
+
+	tests := []struct {
+		name        string
+		seed        bool
+		external    config.ExternalCredentialConfig
+		wantErr     bool
+		wantStored  bool
+		wantMention []string
+	}{
+		{name: "fresh installation without a key starts", seed: false, external: config.ExternalCredentialConfig{}},
+		{name: "fresh installation with a key starts", seed: false, external: configured},
+		{name: "stored credentials with the right key start", seed: true, external: configured, wantStored: true},
+		{
+			name: "stored credentials without a key refuse", seed: true,
+			external: config.ExternalCredentialConfig{}, wantErr: true, wantStored: true,
+			wantMention: []string{"EXTERNAL_CREDENTIAL_KEY"},
+		},
+		{
+			name: "stored credentials with the wrong key refuse", seed: true,
+			external: wrongKey, wantErr: true, wantStored: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pool := testdb.Open(t)
+			ctx := context.Background()
+			if err := db.Migrate(ctx, pool); err != nil {
+				t.Fatal(err)
+			}
+			if tt.seed {
+				seedCommandCredentialSet(t, ctx, pool, configured)
+			}
+
+			stored, err := validateExternalCredentialConfiguration(ctx, tt.external, pool)
+			if tt.wantErr && err == nil {
+				t.Fatal("an installation that cannot read its stored credentials started anyway")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("start refused: %v", err)
+			}
+			if stored != tt.wantStored {
+				t.Errorf("stored credentials reported = %t, want %t", stored, tt.wantStored)
+			}
+			if err == nil {
+				return
+			}
+			for _, mention := range tt.wantMention {
+				if !strings.Contains(err.Error(), mention) {
+					t.Errorf("refusal does not name %q: %v", mention, err)
+				}
+			}
+			// The refusal must not describe the ciphertext it cannot read.
+			for _, disclosure := range []string{
+				"eodhd_api", "smtp", string(configured.Key), base64.StdEncoding.EncodeToString(configured.Key),
+			} {
+				if strings.Contains(err.Error(), disclosure) {
+					t.Errorf("refusal disclosed stored credential detail %q: %v", disclosure, err)
+				}
+			}
+		})
+	}
+}
+
+func seedCommandCredentialSet(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	external config.ExternalCredentialConfig) {
+	t.Helper()
+	cipher, err := credentials.NewCipher(external.Key, external.KeyVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, time.August, 31, 12, 0, 0, 0, time.UTC)
+	validated := now
+	for _, seed := range []struct {
+		id        string
+		kind      credentials.Kind
+		plaintext string
+		validated *time.Time
+	}{
+		{"00000000-0000-4000-8000-0000000009a1", credentials.KindEODHDAPI, `{"api_key":"seeded"}`, &validated},
+		{"00000000-0000-4000-8000-0000000009a2", credentials.KindSMTP, `{"host":"smtp.example.test"}`, nil},
+	} {
+		metadata := credentials.Metadata{
+			ID: seed.id, Kind: seed.kind, PayloadVersion: 1, KeyVersion: external.KeyVersion,
+		}
+		ciphertext, err := cipher.Seal(metadata, []byte(seed.plaintext))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := credentials.Insert(ctx, pool, credentials.StoredCredential{
+			Record:      credentials.Record{Metadata: metadata, Ciphertext: ciphertext},
+			ValidatedAt: seed.validated, CreatedAt: now, UpdatedAt: now,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// Rotation ends every session, so it must be deliberate: an interactive terminal, an explicit
+// typed confirmation, and output that reports the effect without naming the key.
+func TestExecuteSigningKeyRotationRequiresTTYAndTypedConfirmation(t *testing.T) {
+	tests := []struct {
+		name     string
+		terminal *passwordTerminalStub
+		wantCall bool
+		wantErr  string
+	}{
+		{
+			name:     "refuses without a terminal",
+			terminal: &passwordTerminalStub{terminal: false},
+			wantErr:  "interactive terminal",
+		},
+		{
+			name:     "refuses an unconfirmed rotation",
+			terminal: &passwordTerminalStub{terminal: true, lines: []string{"no"}},
+			wantErr:  "not confirmed",
+		},
+		{
+			name:     "refuses a lowercase confirmation",
+			terminal: &passwordTerminalStub{terminal: true, lines: []string{"rotate"}},
+			wantErr:  "not confirmed",
+		},
+		{
+			name:     "rotates when confirmed",
+			terminal: &passwordTerminalStub{terminal: true, lines: []string{"ROTATE"}},
+			wantCall: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rotator := &signingKeyRotatorStub{generation: 4}
+			var output bytes.Buffer
+			var logs bytes.Buffer
+			err := executeSigningKeyRotation(context.Background(), rotator, tt.terminal, &output,
+				slog.New(slog.NewTextHandler(&logs, nil)), time.Date(2026, time.August, 31, 12, 0, 0, 0, time.UTC))
+
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("error = %v, want one mentioning %q", err, tt.wantErr)
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			if rotator.calls != boolToInt(tt.wantCall) {
+				t.Fatalf("rotation calls = %d, want %d", rotator.calls, boolToInt(tt.wantCall))
+			}
+			if !tt.wantCall {
+				if output.Len() != 0 {
+					t.Fatalf("a refused rotation produced output: %q", output.String())
+				}
+				return
+			}
+			if !strings.Contains(output.String(), "signing_key_rotation=complete") ||
+				!strings.Contains(output.String(), "generation=5") ||
+				!strings.Contains(output.String(), "sessions_revoked=all") {
+				t.Fatalf("rotation output = %q", output.String())
+			}
+			for _, encoding := range []string{
+				string(rotator.received), base64.StdEncoding.EncodeToString(rotator.received),
+				hex.EncodeToString(rotator.received),
+			} {
+				if strings.Contains(output.String(), encoding) || strings.Contains(logs.String(), encoding) {
+					t.Fatal("rotation disclosed key material")
+				}
+			}
+			if len(rotator.received) < 32 {
+				t.Fatalf("replacement key length = %d, want at least 32", len(rotator.received))
+			}
+		})
+	}
+}
+
+func TestExecuteAuthCommandRoutesSigningKeyRotation(t *testing.T) {
+	rotator := &signingKeyRotatorStub{generation: 1}
+	terminal := &passwordTerminalStub{terminal: true, lines: []string{"ROTATE"}}
+	var output bytes.Buffer
+	if err := executeAuthCommand(context.Background(), []string{"auth", "signing-key", "rotate"},
+		nil, nil, nil, rotator, config.ExternalCredentialConfig{}, terminal, &output,
+		slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))); err != nil {
+		t.Fatal(err)
+	}
+	if rotator.calls != 1 {
+		t.Fatalf("signing-key rotate calls = %d, want 1", rotator.calls)
+	}
+	for _, args := range [][]string{
+		{"auth", "signing-key"},
+		{"auth", "signing-key", "rotate", "unexpected"},
+		{"auth", "signing-key", "replace"},
+	} {
+		if err := executeAuthCommand(context.Background(), args, nil, nil, nil, rotator,
+			config.ExternalCredentialConfig{}, terminal, &bytes.Buffer{},
+			slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))); err == nil {
+			t.Fatalf("invalid signing-key command was accepted: %v", args)
+		}
+	}
+}
+
+type signingKeyRotatorStub struct {
+	calls      int
+	generation int
+	received   []byte
+}
+
+func (stub *signingKeyRotatorStub) RotateSigningKey(_ context.Context, newKey []byte,
+	_ time.Time) (auth.SigningKeyRecord, error) {
+	stub.calls++
+	stub.received = append([]byte(nil), newKey...)
+	return auth.SigningKeyRecord{
+		Source: auth.SigningKeyProvisioned, KeyMaterial: stub.received,
+		Fingerprint: auth.SigningKeyFingerprint(stub.received), Generation: stub.generation + 1,
+	}, nil
+}
+
+func boolToInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }

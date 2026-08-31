@@ -4,8 +4,10 @@ import { useRouter } from 'vue-router';
 import SessionList from '@/components/account/SessionList.vue';
 import MemberList from '@/components/account/MemberList.vue';
 import InvitationForm from '@/components/account/InvitationForm.vue';
+import IntegrationSettings from '@/components/account/IntegrationSettings.vue';
 import { useAuth } from '@/composables/useAuth';
-import type { AccountStatus, Invitation, Member, Session } from '@/types/auth';
+import type { AccountStatus, IntegrationSettingsView, IntegrationUpdateInput, Invitation, Member, Session } from '@/types/auth';
+import { AuthRequestError } from '@/services/auth';
 
 const auth = useAuth();
 const router = useRouter();
@@ -19,12 +21,52 @@ const invitations = ref<Invitation[]>([]);
 const invitationError = ref<string | null>(null);
 const invitationMessage = ref<string | null>(null);
 const isOwner = computed(() => auth.state.account?.role === 'owner');
+const integrations = ref<IntegrationSettingsView | null>(null);
+const integrationError = ref<string | null>(null);
+const integrationMessage = ref<string | null>(null);
+const integrationFields = ref<Record<string, string>>({});
+const integrationResults = ref<Record<string, string>>({});
+
+async function loadIntegrations(): Promise<void> {
+  if (!isOwner.value) return;
+  try { integrations.value = await auth.integrationSettings(); }
+  catch { integrationError.value = 'Integration settings are unavailable.'; }
+}
+
+// Checking and saving differ only in whether the verified configuration is written, so they
+// share the reporting: the same field messages appear either way.
+async function applyIntegrations(update: IntegrationUpdateInput, save: boolean): Promise<void> {
+  busy.value = true;
+  integrationError.value = null;
+  integrationMessage.value = null;
+  integrationFields.value = {};
+  integrationResults.value = {};
+  try {
+    if (save) {
+      integrationResults.value = await auth.updateIntegrations(update);
+      integrationMessage.value = 'Saved. The new configuration was checked before it was stored.';
+      await loadIntegrations();
+    } else {
+      integrationResults.value = await auth.verifyIntegrations(update);
+      integrationMessage.value = 'These settings work. Nothing has been saved yet.';
+    }
+  } catch (failure) {
+    integrationError.value = failure instanceof Error ? failure.message : 'The change could not be applied.';
+    if (failure instanceof AuthRequestError) {
+      integrationFields.value = failure.fieldErrors;
+      // Each section reports its own outcome even when the request as a whole failed.
+      integrationResults.value = failure.results as Record<string, string>;
+    }
+  } finally {
+    busy.value = false;
+  }
+}
 let stopMemberWatch: (() => void) | undefined;
 
 onMounted(async () => {
   await loadSessions();
   if (!isOwner.value) return;
-  await Promise.all([loadMembers(), loadInvitations()]);
+  await Promise.all([loadMembers(), loadInvitations(), loadIntegrations()]);
   // Owner-scoped member and invitation events refresh the console; it never polls.
   stopMemberWatch = auth.onMembersChanged(() => {
     void loadMembers();
@@ -164,6 +206,17 @@ async function logout(): Promise<void> {
       :error="memberError"
       @unlock="unlockMember"
       @set-status="setMemberStatus"
+    />
+    <IntegrationSettings
+      v-if="isOwner"
+      :settings="integrations"
+      :busy="busy"
+      :error="integrationError"
+      :message="integrationMessage"
+      :field-errors="integrationFields"
+      :results="integrationResults"
+      @save="(update) => applyIntegrations(update, true)"
+      @verify="(update) => applyIntegrations(update, false)"
     />
     <InvitationForm
       v-if="isOwner"

@@ -25,6 +25,7 @@ without a reviewed feature spec and valid red test.
 | Release-A | Protected versioned delivery | Shipped | [`003-release-versioning`](specs/003-release-versioning/spec.md) and [plan](specs/003-release-versioning/plan.md) | Foundation | PR-only squash delivery, automatic SemVer/GHCR releases, protected main, and visible runtime version. |
 | 1 | Instruments and daily market data | In review | [`002-instruments-market-data`](specs/002-instruments-market-data/spec.md) and [plan](specs/002-instruments-market-data/plan.md) | Foundation | 100 Nordic listings, about ten years of daily OHLCV, action context, quality findings, observable imports, read-only inspection, and durable resumable SSE updates. |
 | Security-A | Owner bootstrap, authentication, and invitations | In review | [`004-owner-access`](specs/004-owner-access/spec.md) | Foundation; required before browser access beyond bootstrap and all private data | Exactly one first owner, secure sessions/recovery, roles, and expiring single-use verified-email invitations with cross-user isolation. |
+| Ops-B | Self-provisioned signing key | In review | [`009-self-provisioned-keys`](specs/009-self-provisioned-keys/spec.md) and [plan](specs/009-self-provisioned-keys/plan.md) | Security-A | A production deployment needs only `DATABASE_URL`; the signing key is provisioned into the database so a backup restores every session, while `EXTERNAL_CREDENTIAL_KEY` stays outside the data it protects. |
 | Experience-A | Installable PWA and device lifecycle | Backlog | Not yet specified | Security-A; SSE foundation | Chrome/Edge installability on mobile/tablet/desktop, offline/stale behavior, devices, and permission lifecycle. |
 | 2 | Instrument exploration and financial charts | Backlog | Not yet specified | Milestone 1 | Search/browse, instrument detail, responsive candlestick/volume history, overlays, and basic statistics. |
 | 3 | Reusable feature engine | Backlog | Not yet specified | Milestone 1; benchmark/FX inputs as needed | Deterministic timestamped returns, trend, momentum, relative strength, volatility, ATR, RSI/MACD, drawdown, volume, and regime features with leakage tests. |
@@ -39,10 +40,14 @@ without a reviewed feature spec and valid red test.
 
 ## Current focus
 
-Owner bootstrap and authenticated application access is the current product feature.
-Feature 002's implementation and local acceptance matrix are complete, but its public
-deployment was rolled back to `v0.2.0` and final shipped-state evidence remains paused
-until Feature 004 protects every market page, REST snapshot, and SSE stream.
+The self-provisioned signing key (Feature 009) is the current change: a deployment now needs
+only `DATABASE_URL`, and restoring a database backup onto another host keeps every session
+working. `EXTERNAL_CREDENTIAL_KEY` deliberately stays outside the database, because it
+encrypts provider credentials held inside it.
+
+Feature 002's lifecycle record is still marked in review and has not been re-marked against
+current release evidence; the branch that would have done so certified a digest that is no
+longer deployed and was deleted. That documentation update is separate outstanding work.
 
 The market-data backend/provider work may continue independently, but its browser/SSE
 delivery cannot be declared deployable until Feature 004's owner bootstrap, session,

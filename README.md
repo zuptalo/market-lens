@@ -52,11 +52,13 @@ Run the production-shaped single application image and PostgreSQL:
 docker compose up --build
 ```
 
-Open <http://localhost:8080>. Set unique `POSTGRES_PASSWORD`, `AUTH_SECRET`, and
-`EXTERNAL_CREDENTIAL_KEY` values in a local `.env` before starting Compose. Generate the
-two independent application keys with `openssl rand -base64 48` and
-`openssl rand -base64 32`, respectively, and keep `EXTERNAL_CREDENTIAL_KEY_VERSION=1`
-until an explicit credential-key rotation. Never commit that file.
+Open <http://localhost:8080>. Set a unique `POSTGRES_PASSWORD` and an
+`EXTERNAL_CREDENTIAL_KEY` (`openssl rand -base64 32`) in a local `.env` before starting
+Compose, and keep `EXTERNAL_CREDENTIAL_KEY_VERSION=1` until an explicit credential-key
+rotation. Never commit that file.
+
+`AUTH_SECRET` is optional: leave it empty and the application provisions its own signing key
+on first start and stores it in the database.
 
 ## Account access
 
@@ -96,10 +98,33 @@ their email and the six-digit code that arrives by mail. Three wrong codes block
 
 ### What the host holds and what it never sees
 
-`AUTH_SECRET` and `EXTERNAL_CREDENTIAL_KEY` are the only account secrets in the environment.
-The owner password, the EODHD key, and the SMTP credential are entered once in the wizard and
-stored encrypted; there is no environment variable for any of them and no way to read one
-back. Rotate the encryption key only with the command below, after putting the new key in
+`EXTERNAL_CREDENTIAL_KEY` is the only account secret you have to keep. The owner password,
+the EODHD key, and the SMTP credential are entered once in the wizard and stored encrypted;
+there is no environment variable for any of them and no way to read one back.
+
+**The two keys are not interchangeable, and the difference decides where each may live.**
+The signing key protects rows in the database it is stored in - session, CSRF, capability and
+login-code digests - and a session is only usable against the *live* database, so a stolen
+backup containing both gains an attacker nothing. It is therefore self-provisioned and kept
+with the data, which is why a deployment needs only `DATABASE_URL` and why restoring onto a
+new host keeps everyone signed in. `EXTERNAL_CREDENTIAL_KEY` encrypts the EODHD key and SMTP
+password *inside* that same database, so storing it there would put the lock and its key in
+one file and turn a leaked backup into working credentials. It stays outside, and **you must
+keep it with your backups**: without it those credentials are permanently unreadable and
+setup has to be redone.
+
+So a restore needs the database plus `EXTERNAL_CREDENTIAL_KEY`, and nothing else.
+
+If you already supply `AUTH_SECRET`, keep supplying it. The application prefers a supplied
+value and never stores it, and removing it later is reported at start rather than silently
+replaced - which would sign every user out. To stop supplying it deliberately, run
+`market-lens auth signing-key rotate`, which replaces the key and ends every session:
+
+```sh
+market-lens auth signing-key rotate
+```
+
+Rotate the encryption key only with the command below, after putting the new key in
 `EXTERNAL_CREDENTIAL_KEY` and raising `EXTERNAL_CREDENTIAL_KEY_VERSION`. Every stored secret
 is re-encrypted in one transaction, so a failure part-way leaves nothing half-rotated:
 

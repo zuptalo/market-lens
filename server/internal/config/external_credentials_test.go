@@ -64,3 +64,22 @@ func TestLoadDevelopmentAllowsUnconfiguredExternalCredentialKey(t *testing.T) {
 	external := requiredStructField(t, reflect.ValueOf(cfg), "ExternalCredentials")
 	assertConfigField(t, external, "Configured", false)
 }
+
+// TestLoadProductionAllowsUnconfiguredExternalCredentialKey proves configuration loading no
+// longer decides whether the credential key is required. Presence is not the question that
+// matters: what matters is whether encrypted provider credentials are actually stored, which
+// is only visible once the database is reachable. That check lives in the credentials
+// repository and runs after migration. The key itself still never enters the database.
+func TestLoadProductionAllowsUnconfiguredExternalCredentialKey(t *testing.T) {
+	setValidAuthEnvironment(t)
+	t.Setenv("ENV", "production")
+	t.Setenv("EXTERNAL_CREDENTIAL_KEY", "")
+	t.Setenv("EXTERNAL_CREDENTIAL_KEY_VERSION", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("production configuration without EXTERNAL_CREDENTIAL_KEY failed: %v", err)
+	}
+	external := requiredStructField(t, reflect.ValueOf(cfg), "ExternalCredentials")
+	assertConfigField(t, external, "Configured", false)
+}

@@ -18,10 +18,12 @@ describe('MarketsView instrument inspection', () => {
   it('provides accessible identity filters and explicit loading/empty results', async () => {
     const wrapper = mount(MarketsView);
     expect(wrapper.get('input[aria-label="Search instruments"]')).toBeTruthy();
-    expect(wrapper.get('select[aria-label="Exchange"]')).toBeTruthy();
-    expect(wrapper.get('select[aria-label="Country"]')).toBeTruthy();
-    expect(wrapper.get('select[aria-label="Currency"]')).toBeTruthy();
-    expect(wrapper.get('select[aria-label="Active status"]')).toBeTruthy();
+    // Asserted by accessible role rather than tag name: what matters is that each filter is
+    // announced as a labelled combobox, not which element the library renders it with.
+    for (const label of ['Exchange', 'Country', 'Currency', 'Active status']) {
+      const filter = wrapper.get(`[aria-label="${label}"]`);
+      expect(filter.attributes('role'), `${label} filter is not an accessible combobox`).toBe('combobox');
+    }
     expect(wrapper.get('[role="status"]').text()).toContain('Loading instruments');
     await flushPromises();
     expect(wrapper.text()).toContain('No instruments match these filters');
