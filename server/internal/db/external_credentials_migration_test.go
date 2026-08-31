@@ -14,8 +14,8 @@ func TestExternalCredentialMigrationIsEmbedded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(migrations) != 10 {
-		t.Fatalf("embedded migration count = %d, want 10", len(migrations))
+	if len(migrations) != 11 {
+		t.Fatalf("embedded migration count = %d, want 11", len(migrations))
 	}
 	external := migrations[8]
 	if external.version != 9 || external.name != "0009_external_credentials_and_owner_reset.sql" {

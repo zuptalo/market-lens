@@ -20,6 +20,7 @@ const (
 	RevokeAllDevices         RevokeReason = "all_devices"
 	RevokeCredentialChanged  RevokeReason = "credential_changed"
 	RevokeAdministrative     RevokeReason = "administrative"
+	RevokeSigningKeyRotated  RevokeReason = "signing_key_rotated"
 )
 
 type Session struct {
@@ -121,7 +122,7 @@ func (session Session) Summary(currentSessionID string) SessionSummary {
 func validRevokeReason(reason RevokeReason) bool {
 	switch reason {
 	case RevokeLogout, RevokeOwnerPasswordReset, RevokeOwnerRecovery, RevokeUserDeactivated, RevokeUserRequested,
-		RevokeAllDevices, RevokeCredentialChanged, RevokeAdministrative:
+		RevokeAllDevices, RevokeCredentialChanged, RevokeAdministrative, RevokeSigningKeyRotated:
 		return true
 	default:
 		return false

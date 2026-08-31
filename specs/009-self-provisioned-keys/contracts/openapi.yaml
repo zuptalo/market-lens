@@ -1,0 +1,106 @@
+openapi: 3.1.0
+info:
+  title: Market Lens instance configuration status
+  version: 1.0.0
+  description: >-
+    Feature 009 adds a configuration object to the existing owner integration-status
+    response. It introduces no new path and no new screen. The object names which values the
+    installation provisioned for itself and which the operator must retain; it never contains
+    a key, a fingerprint, or a key length.
+paths:
+  /api/v1/owner/integrations:
+    get:
+      summary: Owner integration and instance configuration status
+      description: >-
+        Existing owner-only endpoint. The `integrations` array is unchanged. The
+        `configuration` object is added by feature 009 to satisfy FR-009.
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Integration and configuration status
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [integrations, configuration]
+                additionalProperties: false
+                properties:
+                  integrations:
+                    type: array
+                    items:
+                      type: object
+                      required: [kind, configured, ready, key_version]
+                      additionalProperties: false
+                      properties:
+                        kind:
+                          type: string
+                          enum: [eodhd_api, smtp]
+                        configured: { type: boolean }
+                        ready: { type: boolean }
+                        key_version:
+                          type: integer
+                          format: int32
+                          minimum: 0
+                  configuration:
+                    $ref: "#/components/schemas/InstanceConfiguration"
+        "403":
+          description: Owner access is required
+        "503":
+          description: Status is temporarily unavailable
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: market_lens_session
+  schemas:
+    InstanceConfiguration:
+      type: object
+      description: >-
+        Which configuration values this installation provisioned for itself, and which the
+        operator must retain to restore it elsewhere. Contains no secret and no derivative of
+        one.
+      required: [signing_key, external_credential_key, operator_must_retain]
+      additionalProperties: false
+      properties:
+        signing_key:
+          type: object
+          required: [source, generation]
+          additionalProperties: false
+          properties:
+            source:
+              type: string
+              enum: [provisioned, supplied]
+              description: >-
+                `provisioned` means the application generated and stored it, and it travels
+                with the database. `supplied` means the operator sets AUTH_SECRET and must
+                keep doing so.
+            generation:
+              type: integer
+              minimum: 1
+              description: Increments on each rotation. An ordinal, not a secret.
+        external_credential_key:
+          type: object
+          description: >-
+            Always external to the database. This object reports whether it is present, never
+            its value, and never anything about the ciphertext it protects.
+          required: [source, configured, required]
+          additionalProperties: false
+          properties:
+            source:
+              type: string
+              enum: [environment]
+              description: The only permitted source. It is never stored in the database.
+            configured: { type: boolean }
+            required:
+              type: boolean
+              description: True when encrypted provider credentials are stored.
+        operator_must_retain:
+          type: array
+          description: >-
+            Environment values the operator must carry alongside a database backup to restore
+            this installation. Names only.
+          items:
+            type: string
+            enum: [AUTH_SECRET, EXTERNAL_CREDENTIAL_KEY]

@@ -118,13 +118,21 @@ Override it when deploying elsewhere:
 APP_HOST=market-lens.example.com ACME_EMAIL=you@example.com ./install.sh
 ```
 
-The installer generates `POSTGRES_PASSWORD`, `DATABASE_URL`, `AUTH_SECRET`, and an
+The installer generates `POSTGRES_PASSWORD`, `DATABASE_URL`, and an
 independent external-credential encryption key/version once in the
 `market-lens-secrets` Kubernetes Secret. Re-running it preserves existing values and
-adds missing complete key pairs to deployments created before owner access was
-introduced; it never rotates an existing key. An incomplete key/version pair stops the
-upgrade for operator repair. No credential is stored in the repository, and no manual
-SQL is executed; the Go application applies its embedded migrations on startup.
+adds a missing complete credential key pair; it never rotates an existing key. An
+incomplete key/version pair stops the upgrade for operator repair. No credential is
+stored in the repository, and no manual SQL is executed; the Go application applies its
+embedded migrations on startup.
+
+It does **not** generate `AUTH_SECRET`. The application provisions its own signing key on
+first start and keeps it in the database, so it travels with a backup. A deployment that
+already holds an `AUTH_SECRET` keeps it: the manifest still injects it (optionally), the
+application prefers it, and the installer never removes it, because removing it would sign
+every user out. `EXTERNAL_CREDENTIAL_KEY` is the one value you must retain alongside a
+database backup - it encrypts provider credentials held inside that database and is
+deliberately never stored there.
 
 ## Verify
 

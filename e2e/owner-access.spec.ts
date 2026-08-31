@@ -127,6 +127,11 @@ async function mockOwnerAPI(
   await page.route('**/api/v1/account/sessions/*', (route) => route.fulfill({ status: 204 }));
 }
 
+const ownerAccount = {
+  id: '11111111-1111-4111-8111-111111111000', email: 'owner@example.com', display_name: 'Market Owner',
+  role: 'owner', status: 'active', email_verified_at: '2026-08-30T08:00:00Z',
+};
+
 const memberAccount = {
   id: '11111111-1111-4111-8111-111111111111', email: 'member-a@example.com', display_name: 'Member A',
   role: 'member', status: 'active', email_verified_at: '2026-08-30T08:00:00Z',
@@ -358,4 +363,81 @@ test('a fresh installation explains itself instead of showing a dead sign-in for
   await expect(page.getByRole('heading', { name: 'This installation has not been set up yet' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1)).toBe(false);
   await expect(page.getByRole('button', { name: 'Copy command' })).toBeVisible();
+});
+
+// Feature 011. Provider credentials used to be write-once: an expired EODHD key or a changed
+// mail password had no recovery short of a new database. The owner can now see the
+// configuration, check a change against the real services, and save only what works.
+test('the owner can see, check, and correct the integration configuration at every viewport', async ({ page }) => {
+  await installStreamHarness(page);
+  const calls = { verified: 0, saved: 0 };
+  let host = 'smtp.example.test';
+
+  await page.route('**/api/v1/setup/status', (route) => route.fulfill({ json: { setup_required: false } }));
+  await page.route('**/api/v1/account', (route) => route.fulfill({ json: ownerAccount }));
+  await page.route('**/api/v1/account/sessions', (route) => route.fulfill({ json: { items: [] } }));
+  await page.route('**/api/v1/owner/members*', (route) => route.fulfill({ json: { items: [], next_cursor: '' } }));
+  await page.route('**/api/v1/owner/invitations*', (route) => route.fulfill({ json: { items: [], next_cursor: '' } }));
+  await page.route('**/api/v1/owner/integrations/verify', (route) => {
+    calls.verified += 1;
+    return route.fulfill({
+      status: 400,
+      json: {
+        error: {
+          code: 'invalid_setup', message: 'Some of the details you entered need attention.',
+          fields: [{ field: 'smtp_password', code: 'auth_rejected', message: 'ignored' }],
+        },
+      },
+    });
+  });
+  await page.route('**/api/v1/owner/integrations', (route) => {
+    if (route.request().method() === 'PUT') {
+      calls.saved += 1;
+      host = 'smtp.moved.test';
+      return route.fulfill({ status: 204, body: '' });
+    }
+    return route.fulfill({
+      json: {
+        integrations: [], configuration: {},
+        settings: {
+          eodhd: { configured: true, validated_at: '2026-08-31T09:00:00Z' },
+          smtp: {
+            configured: true, host, port: 587, from: 'access@example.test',
+            username: 'mailer', password_configured: true,
+          },
+        },
+      },
+    });
+  });
+
+  // Mutations use the double-submit CSRF token a real sign-in would have left behind.
+  await page.context().addCookies([{
+    name: '__Host-market_lens_csrf', value: 'csrf-e2e-token',
+    domain: '127.0.0.1', path: '/', secure: true, sameSite: 'Strict',
+  }]);
+
+  await page.goto('/account');
+  // The configuration is visible, and no secret is prefilled because none is ever returned.
+  await expect(page.locator('#integration-smtp-host')).toHaveValue('smtp.example.test');
+  await expect(page.locator('#integration-smtp-password')).toHaveValue('');
+  await expect(page.locator('#integration-eodhd-api-key')).toHaveValue('');
+
+  // A check reports the failing field and saves nothing.
+  await page.getByRole('button', { name: 'Check without saving' }).click();
+  await expect(page.locator('#integration-smtp_password-error')).toContainText('rejected these credentials');
+  await expect(page.locator('#integration-smtp-password')).toHaveAttribute('aria-invalid', 'true');
+  expect(calls.saved).toBe(0);
+
+  // A correction saves, and the reloaded configuration reflects it.
+  await page.locator('#integration-smtp-host').fill('smtp.moved.test');
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.locator('#integration-smtp-host')).toHaveValue('smtp.moved.test');
+  expect(calls.saved).toBe(1);
+
+  for (const size of [{ width: 320, height: 800 }, { width: 360, height: 800 }, { width: 768, height: 1024 }, { width: 1440, height: 900 }]) {
+    await page.setViewportSize(size);
+    await expect(page.getByRole('heading', { name: 'Integrations' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Save changes' })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
+  }
 });

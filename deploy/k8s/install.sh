@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # Idempotent k3s installer for Market Lens. Secrets are generated once and kept
 # on subsequent runs; this script never performs SQL or direct DB manipulation.
+#
+# It generates EXTERNAL_CREDENTIAL_KEY but not AUTH_SECRET. The signing key is
+# self-provisioned into the database, so it travels with a backup. The credential key
+# encrypts provider credentials held inside that same database and therefore must stay
+# outside it - keep it with your backups, because losing it makes them unreadable.
 set -euo pipefail
 
 : "${APP_HOST:=market-lens.zuptalo.com}"
@@ -18,12 +23,10 @@ echo "==> namespace"
 
 if "$KUBECTL" -n market-lens get secret market-lens-secrets >/dev/null 2>&1; then
   echo "==> market-lens-secrets exists; preserving credentials"
-  if [[ -z "$("$KUBECTL" -n market-lens get secret market-lens-secrets -o jsonpath='{.data.AUTH_SECRET}')" ]]; then
-    echo "==> adding authentication key to existing secret"
-    auth_secret="$(openssl rand -base64 48)"
-    "$KUBECTL" -n market-lens patch secret market-lens-secrets --type=merge \
-      --patch "{\"stringData\":{\"AUTH_SECRET\":\"$auth_secret\"}}" >/dev/null
-  fi
+  # AUTH_SECRET is no longer generated: the application provisions its own signing key on
+  # first start and keeps it with the data. An AUTH_SECRET already in this secret is
+  # deliberately left untouched - the application prefers it, and removing it would sign
+  # every existing user out.
   external_key_data="$("$KUBECTL" -n market-lens get secret market-lens-secrets -o jsonpath='{.data.EXTERNAL_CREDENTIAL_KEY}')"
   external_version_data="$("$KUBECTL" -n market-lens get secret market-lens-secrets -o jsonpath='{.data.EXTERNAL_CREDENTIAL_KEY_VERSION}')"
   if [[ -z "$external_key_data" && -z "$external_version_data" ]]; then
@@ -38,13 +41,11 @@ if "$KUBECTL" -n market-lens get secret market-lens-secrets >/dev/null 2>&1; the
 else
   echo "==> generating market-lens-secrets"
   password="$(openssl rand -hex 24)"
-  auth_secret="$(openssl rand -base64 48)"
   external_credential_key="$(openssl rand -base64 32)"
   database_url="postgres://market_lens:${password}@market-lens-postgres:5432/market_lens?sslmode=disable"
   "$KUBECTL" -n market-lens create secret generic market-lens-secrets \
     --from-literal=POSTGRES_PASSWORD="$password" \
     --from-literal=DATABASE_URL="$database_url" \
-    --from-literal=AUTH_SECRET="$auth_secret" \
     --from-literal=EXTERNAL_CREDENTIAL_KEY="$external_credential_key" \
     --from-literal=EXTERNAL_CREDENTIAL_KEY_VERSION="1"
 fi

@@ -102,6 +102,7 @@ describe('AuthClient', () => {
 
     await expect(client.account()).rejects.toEqual(expect.objectContaining<AuthRequestError>({
       name: 'AuthRequestError', status: 401, code: 'authentication_required', message: 'Authentication is required.',
+      fieldErrors: {}, results: {},
     }));
   });
 });

@@ -183,6 +183,7 @@ func newBootstrapService(t *testing.T, repository *Repository) (*Service, *auth.
 		SessionAbsoluteTimeout: 30 * 24 * time.Hour,
 		EODHDValidator:         &credentialValidatorStub{},
 		CredentialCipher:       mustCredentialCipher(t),
+		Credentials:            credentials.NewRepository(repository.pool),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -206,4 +207,86 @@ func mustCredentialCipher(t *testing.T) *credentials.Cipher {
 		t.Fatal(err)
 	}
 	return cipher
+}
+
+// A deployment that supplies only DATABASE_URL has no credential key yet, and must still
+// start and serve. Owner setup stores provider credentials, so it is the one operation that
+// cannot proceed without one: it must refuse with a message naming the value, and leave the
+// installation exactly as it found it rather than half-created.
+func TestBootstrapRefusesClearlyWhenNoCredentialKeyIsConfigured(t *testing.T) {
+	pool := testdb.Open(t)
+	ctx := context.Background()
+	if err := db.Migrate(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	repository := NewRepository(pool)
+	clock := authtest.NewClock(time.Date(2026, time.August, 31, 9, 0, 0, 0, time.UTC))
+	hasher, err := auth.NewPasswordHasher(authtest.NewRandomReader(0x19), auth.Argon2Params{
+		Memory: 8 * 1024, Iterations: 1, Parallelism: 1, SaltLength: 16, KeyLength: 32,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pattern := make([]byte, 251)
+	for index := range pattern {
+		pattern[index] = byte(index*7 + 3)
+	}
+	secrets, err := auth.NewSecrets(bytes.Repeat([]byte{0x72}, 32), authtest.NewRandomReader(pattern...))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Constructing the service must succeed: the process has to come up and serve sign-in.
+	service, err := NewService(ServiceDependencies{
+		Repository: repository, Passwords: hasher, Secrets: secrets, Now: clock.Now,
+		SetupTTL: 15 * time.Minute, OwnerIdleTimeout: 8 * time.Hour,
+		SessionAbsoluteTimeout: 30 * 24 * time.Hour,
+		EODHDValidator:         &credentialValidatorStub{},
+		CredentialCipher:       nil,
+	})
+	if err != nil {
+		t.Fatalf("a deployment without EXTERNAL_CREDENTIAL_KEY could not build its identity service: %v", err)
+	}
+
+	required, err := service.SetupRequired(ctx)
+	if err != nil || !required {
+		t.Fatalf("setup status unavailable without a credential key: required=%t err=%v", required, err)
+	}
+	capability, err := service.IssueSetupCapability(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = service.BootstrapOwner(ctx, validBootstrapRequest(capability.Token))
+	if err == nil {
+		t.Fatal("owner setup stored provider credentials without a credential key")
+	}
+	if !strings.Contains(err.Error(), "EXTERNAL_CREDENTIAL_KEY") {
+		t.Errorf("refusal does not name the missing value: %v", err)
+	}
+	for _, secret := range []string{testEODHDKey, testSMTPSecret, "correct horse battery staple"} {
+		if strings.Contains(err.Error(), secret) {
+			t.Errorf("refusal disclosed a submitted secret: %v", err)
+		}
+	}
+
+	// Nothing may be left behind: no owner, no credentials, and setup still open.
+	for _, check := range []struct {
+		name  string
+		query string
+	}{
+		{"owners", `SELECT count(*) FROM users WHERE role='owner'`},
+		{"stored credentials", `SELECT count(*) FROM external_service_credentials`},
+	} {
+		var count int
+		if err := pool.QueryRow(ctx, check.query).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 0 {
+			t.Errorf("%s after a refused setup = %d, want 0", check.name, count)
+		}
+	}
+	if required, err := service.SetupRequired(ctx); err != nil || !required {
+		t.Fatalf("setup closed after a refused bootstrap: required=%t err=%v", required, err)
+	}
 }

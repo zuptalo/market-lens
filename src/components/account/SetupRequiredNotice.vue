@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue';
+import Button from 'primevue/button';
 
 // The command is the product's own, so it is the same however this installation is run.
 const SETUP_COMMAND = 'market-lens auth setup-link';
@@ -33,9 +34,9 @@ async function copyCommand(): Promise<void> {
     <p>Run this wherever Market Lens itself is running, then open the link it prints:</p>
     <div class="setup-notice__command">
       <code>{{ SETUP_COMMAND }}</code>
-      <button type="button" data-copy-setup-command @click="copyCommand">
-        {{ copied ? 'Copied' : 'Copy command' }}
-      </button>
+      <Button
+        type="button" data-copy-setup-command severity="secondary" size="small"
+        :label="copied ? 'Copied' : 'Copy command'" @click="copyCommand" />
     </div>
     <p class="setup-notice__hint">
       If Market Lens runs inside a container, run it inside that container. The link is
@@ -58,6 +59,5 @@ async function copyCommand(): Promise<void> {
   background: color-mix(in srgb, currentColor 6%, transparent);
 }
 .setup-notice__command code { font-size: .95rem; overflow-wrap: anywhere; }
-.setup-notice__command button { min-height: 2.25rem; }
 .setup-notice__hint { font-size: .9rem; }
 </style>

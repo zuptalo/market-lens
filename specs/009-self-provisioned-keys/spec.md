@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-31
 
-**Status**: planned
+**Status**: in-review
 <!-- Market Lens spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: The operator should supply only the database connection. Anything the application

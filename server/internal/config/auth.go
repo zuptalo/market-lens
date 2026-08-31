@@ -79,10 +79,11 @@ func loadAuth(environment string) (AuthConfig, error) {
 	if secret != "" && len([]byte(secret)) < 32 {
 		return AuthConfig{}, fmt.Errorf("AUTH_SECRET must contain at least 32 bytes")
 	}
+	// AUTH_SECRET is optional. When it is absent the application provisions its own signing
+	// key after migration and keeps it with the data, so a deployment needs only
+	// DATABASE_URL and a restore cannot silently sign everybody out. A supplied value still
+	// takes precedence and is validated here, before the process touches the database.
 	production := environment == "production" || environment == "prod"
-	if production && secret == "" {
-		return AuthConfig{}, fmt.Errorf("AUTH_SECRET is required in production")
-	}
 	if production && !secureCookies {
 		return AuthConfig{}, fmt.Errorf("AUTH_SECURE_COOKIES must be true in production")
 	}

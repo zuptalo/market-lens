@@ -9,11 +9,14 @@ IMAGE=${IMAGE:-market-lens:surface-test}
 NETWORK=market-lens-surface-$$
 DB=market-lens-surface-db-$$
 APP=market-lens-surface-app-$$
+MINIMAL=market-lens-surface-minimal-$$
+REKEYED=market-lens-surface-rekeyed-$$
 PORT=${PORT:-18080}
+MINIMAL_PORT=$((${PORT:-18080} + 1))
 FAILURES=0
 
 cleanup() {
-  docker rm -f "$APP" "$DB" >/dev/null 2>&1 || true
+  docker rm -f "$APP" "$MINIMAL" "$REKEYED" "$DB" >/dev/null 2>&1 || true
   docker network rm "$NETWORK" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
@@ -103,6 +106,68 @@ echo "==> setup is open on a fresh database"
 case "$(body "$BASE/api/v1/setup/status")" in
   *'"setup_required":true'*) printf '  ok   %-58s\n' "fresh install reports setup required" ;;
   *) printf '  FAIL %-58s\n' "fresh install reports setup required"; FAILURES=$((FAILURES + 1)) ;;
+esac
+
+# Feature 009: a production deployment needs only DATABASE_URL. This is the only check that
+# runs the real image with nothing else configured, so it is the only thing that would catch a
+# start-up requirement creeping back in.
+echo "==> a deployment configured with nothing but DATABASE_URL"
+docker exec "$DB" createdb -U market_lens market_lens_minimal >/dev/null
+MINIMAL_URL="postgres://market_lens:surface@$DB:5432/market_lens_minimal?sslmode=disable"
+docker run -d --name "$MINIMAL" --network "$NETWORK" -p "$MINIMAL_PORT:8080" \
+  -e "DATABASE_URL=$MINIMAL_URL" "$IMAGE" >/dev/null
+
+MINIMAL_BASE="http://127.0.0.1:$MINIMAL_PORT"
+for _ in $(seq 1 60); do
+  [[ "$(status "$MINIMAL_BASE/api/v1/health")" == "200" ]] && break
+  sleep 1
+done
+check "minimal deployment becomes healthy" 200 "$(status "$MINIMAL_BASE/api/v1/health")"
+check "minimal deployment reports ready" 200 "$(status "$MINIMAL_BASE/api/v1/ready")"
+check "minimal deployment sends a browser to sign-in" 302 "$(status -H "$HTML" "$MINIMAL_BASE/")"
+case "$(body "$MINIMAL_BASE/api/v1/setup/status")" in
+  *'"setup_required":true'*) printf '  ok   %-58s\n' "minimal deployment opens setup" ;;
+  *) printf '  FAIL %-58s\n' "minimal deployment opens setup"; FAILURES=$((FAILURES + 1)) ;;
+esac
+
+# It must say what it provisioned, and never what the key is.
+MINIMAL_LOGS=$(docker logs "$MINIMAL" 2>&1)
+# Production logs are JSON, so match the structured field rather than a text-handler pair.
+case "$MINIMAL_LOGS" in
+  *'"signing_key":"provisioned"'*) printf '  ok   %-58s\n' "minimal deployment reports a provisioned key" ;;
+  *) printf '  FAIL %-58s\n' "minimal deployment reports a provisioned key"; FAILURES=$((FAILURES + 1)) ;;
+esac
+case "$MINIMAL_LOGS" in
+  *'key_material'*|*'AUTH_SECRET='*) printf '  FAIL %-58s\n' "minimal deployment logs no key"; FAILURES=$((FAILURES + 1)) ;;
+  *) printf '  ok   %-58s\n' "minimal deployment logs no key" ;;
+esac
+
+# A restart must reuse the stored key rather than mint a new one, or every session issued
+# before the restart would silently stop working - the failure this feature removes.
+docker restart "$MINIMAL" >/dev/null
+for _ in $(seq 1 60); do
+  [[ "$(status "$MINIMAL_BASE/api/v1/health")" == "200" ]] && break
+  sleep 1
+done
+check "minimal deployment restarts healthy" 200 "$(status "$MINIMAL_BASE/api/v1/health")"
+case "$(docker logs "$MINIMAL" 2>&1 | tail -40)" in
+  *'"signing_key_generation":1'*) printf '  ok   %-58s\n' "restart reuses the provisioned key" ;;
+  *) printf '  FAIL %-58s\n' "restart reuses the provisioned key"; FAILURES=$((FAILURES + 1)) ;;
+esac
+
+# The other half of the guarantee: an installation started with AUTH_SECRET must refuse to
+# come up without it rather than quietly re-key itself and sign everybody out. The first
+# database above was started with one, so it is exactly that case.
+echo "==> an installation started with AUTH_SECRET refuses to lose it"
+docker run -d --name "$REKEYED" --network "$NETWORK" \
+  -e "DATABASE_URL=postgres://market_lens:surface@$DB:5432/market_lens?sslmode=disable" \
+  "$IMAGE" >/dev/null
+sleep 5
+REKEYED_STATE=$(docker inspect -f '{{.State.Running}}' "$REKEYED" 2>/dev/null || echo unknown)
+check "a removed AUTH_SECRET stops the start" false "$REKEYED_STATE"
+case "$(docker logs "$REKEYED" 2>&1)" in
+  *'AUTH_SECRET'*) printf '  ok   %-58s\n' "the refusal names AUTH_SECRET" ;;
+  *) printf '  FAIL %-58s\n' "the refusal names AUTH_SECRET"; FAILURES=$((FAILURES + 1)) ;;
 esac
 
 if [[ "$FAILURES" -gt 0 ]]; then

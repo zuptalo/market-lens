@@ -94,7 +94,13 @@ describe('browser secret handling', () => {
 
 // Names that must never appear in anything shipped to a browser.
 const FORBIDDEN_IN_BUILD = ('AUTH_SECRET EXTERNAL_CREDENTIAL_KEY POSTGRES_PASSWORD SMTP_PASSWORD '
-  + 'eodhd-key').split(' ').concat(['BEGIN PRIVATE KEY', 'BEGIN RSA PRIVATE KEY']);
+  + 'eodhd-key key_material').split(' ').concat([
+  'BEGIN PRIVATE KEY', 'BEGIN RSA PRIVATE KEY',
+  // The instance signing key and anything derived from it are server-side only. The browser
+  // never needs the key, its column, or the label its fingerprint is derived under, so any
+  // appearance in a shipped asset means something leaked out of the backend.
+  'market-lens/instance-signing-key/fingerprint',
+]);
 
 describe('shipped assets', () => {
   it('carries no credential, key, or endpoint secret into the build', () => {
@@ -152,6 +158,11 @@ function fakeAPI(): AuthAPI {
     setMemberStatus: vi.fn(), invitations: vi.fn().mockResolvedValue({ items: [], nextCursor: '' }),
     createInvitation: vi.fn(), resendInvitation: vi.fn(), revokeInvitation: vi.fn(),
     acceptInvitation: vi.fn().mockResolvedValue(authenticated),
+    integrationSettings: vi.fn().mockResolvedValue({
+      eodhd: { configured: false, validatedAt: null },
+      smtp: { configured: false, host: '', port: 0, from: '', username: '', passwordConfigured: false },
+    }),
+    verifyIntegrations: vi.fn().mockResolvedValue({}), updateIntegrations: vi.fn().mockResolvedValue({}),
   } satisfies AuthAPI;
 }
 

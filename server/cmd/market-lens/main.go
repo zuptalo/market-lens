@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/rand"
@@ -14,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 	"unicode/utf8"
@@ -36,6 +38,10 @@ import (
 )
 
 var version = "dev"
+
+// The identity service is what serves owner integration administration. Stating it here means
+// a signature drift is a build failure rather than a nil dependency discovered in a browser.
+var _ api.IntegrationAdministration = (*identity.Service)(nil)
 
 type marketDataCommand struct {
 	Kind     marketdata.ImportKind
@@ -68,6 +74,9 @@ type credentialKeyRotator interface {
 type passwordTerminal interface {
 	IsTerminal() bool
 	ReadPassword(string) ([]byte, error)
+	// ReadLine echoes what is typed. A confirmation word is not a secret, and hiding it
+	// would leave the operator unable to see what they are agreeing to.
+	ReadLine(string) (string, error)
 }
 
 type osPasswordTerminal struct {
@@ -77,6 +86,21 @@ type osPasswordTerminal struct {
 
 func (terminal osPasswordTerminal) IsTerminal() bool {
 	return terminal.input != nil && term.IsTerminal(int(terminal.input.Fd()))
+}
+
+func (terminal osPasswordTerminal) ReadLine(prompt string) (string, error) {
+	if terminal.input == nil || terminal.output == nil {
+		return "", errors.New("interactive terminal is unavailable")
+	}
+	if _, err := io.WriteString(terminal.output, prompt); err != nil {
+		return "", err
+	}
+	reader := bufio.NewReader(terminal.input)
+	line, err := reader.ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", err
+	}
+	return strings.TrimSpace(line), nil
 }
 
 func (terminal osPasswordTerminal) ReadPassword(prompt string) ([]byte, error) {
@@ -194,6 +218,56 @@ func executeCredentialKeyRotation(ctx context.Context, rotator credentialKeyRota
 	return nil
 }
 
+type signingKeyRotator interface {
+	RotateSigningKey(context.Context, []byte, time.Time) (auth.SigningKeyRecord, error)
+}
+
+// executeSigningKeyRotation replaces the instance signing key from the host. Host access is
+// the authorization boundary here: an owner session is itself derived from the key being
+// replaced, so authorizing this with one would be circular.
+func executeSigningKeyRotation(ctx context.Context, rotator signingKeyRotator, terminal passwordTerminal,
+	output io.Writer, logger *slog.Logger, now time.Time) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if rotator == nil || terminal == nil || output == nil || logger == nil || now.IsZero() {
+		return errors.New("signing-key rotation dependencies are unavailable")
+	}
+	if !terminal.IsTerminal() {
+		return errors.New("signing-key rotation requires an interactive terminal")
+	}
+	confirmation, err := terminal.ReadLine(
+		"This ends every active session and invalidates outstanding invitations, owner setup\n" +
+			"links, and login codes. Type ROTATE to continue: ")
+	if err != nil {
+		return fmt.Errorf("read signing-key rotation confirmation: %w", err)
+	}
+	if confirmation != "ROTATE" {
+		return errors.New("signing-key rotation was not confirmed")
+	}
+	newKey, err := auth.GenerateSigningKey(rand.Reader)
+	if err != nil {
+		return err
+	}
+	defer clear(newKey)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	record, err := rotator.RotateSigningKey(ctx, newKey, now.UTC())
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(output, "signing_key_rotation=complete generation=%d sessions_revoked=all\n",
+		record.Generation); err != nil {
+		return fmt.Errorf("write signing-key rotation result: %w", err)
+	}
+	// The generation is an ordinal, not a secret, and is the only key identifier that may
+	// ever be logged.
+	logger.Info("instance signing key rotation completed",
+		"generation", record.Generation, "sessions_revoked", "all")
+	return nil
+}
+
 func executeSetupLink(ctx context.Context, issuer setupCapabilityIssuer, output io.Writer, logger *slog.Logger) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -213,13 +287,17 @@ func executeSetupLink(ctx context.Context, issuer setupCapabilityIssuer, output 
 }
 
 func executeAuthCommand(ctx context.Context, args []string, issuer setupCapabilityIssuer,
-	resetter ownerPasswordResetter, rotator credentialKeyRotator, externalConfig config.ExternalCredentialConfig,
+	resetter ownerPasswordResetter, rotator credentialKeyRotator, signingKeys signingKeyRotator,
+	externalConfig config.ExternalCredentialConfig,
 	terminal passwordTerminal, output io.Writer, logger *slog.Logger) error {
 	if len(args) == 2 && args[0] == "auth" && args[1] == "setup-link" {
 		return executeSetupLink(ctx, issuer, output, logger)
 	}
 	if len(args) == 3 && args[0] == "auth" && args[1] == "owner-password" && args[2] == "reset" {
 		return executeOwnerPasswordReset(ctx, resetter, terminal, output, logger)
+	}
+	if len(args) == 3 && args[0] == "auth" && args[1] == "signing-key" && args[2] == "rotate" {
+		return executeSigningKeyRotation(ctx, signingKeys, terminal, output, logger, time.Now())
 	}
 	if len(args) >= 3 && args[0] == "auth" && args[1] == "credential-key" && args[2] == "rotate" {
 		flags := flag.NewFlagSet("auth credential-key rotate", flag.ContinueOnError)
@@ -231,20 +309,22 @@ func executeAuthCommand(ctx context.Context, args []string, issuer setupCapabili
 		return executeCredentialKeyRotation(ctx, rotator, externalConfig, uint32(*newVersion), terminal,
 			output, logger, time.Now())
 	}
-	return errors.New("expected auth setup-link, auth owner-password reset, or auth credential-key rotate")
+	return errors.New("expected auth setup-link, auth owner-password reset, " +
+		"auth credential-key rotate, or auth signing-key rotate")
 }
 
-func newIdentityService(authConfig config.AuthConfig, externalConfig config.ExternalCredentialConfig,
-	validator identity.EODHDCredentialValidator, pool *pgxpool.Pool, logger *slog.Logger) (*identity.Service, error) {
+func newIdentityService(authConfig config.AuthConfig, signingKey []byte,
+	externalConfig config.ExternalCredentialConfig, validator identity.EODHDCredentialValidator,
+	verifier identity.SMTPVerifier, pool *pgxpool.Pool, logger *slog.Logger) (*identity.Service, error) {
 	passwords, err := auth.NewPasswordHasher(rand.Reader, auth.DefaultArgon2Params())
 	if err != nil {
 		return nil, err
 	}
-	secrets, err := auth.NewSecrets([]byte(authConfig.Secret), rand.Reader)
+	secrets, err := auth.NewSecrets(signingKey, rand.Reader)
 	if err != nil {
 		return nil, err
 	}
-	credentialCipher, err := credentials.NewCipher(externalConfig.Key, externalConfig.KeyVersion)
+	credentialCipher, err := newCredentialCipher(externalConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -257,12 +337,76 @@ func newIdentityService(authConfig config.AuthConfig, externalConfig config.Exte
 		OwnerIdleTimeout:       authConfig.OwnerIdleTimeout,
 		SessionAbsoluteTimeout: authConfig.SessionAbsoluteTimeout,
 		EODHDValidator:         validator,
+		SMTPVerifier:           verifier,
 		CredentialCipher:       credentialCipher,
+		Credentials:            credentials.NewRepository(pool),
 		MemberAccess:           auth.NewRepository(pool),
 		Mail:                   newStoredSMTPSender(credentials.NewRepository(pool), credentialCipher, logger),
 		AppBaseURL:             authConfig.AppBaseURL,
 		Logger:                 logger,
 	})
+}
+
+// resolveInstanceSigningKey returns the key this process signs with. It must run after
+// db.Migrate, because the key lives in the database the migration creates, and before any
+// service is constructed, because every one of them derives its digests from it.
+func resolveInstanceSigningKey(ctx context.Context, authConfig config.AuthConfig,
+	pool *pgxpool.Pool) (auth.SigningKeyResolution, error) {
+	return auth.NewRepository(pool).ResolveSigningKey(ctx, authConfig.Secret, rand.Reader, time.Now())
+}
+
+// logInstanceConfiguration reports which values this installation provisioned for itself and
+// which the operator must retain to restore it elsewhere. It names no secret: the signing key
+// generation is an ordinal, and the credential key is reported only as present or absent.
+func logInstanceConfiguration(logger *slog.Logger, signingKey auth.SigningKeyResolution,
+	externalConfig config.ExternalCredentialConfig, credentialsStored bool) {
+	mustRetain := make([]string, 0, 2)
+	if signingKey.Source == auth.SigningKeySupplied {
+		mustRetain = append(mustRetain, "AUTH_SECRET")
+	}
+	if externalConfig.Configured || credentialsStored {
+		mustRetain = append(mustRetain, "EXTERNAL_CREDENTIAL_KEY")
+	}
+	externalSource := "absent"
+	if externalConfig.Configured {
+		externalSource = "supplied"
+	}
+	logger.Info("instance configuration resolved",
+		"signing_key", string(signingKey.Source),
+		"signing_key_generation", signingKey.Generation,
+		"external_credential_key", externalSource,
+		"operator_must_retain", mustRetain,
+	)
+	if !externalConfig.Configured && !credentialsStored {
+		logger.Warn("EXTERNAL_CREDENTIAL_KEY is not configured; provider credentials cannot be "+
+			"stored until one is supplied, and it must be kept with your database backups "+
+			"because it is never stored in the database",
+			"external_credential_key", externalSource)
+	}
+}
+
+// setupSMTPVerifier proves the mail configuration entered during setup actually works.
+// It translates the mail package's classified outcomes into the identity package's, so the
+// transport details stay in one place and the operator-facing wording stays in the other.
+type setupSMTPVerifier struct{}
+
+func (setupSMTPVerifier) VerifySMTP(ctx context.Context, config identity.SMTPSetupConfiguration) error {
+	err := mail.VerifySMTP(ctx, mail.SMTPConfig{
+		Host: config.Host, Port: config.Port, From: config.From,
+		Username: config.Username, Password: config.Password,
+	})
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, mail.ErrVerifyAuth):
+		return identity.ErrSMTPAuthRejected
+	case errors.Is(err, mail.ErrVerifySender):
+		return identity.ErrSMTPSenderRejected
+	case errors.Is(err, mail.ErrVerifyTLS):
+		return identity.ErrSMTPTLSFailed
+	default:
+		return identity.ErrSMTPUnreachable
+	}
 }
 
 func newSetupCredentialValidator(requestTimeout time.Duration) (*eodhd.CredentialValidator, error) {
@@ -275,29 +419,55 @@ func newSetupCredentialValidator(requestTimeout time.Duration) (*eodhd.Credentia
 	})
 }
 
-func validateExternalCredentialConfiguration(ctx context.Context, externalConfig config.ExternalCredentialConfig,
-	pool *pgxpool.Pool) error {
+// validateExternalCredentialConfiguration reports whether provider credentials are stored and
+// refuses the start when they exist but cannot be read.
+// newCredentialCipher returns nil when no credential key is configured. That is a supported
+// state: a deployment given only DATABASE_URL must start and serve sign-in, and the
+// operations that actually need the key refuse individually, naming it.
+func newCredentialCipher(externalConfig config.ExternalCredentialConfig) (*credentials.Cipher, error) {
 	if !externalConfig.Configured {
-		return nil
+		return nil, nil
+	}
+	return credentials.NewCipher(externalConfig.Key, externalConfig.KeyVersion)
+}
+
+func validateExternalCredentialConfiguration(ctx context.Context, externalConfig config.ExternalCredentialConfig,
+	pool *pgxpool.Pool) (bool, error) {
+	repository := credentials.NewRepository(pool)
+	stored, err := repository.StoredCredentialsExist(ctx)
+	if err != nil {
+		return false, err
+	}
+	if !externalConfig.Configured {
+		if stored {
+			// Naming what is missing, and what it protects, without describing the
+			// ciphertext: a restore that would lose provider credentials must fail loudly
+			// rather than come up and discover it later.
+			return stored, errors.New("EXTERNAL_CREDENTIAL_KEY is required because encrypted " +
+				"provider credentials are stored; without it the stored provider API key and " +
+				"mail password cannot be read. Keep it with your database backups")
+		}
+		return stored, nil
 	}
 	cipher, err := credentials.NewCipher(externalConfig.Key, externalConfig.KeyVersion)
 	if err != nil {
-		return err
+		return stored, err
 	}
-	return credentials.NewRepository(pool).ValidateConfiguration(ctx, cipher)
+	return stored, repository.ValidateConfiguration(ctx, cipher)
 }
 
-func newAuthenticationService(authConfig config.AuthConfig, externalConfig config.ExternalCredentialConfig,
+func newAuthenticationService(authConfig config.AuthConfig, signingKey []byte,
+	externalConfig config.ExternalCredentialConfig,
 	pool *pgxpool.Pool, logger *slog.Logger) (*auth.Service, error) {
 	passwords, err := auth.NewPasswordHasher(rand.Reader, auth.DefaultArgon2Params())
 	if err != nil {
 		return nil, err
 	}
-	secrets, err := auth.NewSecrets([]byte(authConfig.Secret), rand.Reader)
+	secrets, err := auth.NewSecrets(signingKey, rand.Reader)
 	if err != nil {
 		return nil, err
 	}
-	credentialCipher, err := credentials.NewCipher(externalConfig.Key, externalConfig.KeyVersion)
+	credentialCipher, err := newCredentialCipher(externalConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -328,6 +498,12 @@ func newStoredSMTPSender(repository *credentials.Repository, cipher *credentials
 }
 
 func (sender *storedSMTPSender) Send(ctx context.Context, message mail.Message) error {
+	if sender.cipher == nil {
+		// No credential key means the stored SMTP password cannot be read. Mail is an
+		// integration, so the application stays usable and delivery reports a retryable
+		// failure rather than bringing the process down.
+		return &mail.DeliveryError{Code: "temporary_failure", Retryable: true}
+	}
 	settings, err := sender.repository.SMTPSettings(ctx, sender.cipher)
 	if err != nil {
 		return &mail.DeliveryError{Code: "temporary_failure", Retryable: true}
@@ -456,25 +632,32 @@ func run() error {
 	if err := db.Migrate(ctx, pool); err != nil {
 		return err
 	}
-	if err := validateExternalCredentialConfiguration(ctx, cfg.ExternalCredentials, pool); err != nil {
+	credentialsStored, err := validateExternalCredentialConfiguration(ctx, cfg.ExternalCredentials, pool)
+	if err != nil {
 		return err
 	}
+	signingKey, err := resolveInstanceSigningKey(ctx, cfg.Auth, pool)
+	if err != nil {
+		return err
+	}
+	logInstanceConfiguration(slog.Default(), signingKey, cfg.ExternalCredentials, credentialsStored)
 	if len(os.Args) > 1 {
 		if os.Args[1] == "auth" {
 			validator, err := newSetupCredentialValidator(cfg.MarketData.RequestTimeout)
 			if err != nil {
 				return err
 			}
-			identityService, err := newIdentityService(cfg.Auth, cfg.ExternalCredentials, validator, pool, slog.Default())
+			identityService, err := newIdentityService(cfg.Auth, signingKey.Key, cfg.ExternalCredentials, validator,
+				setupSMTPVerifier{}, pool, slog.Default())
 			if err != nil {
 				return err
 			}
-			authenticationService, err := newAuthenticationService(cfg.Auth, cfg.ExternalCredentials, pool, slog.Default())
+			authenticationService, err := newAuthenticationService(cfg.Auth, signingKey.Key, cfg.ExternalCredentials, pool, slog.Default())
 			if err != nil {
 				return err
 			}
 			return executeAuthCommand(ctx, os.Args[1:], identityService, authenticationService,
-				credentials.NewRepository(pool), cfg.ExternalCredentials,
+				credentials.NewRepository(pool), auth.NewRepository(pool), cfg.ExternalCredentials,
 				osPasswordTerminal{input: os.Stdin, output: os.Stderr}, os.Stdout, slog.Default())
 		}
 		if os.Args[1] != "marketdata" {
@@ -540,18 +723,25 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	identityService, err := newIdentityService(cfg.Auth, cfg.ExternalCredentials, validator, pool, slog.Default())
+	identityService, err := newIdentityService(cfg.Auth, signingKey.Key, cfg.ExternalCredentials, validator,
+		setupSMTPVerifier{}, pool, slog.Default())
 	if err != nil {
 		return err
 	}
-	authenticationService, err := newAuthenticationService(cfg.Auth, cfg.ExternalCredentials, pool, slog.Default())
+	authenticationService, err := newAuthenticationService(cfg.Auth, signingKey.Key, cfg.ExternalCredentials, pool, slog.Default())
 	if err != nil {
 		return err
 	}
 	handler := api.NewRouter(api.Dependencies{
 		Database: pool, AllowedOrigins: cfg.AllowedOrigins, StaticDir: cfg.StaticDir, Version: version,
 		Authenticator: authenticationService, Identity: identityService, Authentication: authenticationService,
-		Integrations:  credentials.NewRepository(pool),
+		Integrations:     credentials.NewRepository(pool),
+		IntegrationAdmin: identityService,
+		InstanceConfiguration: api.InstanceConfiguration{
+			SigningKeySource:      string(signingKey.Source),
+			SigningKeyGeneration:  signingKey.Generation,
+			ExternalKeyConfigured: cfg.ExternalCredentials.Configured,
+		},
 		MemberAuth:    authenticationService,
 		Members:       identityService,
 		Invitations:   identityService,

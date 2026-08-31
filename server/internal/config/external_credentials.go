@@ -19,11 +19,12 @@ type ExternalCredentialConfig struct {
 func loadExternalCredentials(environment string) (ExternalCredentialConfig, error) {
 	encodedKey := strings.TrimSpace(os.Getenv("EXTERNAL_CREDENTIAL_KEY"))
 	versionText := strings.TrimSpace(os.Getenv("EXTERNAL_CREDENTIAL_KEY_VERSION"))
-	production := environment == "production" || environment == "prod"
+	// Whether this value is *required* depends on whether encrypted provider credentials are
+	// actually stored, which is only visible once the database is reachable. That decision
+	// moved to credentials.Repository, after migration. Loading still validates the shape of
+	// a supplied value here. The key itself never enters the database: it encrypts secrets
+	// held inside that database, so storing it there would put the lock and key in one file.
 	if encodedKey == "" && versionText == "" {
-		if production {
-			return ExternalCredentialConfig{}, errors.New("EXTERNAL_CREDENTIAL_KEY is required in production")
-		}
 		return ExternalCredentialConfig{}, nil
 	}
 	if encodedKey == "" || versionText == "" {
