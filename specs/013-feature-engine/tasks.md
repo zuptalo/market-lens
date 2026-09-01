@@ -308,9 +308,9 @@ the number a person sees did not move.
 - [x] T089 Run `make verify` and fix anything it reports without weakening a test
 - [x] T090 Run `npm run test:e2e` across `mobile-chromium`, `tablet-chromium` and `desktop-chromium` and confirm `e2e/instrument-exploration.spec.ts` passes **with no edits**, including `never shows an uncomputable statistic as a zero move` and the 320-pixel and stacked-card journeys
 - [x] T091 Run `docker build -t market-lens:local .` and `docker compose config`
-- [ ] T092 Ship Phases 1–6 as one PR from branch `013-feature-engine` (`feat(features): …`), wait for Keel to roll it, and run `features compute --universe nordic-liquid-v1` on the pod per quickstart.md
-- [ ] T093 Run the five quickstart verification queries against production and record each result in `specs/013-feature-engine/quickstart.md` under *Recorded evidence*, with the date and app version
-- [ ] T094 Record the production figures against R-008's budgets in `specs/013-feature-engine/research.md` (full computation elapsed, incremental pass elapsed after the next scheduled import, value-row count) — the budgets become measurements
+- [x] T092 Ship Phases 1–6 as one PR from branch `013-feature-engine` (`feat(features): …`), wait for Keel to roll it, and run `features compute --universe nordic-liquid-v1` on the pod per quickstart.md
+- [x] T093 Run the five quickstart verification queries against production and record each result in `specs/013-feature-engine/quickstart.md` under *Recorded evidence*, with the date and app version
+- [x] T094 Record the production figures against R-008's budgets in `specs/013-feature-engine/research.md` (full computation elapsed, incremental pass elapsed after the next scheduled import, value-row count) — the budgets become measurements
 - [ ] T095 Ship Phase 7 as a second PR (`feat(markets): read the three statistics from the feature engine`), confirm on production that a Markets row's three statistics equal `GET /instruments/{id}/features` for the same instrument (SC-010 by hand, as quickstart.md describes)
 - [ ] T096 [P] Update `specs/013-feature-engine/spec.md` status to `shipped`, the 013 row in `specs/README.md`, `docs/roadmap.md` (the reusable-feature-engine milestone is done; the next milestone may now begin), and the SPECKIT block in `AGENTS.md`
 

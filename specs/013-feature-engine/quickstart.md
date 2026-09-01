@@ -128,6 +128,23 @@ WHERE s.session_date IS NULL OR s.status NOT IN ('open', 'half_day');
 -- the engine computes on it. Comparing against 'open' alone would report every one of them.
 ```
 
+*Recorded evidence (T093, 2026-09-01, v0.9.0).* Run `97082913-252a-4d5d-8819-9c2db20e91ba`,
+the first full computation in production, succeeded over 100 instruments and 242,921 bars,
+writing 5,830,104 values in 248.7 s with no failed instrument. Against it:
+
+| Check | Query | Result |
+|---|---|---|
+| SC-003 | values whose definition does not exist | **0** |
+| SC-004 | values on a date the exchange did not trade | **0** |
+| SC-004 | values on a session with no stored bar | **0** |
+| FR-005 | rows settling other than exactly one of value/label/absence | **0** |
+| SC-007 | one instrument's active definitions as of a session | **1.5 ms** (budget 2 s) |
+
+SC-001 and SC-002 are proven by the fixture suites rather than by hand here: both need a
+second copy of the values to compare against, and the volume this database lives on has under
+1 GB free while `feature_values` alone is 1.1 GB. Recompute-and-diff belongs on a restored
+copy, not on the deployment. SC-010 is checked by hand after the Markets adoption ships.
+
 **Markets agrees with the engine (SC-010)** — open Markets, pick any row, read that
 instrument's features as of its latest session, and confirm the three statistics match. They
 must, because the engine adopts feature 005's definitions verbatim as version 1; a mismatch

@@ -216,6 +216,24 @@ session times `W_max` per instrument, which is thousands of values, not millions
 These are budgets, not measurements. The task list must include recording the first production
 figures against them.
 
+**Measured (T094, 2026-09-01, v0.9.0, k3s on the deployment's own hardware).** The first full
+computation from empty: **248.7 s** over **242,921 bars**, producing **5,830,104 values** for
+**100 instruments** with **0 failures** — inside the ten-minute budget with 2.4× headroom, at
+four workers. Of those values, 5,385,331 are numbers, 216,029 are labels (`regime`) and
+228,744 are absences, which is the warm-up of the long windows at each instrument's listing.
+The composite covers 2,546 sessions and is undefined at exactly one of them — 2016-08-31, the
+first session of the whole history, where no instrument has a prior bar and the contributor
+count is 0.
+
+Reading one instrument's active definitions as of a session executes in **1.5 ms** (plan 7.2 ms)
+against SC-007's two-second bound, over the 5.8M-row table.
+
+The incremental figure is not recorded here yet: the volume holding the database has under
+1 GB free (94% used, and mostly not this database), so a second full recomputation — which
+rewrites all 1.1 GB of `feature_values` before autovacuum can reclaim the old rows — is not
+something to run against production for a measurement. The next scheduled import will produce
+an incremental pass in the ordinary way; its elapsed time comes from `feature_runs` then.
+
 ---
 
 ## R-009: Fixed windows for the smoothed oscillators
