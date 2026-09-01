@@ -42,6 +42,9 @@ const (
 	// SymbolMismatched: the symbol exists but carries a different ISIN, so importing it would
 	// attach one company's prices to another company's record.
 	SymbolMismatched SymbolState = "mismatched"
+	// SymbolUnverified: the symbol exists and the provider publishes no identifier for it, so
+	// the match can be neither confirmed nor contradicted. Missing information, not a conflict.
+	SymbolUnverified SymbolState = "unverified"
 	// SymbolUnchecked: the provider's catalog for that exchange could not be read, so nothing
 	// is claimed either way.
 	SymbolUnchecked SymbolState = "unchecked"
@@ -171,6 +174,13 @@ func AuditProviderSymbols(universe []UniverseEntry, catalog map[string][]Catalog
 		switch {
 		case symbolExists && strings.EqualFold(matchedSymbol.ISIN, entry.ISIN):
 			findings = append(findings, SymbolFinding{Entry: entry, State: SymbolOK})
+		case symbolExists && strings.TrimSpace(matchedSymbol.ISIN) == "":
+			// The provider lists the symbol but publishes no identifier for it. That supports
+			// no claim either way, and calling it a mismatch would send a reader chasing a
+			// corruption that is not there.
+			findings = append(findings, SymbolFinding{
+				Entry: entry, State: SymbolUnverified, CatalogName: matchedSymbol.Name,
+			})
 		case symbolExists:
 			// The symbol resolves, but to something else. Naming the replacement here would
 			// be unhelpful, because the interesting fact is the collision.
