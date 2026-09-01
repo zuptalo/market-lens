@@ -75,6 +75,13 @@ func TestAuditFlagsASymbolThatResolvesToADifferentCompany(t *testing.T) {
 	if findings[0].State != SymbolMismatched {
 		t.Errorf("a symbol pointing at another company was reported as %q", findings[0].State)
 	}
+	// Deciding a mismatch means comparing the two identifiers, so the provider's own ISIN has
+	// to be reported. Without it the finding says only "these disagree" and leaves the reader
+	// to guess which side is wrong — which is the guess this whole tool exists to avoid.
+	if findings[0].CatalogISIN != "SE0000000002" {
+		t.Errorf("the provider's ISIN was %q, expected it to be reported for a mismatch",
+			findings[0].CatalogISIN)
+	}
 }
 
 func TestAuditReportsAnExchangeItCouldNotRead(t *testing.T) {

@@ -580,7 +580,10 @@ func reportSymbolAudit(output io.Writer, universe []marketdata.UniverseEntry,
 			line += fmt.Sprintf(" provider_name=%q", finding.CatalogName)
 		}
 		if finding.Entry.ISIN != "" {
-			line += fmt.Sprintf(" isin=%s", finding.Entry.ISIN)
+			line += fmt.Sprintf(" stored_isin=%s", finding.Entry.ISIN)
+		}
+		if finding.CatalogISIN != "" && !strings.EqualFold(finding.CatalogISIN, finding.Entry.ISIN) {
+			line += fmt.Sprintf(" provider_isin=%s", finding.CatalogISIN)
 		}
 		if _, err := fmt.Fprintln(output, line); err != nil {
 			return err
