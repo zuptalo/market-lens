@@ -14,12 +14,18 @@ func TestExternalCredentialMigrationIsEmbedded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(migrations) != 11 {
-		t.Fatalf("embedded migration count = %d, want 11", len(migrations))
+	// Found by version rather than by index and total, for the same reason as the signing-key
+	// test: this is about migration 9 being embedded, not about how many exist altogether.
+	var external migration
+	for _, candidate := range migrations {
+		if candidate.version == 9 {
+			external = candidate
+			break
+		}
 	}
-	external := migrations[8]
-	if external.version != 9 || external.name != "0009_external_credentials_and_owner_reset.sql" {
-		t.Fatalf("external credential migration = %d %q, want 9 %q", external.version, external.name, "0009_external_credentials_and_owner_reset.sql")
+	if external.name != "0009_external_credentials_and_owner_reset.sql" {
+		t.Fatalf("migration 9 is %q, want %q", external.name,
+			"0009_external_credentials_and_owner_reset.sql")
 	}
 }
 
