@@ -574,7 +574,10 @@ func reportSymbolAudit(output io.Writer, universe []marketdata.UniverseEntry,
 		line := fmt.Sprintf("%s %s stored=%s state=%s",
 			finding.Entry.MIC, finding.Entry.Ticker, finding.Entry.ProviderSymbol, finding.State)
 		if finding.Suggested != "" {
-			line += fmt.Sprintf(" suggested=%s", finding.Suggested)
+			// A suggestion says where it came from. An ISIN match is near-certain and a name
+			// match is only a lead, and acting on the second as though it were the first is how
+			// one company's prices end up under another company's record.
+			line += fmt.Sprintf(" suggested=%s matched_on=%s", finding.Suggested, finding.MatchedOn)
 		}
 		if finding.CatalogName != "" {
 			line += fmt.Sprintf(" provider_name=%q", finding.CatalogName)
@@ -585,16 +588,21 @@ func reportSymbolAudit(output io.Writer, universe []marketdata.UniverseEntry,
 		if finding.CatalogISIN != "" && !strings.EqualFold(finding.CatalogISIN, finding.Entry.ISIN) {
 			line += fmt.Sprintf(" provider_isin=%s", finding.CatalogISIN)
 		}
+		// How much history is stored is the evidence for leaving an uncatalogued symbol alone,
+		// so it belongs on the line rather than in a separate query the reader has to think to run.
+		if finding.State == marketdata.SymbolUncatalogued {
+			line += fmt.Sprintf(" stored_bars=%d", finding.Entry.StoredBars)
+		}
 		if _, err := fmt.Fprintln(output, line); err != nil {
 			return err
 		}
 	}
 
 	_, err := fmt.Fprintf(output,
-		"checked=%d ok=%d renamed=%d absent=%d mismatched=%d unchecked=%d\n",
+		"checked=%d ok=%d renamed=%d absent=%d uncatalogued=%d mismatched=%d unchecked=%d\n",
 		len(findings), counts[marketdata.SymbolOK], counts[marketdata.SymbolRenamed],
-		counts[marketdata.SymbolAbsent], counts[marketdata.SymbolMismatched],
-		counts[marketdata.SymbolUnchecked])
+		counts[marketdata.SymbolAbsent], counts[marketdata.SymbolUncatalogued],
+		counts[marketdata.SymbolMismatched], counts[marketdata.SymbolUnchecked])
 	return err
 }
 

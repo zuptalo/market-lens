@@ -31,7 +31,10 @@ func (r *Repository) UniverseEntries(ctx context.Context, provider, universe str
 	if strings.TrimSpace(provider) == "" || strings.TrimSpace(universe) == "" {
 		return nil, errors.New("provider and universe are required")
 	}
-	rows, err := r.pool.Query(ctx, `SELECT i.ticker,i.isin,i.name,e.mic,p.provider_symbol
+	// The stored bar count is what separates an instrument that is broken from one the
+	// provider's catalog merely omits while its price endpoint serves it perfectly well.
+	rows, err := r.pool.Query(ctx, `SELECT i.ticker,i.isin,i.name,e.mic,p.provider_symbol,
+			(SELECT count(*) FROM daily_price_bars b WHERE b.instrument_id=i.id)
 		FROM research_universes u
 		JOIN universe_memberships m ON m.universe_id=u.id AND m.included_to IS NULL
 		JOIN instruments i ON i.id=m.instrument_id AND i.active
@@ -46,7 +49,7 @@ func (r *Repository) UniverseEntries(ctx context.Context, provider, universe str
 	entries := make([]UniverseEntry, 0)
 	for rows.Next() {
 		var entry UniverseEntry
-		if err := rows.Scan(&entry.Ticker, &entry.ISIN, &entry.Name, &entry.MIC, &entry.ProviderSymbol); err != nil {
+		if err := rows.Scan(&entry.Ticker, &entry.ISIN, &entry.Name, &entry.MIC, &entry.ProviderSymbol, &entry.StoredBars); err != nil {
 			return nil, fmt.Errorf("scan universe entry: %w", err)
 		}
 		entries = append(entries, entry)
