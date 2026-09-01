@@ -150,6 +150,15 @@ instrument's features as of its latest session, and confirm the three statistics
 must, because the engine adopts feature 005's definitions verbatim as version 1; a mismatch
 means a computation defect, not a definition change.
 
+*Recorded evidence (2026-09-02, v0.10.0).* The listing reads the same rows the features
+endpoint serves — one join, no second arithmetic — so agreement is structural rather than
+coincidental, and `TestMarketsAgreesWithTheEngineForEveryInstrument` walks the listing page by
+page against `ReadAsOf` to prove it. In production all 100 instruments carry all three
+statistics at their own latest stored session, none absent and none missing, for example
+ERIC-B on 2026-09-01: `return_20 = -0.020507614213`, `return_90 = -0.086796024610`,
+`volatility_20 = 0.148758541959`. The page itself is behind an authenticated session, so
+comparing what a person sees to those decimals is the one step that stays manual.
+
 ---
 
 ## Adopted definitions
