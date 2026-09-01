@@ -1,0 +1,239 @@
+openapi: 3.1.0
+info:
+  title: Market Lens Feature Engine API
+  version: 1.0.0
+  description: >
+    Reading computed quantitative features for one instrument as of a stored session, and
+    reading the definitions that produced them. Every operation is shared reference data
+    behind the authenticated boundary established by feature 004. Nothing here is private to
+    a user, and nothing here writes — computation is triggered by an owner through the CLI,
+    not over HTTP.
+servers:
+  - url: /api/v1
+x-market-lens-access-boundary:
+  authenticated:
+    - /instruments/{id}/features
+    - /feature-definitions
+  rule: >
+    Every operation requires an active session. An instrument identifier that does not exist
+    and one the caller may not read produce identical responses (FR-024).
+x-market-lens-events:
+  consumed:
+    - daily_bar.changed.v1
+  produced:
+    - name: feature_values.changed.v1
+      scope: shared
+      version: 1
+      description: >
+        Written in the same transaction that commits one instrument's recomputed values.
+        Payload carries instrument_id, the inclusive session range affected, and the run
+        that produced it. Shared scope: feature values are reference data, so every
+        authenticated subscriber receives the same event.
+x-market-lens-terminology:
+  composite: >
+    The equal-weighted series relative strength is measured against is a COMPOSITE. It is
+    never called an index or a benchmark, in field names, descriptions, logs or UI copy
+    (FR-008c). It is a composite of one curated list and has no relationship to any published
+    index.
+tags:
+  - { name: Features }
+  - { name: Definitions }
+paths:
+  /instruments/{id}/features:
+    get:
+      tags: [Features]
+      operationId: readInstrumentFeatures
+      summary: Read one instrument's feature values as of a session
+      description: >
+        Returns exactly the values computable from data stored up to and including the
+        requested session. Asking twice for the same instrument and session returns the same
+        answer (FR-002, US2-1).
+
+        A feature that could not be computed is returned with a null value and a stated
+        reason, never as zero and never omitted — omission would be indistinguishable from a
+        feature that does not exist. A feature that has not been computed at all is absent
+        from the response and reported in notComputed, which is a different fact.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: asOf
+          in: query
+          required: false
+          schema: { type: string, format: date }
+          description: >
+            The session to read as of. Defaults to the instrument's latest stored session.
+            A date the exchange was closed is rejected — no session, no values (FR-016).
+        - name: feature
+          in: query
+          required: false
+          schema: { type: array, items: { type: string } }
+          style: form
+          explode: true
+          description: >
+            Restrict the response to named features. An unknown name is refused with the
+            list of features that do exist (US2-3).
+      responses:
+        '200':
+          description: The feature set as of the requested session.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InstrumentFeatures' }
+        '400':
+          description: >
+            Malformed identifier, a closed date, or an unknown feature name. The unknown
+            feature response names the features that exist.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404':
+          description: >
+            No such instrument, or no stored history for it before the requested session.
+            The response states that there is no history rather than returning empty values
+            that could be mistaken for zeros (US2-2). Identical for an identifier that does
+            not exist and one the caller may not read.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /feature-definitions:
+    get:
+      tags: [Definitions]
+      operationId: listFeatureDefinitions
+      summary: Read every published feature definition
+      description: >
+        Every definition, including superseded versions, so a value carrying an older version
+        can always be explained (FR-022, FR-025). Definitions are additive; none is ever
+        edited in place.
+      parameters:
+        - name: name
+          in: query
+          required: false
+          schema: { type: string }
+        - name: includeSuperseded
+          in: query
+          required: false
+          schema: { type: boolean, default: true }
+      responses:
+        '200':
+          description: The published definitions.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/FeatureDefinition' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+components:
+  responses:
+    Unauthenticated:
+      description: No active session.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+  schemas:
+    InstrumentFeatures:
+      type: object
+      required: [instrumentId, sessionDate, features, notComputed]
+      properties:
+        instrumentId: { type: string, format: uuid }
+        sessionDate:
+          type: string
+          format: date
+          description: The session these values describe — always a stored session.
+        features:
+          type: array
+          items: { $ref: '#/components/schemas/FeatureValue' }
+        notComputed:
+          type: array
+          items: { type: string }
+          description: >
+            Names of defined features with no stored row for this instrument and session.
+            Not the same as an undefined value: this means the engine has not run for them.
+    FeatureValue:
+      type: object
+      required: [name, definitionVersion, value, absenceReason, computedAt]
+      properties:
+        name: { type: string, example: return_20 }
+        definitionVersion:
+          type: integer
+          description: The definition version that produced this value (FR-003).
+        windowSessions:
+          type: [integer, 'null']
+          description: The window in stored exchange sessions, never calendar days (FR-004).
+        value:
+          type: [string, 'null']
+          description: >
+            Decimal string, never a JSON number — the stored column is numeric(24,12) and a
+            JavaScript number cannot hold every value it can. Null when undefined.
+        absenceReason:
+          type: [string, 'null']
+          enum: [insufficient_history, window_gap, composite_undefined, null]
+          description: >
+            Non-null exactly when value is null (FR-014, FR-017). insufficient_history and
+            window_gap are deliberately distinct: the first means the instrument is too young,
+            the second that a session inside the window has no stored bar.
+        currency:
+          type: [string, 'null']
+          pattern: '^[A-Z]{3}$'
+          description: >
+            Set only for currency-denominated features. No cross-currency comparison is
+            implied or computed anywhere (US2-4).
+        comparedTo:
+          $ref: '#/components/schemas/CompositeReference'
+        computedAt: { type: string, format: date-time }
+    CompositeReference:
+      type: [object, 'null']
+      description: >
+        Present only on relative-strength values. Names the composite and its version
+        (FR-008c, SC-003a). The composite is never described as an index or a benchmark.
+      required: [composite, version, contributorCount]
+      properties:
+        composite: { type: string, const: universe_equal_weighted }
+        version: { type: integer }
+        contributorCount:
+          type: integer
+          description: How many instruments contributed to the composite for this session (FR-008b).
+    FeatureDefinition:
+      type: object
+      required:
+        [name, version, priceBasis, undefinedConditions, sessionLengthSensitive, publishedAt]
+      properties:
+        name: { type: string }
+        version: { type: integer }
+        windowSessions: { type: [integer, 'null'] }
+        priceBasis:
+          type: string
+          enum: [raw, adjusted]
+          description: FR-001 requires the price basis be explicit for every definition.
+        parameters:
+          type: object
+          additionalProperties: true
+        undefinedConditions:
+          type: string
+          description: The conditions under which this feature is undefined.
+        sessionLengthSensitive:
+          type: boolean
+          description: >
+            True when the feature's meaning depends on session length, which a half day
+            changes (FR-005). A half day always counts as one full session for windows.
+        publishedAt: { type: string, format: date-time }
+        supersededAt: { type: [string, 'null'], format: date-time }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            knownFeatures:
+              type: array
+              items: { type: string }
+              description: Present on an unknown-feature refusal (US2-3).
