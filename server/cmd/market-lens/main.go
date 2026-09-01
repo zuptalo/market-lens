@@ -27,6 +27,7 @@ import (
 	"market-lens/server/internal/credentials"
 	"market-lens/server/internal/db"
 	clientevents "market-lens/server/internal/events"
+	"market-lens/server/internal/features"
 	"market-lens/server/internal/identity"
 	"market-lens/server/internal/instruments"
 	"market-lens/server/internal/mail"
@@ -63,6 +64,48 @@ type marketDataCommand struct {
 
 type marketDataImporter interface {
 	Import(context.Context, marketdata.ImportRequest) (marketdata.ImportRun, error)
+}
+
+// featuresCommand mirrors marketDataCommand: one run of the feature engine over a universe.
+type featuresCommand struct {
+	Kind     features.RunKind
+	Universe string
+}
+
+type featureComputer interface {
+	Compute(context.Context, features.ComputeRequest) (features.Run, error)
+}
+
+const featuresUsage = "expected features compute [--universe CODE]"
+
+func parseFeaturesCommand(args []string) (featuresCommand, error) {
+	if len(args) < 2 || args[0] != "features" || args[1] != "compute" {
+		return featuresCommand{}, errors.New(featuresUsage)
+	}
+	command := featuresCommand{Kind: features.RunKindFull, Universe: "nordic-liquid-v1"}
+	flags := flag.NewFlagSet("features compute", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	flags.StringVar(&command.Universe, "universe", command.Universe, "research universe code")
+	if err := flags.Parse(args[2:]); err != nil || flags.NArg() != 0 || strings.TrimSpace(command.Universe) == "" {
+		return featuresCommand{}, errors.New(featuresUsage)
+	}
+	return command, nil
+}
+
+func executeFeaturesCommand(ctx context.Context, command featuresCommand, computer featureComputer,
+	output io.Writer, appVersion string, workers int) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	run, err := computer.Compute(ctx, features.ComputeRequest{
+		Kind: command.Kind, Universe: command.Universe, Workers: workers, AppVersion: appVersion,
+	})
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(output, "run_id=%s status=%s instruments=%d values=%d\n",
+		run.ID, run.Status, run.InstrumentCount, run.ValueCount)
+	return err
 }
 
 type marketDataRetrier interface {
@@ -815,6 +858,14 @@ func run() error {
 			return executeAuthCommand(ctx, os.Args[1:], identityService, authenticationService,
 				credentials.NewRepository(pool), auth.NewRepository(pool), cfg.ExternalCredentials,
 				osPasswordTerminal{input: os.Stdin, output: os.Stderr}, os.Stdout, slog.Default())
+		}
+		if os.Args[1] == "features" {
+			command, err := parseFeaturesCommand(os.Args[1:])
+			if err != nil {
+				return err
+			}
+			service := features.NewService(features.NewRepository(pool), slog.Default())
+			return executeFeaturesCommand(ctx, command, service, os.Stdout, version, cfg.MarketData.Workers)
 		}
 		if os.Args[1] != "marketdata" {
 			return errors.New("unknown command")
