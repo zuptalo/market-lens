@@ -540,8 +540,10 @@ func TestAnImportResolvesFindingsWhoseConditionHasPassed(t *testing.T) {
 	repository := marketdata.NewRepository(pool)
 	provider := newScriptedProvider()
 
-	// The first import is missing 2024-04-02, a session the exchange was open for.
+	// The first import is missing 2024-04-02, a session the exchange was open for that sits
+	// *inside* the history returned — a hole, rather than the point where the history starts.
 	provider.set("NORD.ST", "", marketdata.DailyPage{Bars: []marketdata.ProviderBar{
+		bar(t, "2024-03-28", "50", "50", 179000, "bar-1"),
 		bar(t, "2024-04-03", "53", "53", 181000, "bar-3"),
 	}})
 	service := marketdata.NewImportService(repository, provider)
@@ -561,6 +563,7 @@ func TestAnImportResolvesFindingsWhoseConditionHasPassed(t *testing.T) {
 
 	// The second import supplies the session that was missing.
 	provider.set("NORD.ST", "", marketdata.DailyPage{Bars: []marketdata.ProviderBar{
+		bar(t, "2024-03-28", "50", "50", 179000, "bar-1"),
 		bar(t, "2024-04-02", "51.75", "51.75", 180000, "bar-2"),
 		bar(t, "2024-04-03", "53", "53", 181000, "bar-3"),
 	}})
@@ -603,6 +606,7 @@ func TestAnImportLeavesAFindingOpenWhileItsConditionHolds(t *testing.T) {
 	pool := migratedPool(t)
 	provider := newScriptedProvider()
 	page := marketdata.DailyPage{Bars: []marketdata.ProviderBar{
+		bar(t, "2024-03-28", "50", "50", 179000, "bar-1"),
 		bar(t, "2024-04-03", "53", "53", 181000, "bar-3"),
 	}}
 	provider.set("NORD.ST", "", page)
@@ -681,6 +685,7 @@ func TestAPersistingConditionRecordsOneFindingNotOnePerImport(t *testing.T) {
 	pool := migratedPool(t)
 	provider := newScriptedProvider()
 	page := marketdata.DailyPage{Bars: []marketdata.ProviderBar{
+		bar(t, "2024-03-28", "50", "50", 179000, "bar-1"),
 		bar(t, "2024-04-03", "53", "53", 181000, "bar-3"),
 	}}
 
@@ -735,8 +740,12 @@ func TestAConditionThatReturnsIsRecordedAgain(t *testing.T) {
 	service := marketdata.NewImportService(marketdata.NewRepository(pool), provider)
 	request := importRequest(t, target(t, stockholmInstrument, "NORD.ST"))
 
-	gap := marketdata.DailyPage{Bars: []marketdata.ProviderBar{bar(t, "2024-04-03", "53", "53", 181000, "bar-3")}}
+	gap := marketdata.DailyPage{Bars: []marketdata.ProviderBar{
+		bar(t, "2024-03-28", "50", "50", 179000, "bar-1"),
+		bar(t, "2024-04-03", "53", "53", 181000, "bar-3"),
+	}}
 	complete := marketdata.DailyPage{Bars: []marketdata.ProviderBar{
+		bar(t, "2024-03-28", "50", "50", 179000, "bar-1"),
 		bar(t, "2024-04-02", "51.75", "51.75", 180000, "bar-2"),
 		bar(t, "2024-04-03", "53", "53", 181000, "bar-3"),
 	}}

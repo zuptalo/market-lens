@@ -452,8 +452,9 @@ test('the chart states in words everything it draws', async ({ page }) => {
 
   // A canvas is opaque to a screen reader. Each of these is a fact the chart shows visually
   // and must therefore also state as text (FR-017).
-  await expect(page.getByText(/2 sessions the exchange was open with no stored bar/)).toBeVisible();
+  await expect(page.getByText('2 sessions', { exact: false })).toBeVisible();
+  await expect(page.getByText('the exchange was open with no stored bar')).toBeVisible();
   await expect(page.getByText(/Provider-adjusted/)).toBeVisible();
-  await expect(page.getByText('suspicious_jump')).toBeVisible();
+  await expect(page.getByText('Suspicious jump')).toBeVisible();
   await expect(page.getByText(/2026-01-05/)).toBeVisible();
 });

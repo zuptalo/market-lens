@@ -124,7 +124,8 @@ describe('InstrumentMarketDataView', () => {
     const wrapper = mountView();
     await flushPromises();
     const text = wrapper.text();
-    expect(text).toContain('suspicious_jump');
+    // Shown as a phrase rather than as its identifier; the fact asserted is unchanged.
+    expect(text).toContain('Suspicious jump');
     expect(text).toContain('2026-05-27');
   });
 

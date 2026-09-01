@@ -157,3 +157,78 @@ func mustDecimal(t *testing.T, value string) Decimal {
 	}
 	return result
 }
+
+// A session before an instrument was listed is not missing data.
+//
+// The importer requested ten years for every instrument in the universe, and flagged every
+// session the exchange was open before a company existed on it. That produced 8,054 of 8,662
+// open findings in production — for Metso Outotec's successor, for EQT before its 2019 listing,
+// for Kojamo before its 2018 one. The chart then marked years of sessions as gaps in a series
+// that had not started.
+//
+// A gap is a hole *inside* a history. Before the history begins there is no hole, there is no
+// history — which coverage and freshness already say, and say once rather than a thousand
+// times.
+func TestValidateDoesNotFlagSessionsBeforeTheProvidersHistoryBegins(t *testing.T) {
+	expected := map[SessionDate]struct{}{}
+	for _, day := range []string{"2016-09-01", "2016-09-02", "2019-09-24", "2019-09-25"} {
+		expected[mustSession(t, day)] = struct{}{}
+	}
+	// The provider's history for this instrument starts in 2019: it was not listed before.
+	page := DailyPage{Bars: []ProviderBar{
+		bar(t, mustSession(t, "2019-09-24"), "100"),
+		bar(t, mustSession(t, "2019-09-25"), "101"),
+	}}
+
+	result, err := ValidateDailyPage(page, ValidationOptions{ExpectedSessions: expected})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, issue := range result.Issues {
+		if issue.Rule == "missing_session" {
+			t.Errorf("session %s before the history begins was flagged missing", issue.SessionDate)
+		}
+	}
+}
+
+// A hole inside the history is still a hole, and still reported.
+func TestValidateStillFlagsAGapInsideTheProvidersHistory(t *testing.T) {
+	expected := map[SessionDate]struct{}{}
+	for _, day := range []string{"2019-09-24", "2019-09-25", "2019-09-26"} {
+		expected[mustSession(t, day)] = struct{}{}
+	}
+	page := DailyPage{Bars: []ProviderBar{
+		bar(t, mustSession(t, "2019-09-24"), "100"),
+		bar(t, mustSession(t, "2019-09-26"), "102"),
+	}}
+
+	result, err := ValidateDailyPage(page, ValidationOptions{ExpectedSessions: expected})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var flagged []string
+	for _, issue := range result.Issues {
+		if issue.Rule == "missing_session" {
+			flagged = append(flagged, issue.SessionDate.String())
+		}
+	}
+	if len(flagged) != 1 || flagged[0] != "2019-09-25" {
+		t.Fatalf("flagged %v, expected exactly the session inside the history", flagged)
+	}
+}
+
+// A page with no bars at all reports no gaps. There is nothing for them to be gaps in, and a
+// thousand findings would say less than the single fact that no history exists.
+func TestValidateFlagsNothingWhenTheProviderReturnedNoHistory(t *testing.T) {
+	expected := map[SessionDate]struct{}{}
+	for _, day := range []string{"2016-09-01", "2016-09-02"} {
+		expected[mustSession(t, day)] = struct{}{}
+	}
+	result, err := ValidateDailyPage(DailyPage{}, ValidationOptions{ExpectedSessions: expected})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Issues) != 0 {
+		t.Fatalf("an empty page produced %d issues: %#v", len(result.Issues), result.Issues)
+	}
+}
