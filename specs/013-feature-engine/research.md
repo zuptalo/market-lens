@@ -193,9 +193,12 @@ classification a function rather than a set of overlapping rules, which is what 
 Propagating undefined is required by FR-014: a regime computed from a missing input would be
 an invented value wearing a category name, which is harder to detect than an invented number.
 
-**Deferred to tasks**: the specific numeric thresholds. They are a definition-level decision
-that belongs in the definition table with a version, and choosing them here would bury them
-where no version can reach them.
+**Version-1 parameters** (decided at tasking, stored in the definition's `parameters` so a
+later change is a version rather than a silent redefinition): in precedence order,
+`volatile` when `volatility_20 >= 0.40`; else `trending_up` when `trend_50_200 > 0.05` and
+`drawdown_250 > -0.10`; else `trending_down` when `trend_50_200 < -0.05`; else
+`range_bound`. The boundaries are inclusive exactly as written, and the regime is a *label*
+— `feature_values` carries it in a `label` column, never encoded as a number.
 
 ---
 
@@ -214,6 +217,23 @@ These are budgets, not measurements. The task list must include recording the fi
 figures against them.
 
 ---
+
+## R-009: Fixed windows for the smoothed oscillators
+
+**Decision**: RSI and MACD are computed over a *fixed* window of stored sessions — 140 for
+`rsi_14`, 130 for the MACD family — with each smoothing seeded by the simple average of its
+first period inside that window. They are not smoothed recursively from the start of history.
+
+**Rationale**: The textbook recursion makes the value at session t depend on every bar since
+the instrument listed. That is still point-in-time correct, but it means a revision to one
+bar at session S changes every later session, which defeats R-004's bounded recomputation
+range and makes SC-008 unmeasurable. A fixed window restores a finite `W_max`, and the seed
+rule is stated so the evaluation order is explicit (R-001). The values differ slightly from
+an unbounded recursion; that difference is a property of the definition, which is versioned.
+
+**Alternatives considered**: recursion from the first stored bar, rejected above; a
+per-feature "affected range" rule that treats these two as unbounded, deferred with the rest
+of per-feature scoping in R-004.
 
 ## Open items carried into tasks
 
