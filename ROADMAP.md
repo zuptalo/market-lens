@@ -30,7 +30,7 @@ without a reviewed feature spec and valid red test.
 | Experience-B | One component library everywhere | Shipped | [`012-primevue-consistency`](specs/012-primevue-consistency/spec.md) | Security-A | Every screen uses PrimeVue rather than hand-rolled controls, enforced by a test. |
 | Experience-A | Installable PWA and device lifecycle | Backlog | Not yet specified | Security-A; SSE foundation | Chrome/Edge installability on mobile/tablet/desktop, offline/stale behavior, devices, and permission lifecycle. |
 | 2 | Instrument exploration and financial charts | Shipped | [`005-instrument-exploration`](specs/005-instrument-exploration/spec.md) | Milestone 1 | Search/browse, instrument detail, responsive candlestick/volume history, overlays, and basic statistics. |
-| 3 | Reusable feature engine | Backlog | Not yet specified | Milestone 1; benchmark/FX inputs as needed | Deterministic timestamped returns, trend, momentum, relative strength, volatility, ATR, RSI/MACD, drawdown, volume, and regime features with leakage tests. |
+| 3 | Reusable feature engine | Shipped | [`013-feature-engine`](specs/013-feature-engine/spec.md) and [plan](specs/013-feature-engine/plan.md) | Milestone 1 | Deterministic, versioned, point-in-time returns, trend, momentum, relative strength, volatility, ATR, RSI/MACD, drawdown, volume and regime features over stored sessions, with leakage proven by test. Relative strength is measured against an equal-weighted composite of the curated universe, which needed no new data. Markets reads its three statistics from the engine. |
 | 4 | Deterministic strategies and signals | Backlog | Not yet specified | Milestone 3 | Versioned momentum/trend strategy, parameters, immutable actions/scores/confidence/explanations and reproducibility. |
 | 5 | Reproducible backtesting | Backlog | Not yet specified | Milestone 4; benchmark data | Historical simulation, accounting, brokerage/FX/slippage, benchmarks, metrics, curves, and traceable trades/signals. |
 | 6 | Personal tracking, portfolio, and risk engine | Backlog | Not yet specified | Security-A; Milestone 4; preferably Milestone 5 evidence | User-owned holdings/trades/tracking rules, positions, cash/P&L/exposures, independent limits/rejections/modifications, and order intents. |
@@ -55,16 +55,21 @@ recorded with its licence in the feature's quickstart.
 Market data is delivered behind the access boundary: every page, REST snapshot and SSE stream
 requires an authenticated session, with cross-user isolation proven by test.
 
-**The next product feature is Milestone 3, the reusable feature engine.** It is not yet
-specified, and nothing after it can proceed without it: strategies depend on the engine,
-backtesting on strategies, and portfolio and paper trading on those.
+**Milestone 3, the reusable feature engine, is shipped** (`v0.9.0` and the release that
+follows it). Twenty-four definitions plus the universe composite are computed from stored
+sessions alone, versioned and never recomputed differently for the same input; no value may
+read a session later than its own, which four test suites prove and a deliberate one-session
+lookahead was used to prove they can fail. The first production computation wrote 5,830,104
+values over 242,921 bars in 249 seconds.
 
-One decision is already waiting for that specification. Feature 005 computes descriptive
-20- and 90-session returns and a volatility measure for display, and its specification states
-plainly that these are *not* the versioned, leakage-tested definitions the engine will own —
-if the engine defines them differently, feature 005 adopts the engine's definition rather than
-the reverse. Whoever specifies the engine is therefore choosing whether the Markets table's
-current numbers stay as they are or change.
+The decision that was waiting here is settled. Feature 005's descriptive 20- and 90-session
+returns and volatility measure became version 1 of the engine's `return_20`, `return_90` and
+`volatility_20` — the same definitions, written down — so the Markets table now reads the
+engine's values and no displayed number moved. The derived query that computed them a second
+time is deleted.
+
+**The next product feature is Milestone 4, deterministic strategies and signals.** Strategies
+depend on the engine, backtesting on strategies, and portfolio and paper trading on those.
 
 Milestones 3–5 are the next planning sequence. Create separate feature specs so their
 acceptance criteria, data ownership, responsive behavior, and test-first proof can be

@@ -34,9 +34,9 @@ function wireRow(overrides: Record<string, unknown> = {}) {
     latest_close: '109.50',
     change_absolute: '1.00',
     change_percent: 0.0092,
-    return_20: 0.0412,
+    return_20: '0.041200000000',
     return_90: null,
-    volatility: 0.1875,
+    volatility: '0.187500000000',
     stored_sessions: 42,
     freshness: { state: 'current', sessions_behind: 0 },
     ...overrides,
@@ -214,6 +214,68 @@ describe('MarketsView under an event storm', () => {
     await flushPromises();
 
     expect(requestedUrls.length - before).toBe(0);
+    wrapper.unmount();
+  });
+
+  // Feature 013 US5: the three statistics on this page are the engine's, so the page must
+  // hear the engine's own event. Before the event type is subscribed, the stream delivers it
+  // into nothing and the row keeps a stale number until something else happens to refresh it.
+  it('re-reads only the affected row when the engine recomputes its features', async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    const before = requestedUrls.length;
+    const listingBefore = requestedUrls.filter((url) => url.includes('/api/v1/instruments')).at(-1);
+
+    const source = QuietEventSource.instances.at(-1)!;
+    source.deliver(
+      'feature_values.changed.v1',
+      JSON.stringify({
+        entity_type: 'instrument',
+        entity_id: '11111111-1111-4111-8111-111111111111',
+        instrument_id: '11111111-1111-4111-8111-111111111111',
+        from_session: '2026-06-01',
+        to_session: '2026-06-30',
+      }),
+      '9001',
+    );
+    await flushPromises();
+    await vi.advanceTimersByTimeAsync(2_000);
+    await flushPromises();
+
+    const issued = requestedUrls.slice(before);
+    expect(issued.length, 'a feature change on a listed instrument refreshed nothing').toBe(1);
+    // The refresh keeps the view the person set up — same filters, same ordering — and asks
+    // only for the rows on screen rather than starting the listing over.
+    const parameters = (url: string) => new URLSearchParams(url.split('?')[1] ?? '');
+    const before20 = parameters(listingBefore ?? '');
+    const after = parameters(issued[0]);
+    for (const key of ['q', 'sort', 'order']) {
+      expect(after.get(key), `the refresh changed ${key}`).toBe(before20.get(key));
+    }
+    expect(after.get('cursor')).toBe(before20.get('cursor'));
+    expect(Number(after.get('limit'))).toBe(wrapper.findAll('tbody tr').length);
+
+    // An instrument that is not on screen costs nothing, and the same event twice is one
+    // change, not two.
+    const second = requestedUrls.length;
+    source.deliver(
+      'feature_values.changed.v1',
+      JSON.stringify({ entity_type: 'instrument', entity_id: 'absent-1', instrument_id: 'absent-1' }),
+      '9002',
+    );
+    source.deliver(
+      'feature_values.changed.v1',
+      JSON.stringify({
+        entity_type: 'instrument',
+        entity_id: '11111111-1111-4111-8111-111111111111',
+        instrument_id: '11111111-1111-4111-8111-111111111111',
+      }),
+      '9001',
+    );
+    await flushPromises();
+    await vi.advanceTimersByTimeAsync(2_000);
+    await flushPromises();
+    expect(requestedUrls.length - second, 'a repeated event id refetched again').toBe(0);
     wrapper.unmount();
   });
 

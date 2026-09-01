@@ -45,6 +45,8 @@ type explorationFixture struct {
 	stale instruments.UUID
 
 	runID instruments.UUID
+	// featureRunID is created on demand by the tests that seed the engine's values.
+	featureRunID instruments.UUID
 }
 
 const (
@@ -306,4 +308,64 @@ func TestTheExplorationFixtureIsWorthAssertingAgainst(t *testing.T) {
 			t.Fatalf("closed exchange day %s was counted as a missing session", closed)
 		}
 	}
+}
+
+// engineRun records one feature run the seeded values can point at, because a value without
+// the run that produced it is not something the engine can ever write.
+func (f *explorationFixture) engineRun(t *testing.T) instruments.UUID {
+	t.Helper()
+	if f.featureRunID != "" {
+		return f.featureRunID
+	}
+	id := mustUUID(t)
+	var universe string
+	if err := f.pool.QueryRow(f.ctx, `SELECT id::text FROM research_universes ORDER BY code LIMIT 1`).Scan(&universe); err != nil {
+		t.Fatalf("read a research universe: %v", err)
+	}
+	if _, err := f.pool.Exec(f.ctx, `INSERT INTO feature_runs
+		(id, kind, status, universe_id, started_at, finished_at, instrument_count, value_count, app_version)
+		VALUES ($1, 'full', 'succeeded', $2, now(), now(), 1, 0, 'test')`,
+		id.String(), universe); err != nil {
+		t.Fatalf("insert feature run: %v", err)
+	}
+	f.featureRunID = id
+	return id
+}
+
+// seedEngineValue stores what the engine would have written for one definition of one
+// instrument at one session: a decimal string, or an absence when the value is empty.
+func (f *explorationFixture) seedEngineValue(t *testing.T, instrument instruments.UUID, session, definition, value string) {
+	t.Helper()
+	run := f.engineRun(t)
+	var definitionID string
+	if err := f.pool.QueryRow(f.ctx, `SELECT id::text FROM feature_definitions
+		WHERE name = $1 AND superseded_at IS NULL`, definition).Scan(&definitionID); err != nil {
+		t.Fatalf("read definition %s: %v", definition, err)
+	}
+	var stored, absence *string
+	if value == "" {
+		reason := "insufficient_history"
+		absence = &reason
+	} else {
+		stored = &value
+	}
+	if _, err := f.pool.Exec(f.ctx, `INSERT INTO feature_values
+		(instrument_id, session_date, definition_id, value, absence_reason, computed_at, run_id)
+		VALUES ($1, $2::date, $3, $4::numeric, $5, now(), $6)
+		ON CONFLICT (instrument_id, session_date, definition_id) DO UPDATE
+		SET value = excluded.value, absence_reason = excluded.absence_reason, run_id = excluded.run_id`,
+		instrument.String(), session, definitionID, stored, absence, run.String()); err != nil {
+		t.Fatalf("seed %s for %s: %v", definition, instrument, err)
+	}
+}
+
+// latestSession is the most recent session an instrument has a stored bar for.
+func (f *explorationFixture) latestSession(t *testing.T, instrument instruments.UUID) string {
+	t.Helper()
+	var session string
+	if err := f.pool.QueryRow(f.ctx, `SELECT max(session_date)::text FROM daily_price_bars
+		WHERE instrument_id = $1`, instrument.String()).Scan(&session); err != nil {
+		t.Fatalf("latest session of %s: %v", instrument, err)
+	}
+	return session
 }

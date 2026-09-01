@@ -47,13 +47,20 @@ func TestFeatureEngineMigrationsCleanInstall(t *testing.T) {
 	assertPrimaryKey(t, ctx, pool, "universe_composites", "universe_id, session_date, definition_id")
 	assertPrimaryKey(t, ctx, pool, "feature_run_items", "run_id, instrument_id")
 
-	// Scoped to this test's own schema: pg_indexes spans the whole database, and reading it
-	// unscoped both accepts another schema's index as proof and races the teardown of the
-	// tests running beside this one ("could not open relation with OID").
+	// Read from the catalog directly, and never through pg_indexes: that view calls
+	// pg_get_indexdef() on every index in the database, which races the teardown of the tests
+	// running beside this one ("could not open relation with OID"). Comparing the indexed
+	// column names touches nothing outside this schema.
 	var indexed bool
-	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_indexes
-		WHERE schemaname = current_schema() AND tablename = 'feature_values'
-		  AND indexdef LIKE '%(definition_id, session_date)%')`).Scan(&indexed); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT EXISTS (
+		SELECT 1 FROM pg_index x
+		JOIN pg_class t ON t.oid = x.indrelid
+		WHERE t.relname = 'feature_values'
+		  AND t.relnamespace = current_schema()::regnamespace
+		  AND (SELECT string_agg(a.attname, ', ' ORDER BY k.ordinality)
+		       FROM unnest(x.indkey) WITH ORDINALITY AS k(attnum, ordinality)
+		       JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum)
+		      = 'definition_id, session_date')`).Scan(&indexed); err != nil {
 		t.Fatal(err)
 	}
 	if !indexed {
@@ -254,4 +261,39 @@ func mustNewUUID(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return id.String()
+}
+
+// US5's upgrade case: the Markets listing adopts the engine's statistics in a release that
+// ships *after* the engine has computed, but an installation that migrates and lists before
+// the first pass must still work — showing the three statistics absent rather than failing or
+// inventing them. Sorting by one of them must still put the absences last.
+func TestUpgradeLeavesTheMarketsStatisticsReadableUntilEngineValuesExist(t *testing.T) {
+	pool := testdb.Open(t)
+	ctx := context.Background()
+	if err := Migrate(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	var values int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM feature_values`).Scan(&values); err != nil {
+		t.Fatal(err)
+	}
+	if values != 0 {
+		t.Fatalf("a freshly migrated database holds %d feature values, expected none", values)
+	}
+
+	page, err := instruments.NewRepository(pool).Listing(ctx, instruments.ListingFilter{
+		Sort: instruments.SortReturn20, Limit: 50, AsOf: instruments.SessionDate("2026-08-31"),
+	})
+	if err != nil {
+		t.Fatalf("the listing failed with no engine values stored: %v", err)
+	}
+	if len(page.Items) == 0 {
+		t.Fatal("the seeded universe listed no instruments")
+	}
+	for _, row := range page.Items {
+		if row.Return20 != nil || row.Return90 != nil || row.Volatility != nil {
+			t.Errorf("%s listed a statistic before the engine ran: r20=%v r90=%v vol=%v",
+				row.Ticker, row.Return20, row.Return90, row.Volatility)
+		}
+	}
 }

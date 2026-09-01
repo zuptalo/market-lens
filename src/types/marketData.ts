@@ -110,9 +110,12 @@ export interface InstrumentListingRow {
   latestClose: string | null;
   changeAbsolute: string | null;
   changePercent: number | null;
-  return20: number | null;
-  return90: number | null;
-  volatility: number | null;
+  // The feature engine's own decimals, as strings: a JavaScript number cannot hold every
+  // numeric(24,12) it can, and a statistic rounded on the way to the screen is no longer the
+  // statistic the engine computed (feature 013, US5-2).
+  return20: string | null;
+  return90: string | null;
+  volatility: string | null;
   /** Why a statistic is absent, rather than leaving a reader to guess. */
   storedSessions: number;
   freshness: Freshness;

@@ -241,9 +241,12 @@ type ListingRow struct {
 	ChangeAbsolute *Decimal
 	ChangePercent  *float64
 
-	Return20   *float64
-	Return90   *float64
-	Volatility *float64
+	// The three adopted statistics are the engine's own decimals, carried as stored rather
+	// than as float64: a number that has been through a binary float on its way to the screen
+	// is no longer the number the engine computed (feature 013, US5-2).
+	Return20   *Decimal
+	Return90   *Decimal
+	Volatility *Decimal
 
 	// StoredSessions is the count of stored bars, so a reader can see *why* a statistic is
 	// absent instead of guessing.

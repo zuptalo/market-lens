@@ -38,9 +38,9 @@ var listingSorts = map[ListingSort]sortExpression{
 	SortCountry:       {"i.country", "text"},
 	SortLatestClose:   {"s.latest_close", "numeric"},
 	SortChangePercent: {"s.change_percent", "float8"},
-	SortReturn20:      {"s.return_20", "float8"},
-	SortReturn90:      {"s.return_90", "float8"},
-	SortVolatility:    {"s.volatility", "float8"},
+	SortReturn20:      {"s.return_20", "numeric"},
+	SortReturn90:      {"s.return_90", "numeric"},
+	SortVolatility:    {"s.volatility", "numeric"},
 	// Freshness orders by how far behind an instrument is. An instrument with no history has
 	// nothing to be behind, so it sorts last rather than pretending to be current.
 	SortFreshness: {"s.sessions_behind", "int"},
@@ -93,37 +93,42 @@ func decodeListingCursor(raw string, filter ListingFilter) (*listingCursor, erro
 	return &cursor, nil
 }
 
-// listingStatisticsCTE derives every per-instrument statistic from stored bars alone.
+// listingStatisticsCTE gathers each instrument's price facts from its stored bars and its
+// three adopted statistics from the feature engine (feature 013, FR-026).
 //
-// The window functions rank each instrument's sessions most-recent-first, so "twenty sessions
-// ago" means the twenty-first stored bar rather than a date twenty calendar days back. That
-// distinction is the whole reason ranges here are counted in sessions (research R7).
+// The window function ranks each instrument's sessions most-recent-first, so "the previous
+// close" means the second stored bar rather than yesterday's date. The statistics are not
+// derived here at all: return_20, return_90 and volatility_20 are read from feature_values at
+// the instrument's own latest stored session, so the number on the Markets list and the
+// number the features endpoint serves are the same row of the same table. An instrument the
+// engine has not computed shows them absent — never a zero, and never a second opinion
+// derived from the same bars by different arithmetic.
 const listingStatisticsCTE = `
-bars AS (
+adopted AS (
+	SELECT d.id, d.name FROM feature_definitions d
+	WHERE d.name IN ('return_20', 'return_90', 'volatility_20') AND d.superseded_at IS NULL
+), bars AS (
 	SELECT b.instrument_id, b.session_date, b.close,
 	       row_number() OVER (PARTITION BY b.instrument_id ORDER BY b.session_date DESC) AS rn,
 	       count(*) OVER (PARTITION BY b.instrument_id) AS stored_sessions
 	FROM daily_price_bars b
 	JOIN candidates c ON c.id = b.instrument_id
-), recent AS (
-	SELECT instrument_id, session_date, close, rn FROM bars WHERE rn <= 21
-), log_returns AS (
-	SELECT instrument_id,
-	       ln(close / NULLIF(lag(close) OVER (PARTITION BY instrument_id ORDER BY session_date), 0)) AS r
-	FROM recent
-), volatility AS (
-	-- Twenty session-over-session log returns, annualised by the square root of 252.
-	SELECT instrument_id, stddev_samp(r) * sqrt(252) AS volatility
-	FROM log_returns WHERE r IS NOT NULL GROUP BY instrument_id
 ), aggregated AS (
 	SELECT instrument_id,
 	       max(stored_sessions) AS stored_sessions,
 	       max(session_date) FILTER (WHERE rn = 1) AS latest_session,
 	       max(close) FILTER (WHERE rn = 1) AS latest_close,
-	       max(close) FILTER (WHERE rn = 2) AS previous_close,
-	       max(close) FILTER (WHERE rn = 21) AS close_20,
-	       max(close) FILTER (WHERE rn = 91) AS close_90
+	       max(close) FILTER (WHERE rn = 2) AS previous_close
 	FROM bars GROUP BY instrument_id
+), engine AS (
+	SELECT v.instrument_id,
+	       max(v.value) FILTER (WHERE a.name = 'return_20') AS return_20,
+	       max(v.value) FILTER (WHERE a.name = 'return_90') AS return_90,
+	       max(v.value) FILTER (WHERE a.name = 'volatility_20') AS volatility
+	FROM feature_values v
+	JOIN adopted a ON a.id = v.definition_id
+	JOIN aggregated g ON g.instrument_id = v.instrument_id AND g.latest_session = v.session_date
+	GROUP BY v.instrument_id
 ), s AS (
 	SELECT c.id AS instrument_id,
 	       coalesce(a.stored_sessions, 0) AS stored_sessions,
@@ -133,12 +138,9 @@ bars AS (
 	       a.latest_close - a.previous_close AS change_absolute,
 	       CASE WHEN a.previous_close IS NOT NULL AND a.previous_close <> 0
 	            THEN (a.latest_close / a.previous_close - 1)::float8 END AS change_percent,
-	       -- Null, never zero: a return needs one more stored session than it looks back.
-	       CASE WHEN a.close_20 IS NOT NULL AND a.close_20 <> 0
-	            THEN (a.latest_close / a.close_20 - 1)::float8 END AS return_20,
-	       CASE WHEN a.close_90 IS NOT NULL AND a.close_90 <> 0
-	            THEN (a.latest_close / a.close_90 - 1)::float8 END AS return_90,
-	       CASE WHEN coalesce(a.stored_sessions, 0) >= 21 THEN v.volatility END AS volatility,
+	       f.return_20,
+	       f.return_90,
+	       f.volatility,
 	       CASE WHEN a.latest_session IS NULL THEN NULL ELSE (
 	           SELECT count(*) FROM exchange_sessions es
 	           WHERE es.exchange_id = c.exchange_id
@@ -148,7 +150,7 @@ bars AS (
 	       ) END AS sessions_behind
 	FROM candidates c
 	LEFT JOIN aggregated a ON a.instrument_id = c.id
-	LEFT JOIN volatility v ON v.instrument_id = c.id
+	LEFT JOIN engine f ON f.instrument_id = c.id
 )`
 
 func (r *Repository) Listing(ctx context.Context, filter ListingFilter) (ListingPage, error) {
@@ -248,7 +250,8 @@ SELECT i.id::text, i.exchange_id::text, i.isin, i.ticker, i.name, i.currency, i.
        i.purchasability_status, i.created_at, i.updated_at,
        e.mic, e.name, e.country, e.currency, e.timezone, e.active,
        s.latest_session::text, s.latest_close::text, s.previous_close::text,
-       s.change_absolute::text, s.change_percent, s.return_20, s.return_90, s.volatility,
+       s.change_absolute::text, s.change_percent,
+       s.return_20::text, s.return_90::text, s.volatility::text,
        s.stored_sessions, s.sessions_behind,
        (%s)::text AS sort_value
 FROM instruments i
@@ -295,6 +298,7 @@ func scanListingRow(rows pgx.Rows) (ListingRow, *string, error) {
 	var id, exchangeID, mic, exchangeName, exchangeCountry, exchangeCurrency, timezone string
 	var exchangeActive bool
 	var latestSession, latestClose, previousClose, changeAbsolute, sortValue *string
+	var return20, return90, volatility *string
 	var sessionsBehind *int
 
 	if err := rows.Scan(&id, &exchangeID, &row.ISIN, &row.Ticker, &row.Name, &row.Currency,
@@ -302,7 +306,7 @@ func scanListingRow(rows pgx.Rows) (ListingRow, *string, error) {
 		&row.PurchasabilityStatus, &row.CreatedAt, &row.UpdatedAt,
 		&mic, &exchangeName, &exchangeCountry, &exchangeCurrency, &timezone, &exchangeActive,
 		&latestSession, &latestClose, &previousClose, &changeAbsolute,
-		&row.ChangePercent, &row.Return20, &row.Return90, &row.Volatility,
+		&row.ChangePercent, &return20, &return90, &volatility,
 		&row.StoredSessions, &sessionsBehind, &sortValue); err != nil {
 		return ListingRow{}, nil, fmt.Errorf("scan instrument listing row: %w", err)
 	}
@@ -317,6 +321,9 @@ func scanListingRow(rows pgx.Rows) (ListingRow, *string, error) {
 	row.LatestClose = decimalPointer(latestClose)
 	row.PreviousClose = decimalPointer(previousClose)
 	row.ChangeAbsolute = decimalPointer(changeAbsolute)
+	row.Return20 = decimalPointer(return20)
+	row.Return90 = decimalPointer(return90)
+	row.Volatility = decimalPointer(volatility)
 
 	// Freshness is a fact about the exchange calendar, not about the clock: an instrument is
 	// current when it has a bar for the most recent session its own exchange was open for.

@@ -370,7 +370,7 @@ async function mockAccount(page: Page, authenticated: boolean): Promise<void> {
     currency: 'SEK', country: 'SE', sector: 'Technology', industry: 'Software',
     instrument_type: 'common_stock', status: 'active', purchasability_status: 'unverified',
     latest_session: '2026-06-02', latest_close: '109.50', change_absolute: '1.00',
-    change_percent: 0.0092, return_20: 0.0412, return_90: null, volatility: 0.1875,
+    change_percent: 0.0092, return_20: '0.041200000000', return_90: null, volatility: '0.187500000000',
     stored_sessions: 120, freshness: { state: 'current', sessions_behind: 0 },
   }], next_cursor: null } }));
   await page.route('**/api/v1/instruments/*/history*', (route) => route.fulfill({ json: {
@@ -380,7 +380,7 @@ async function mockAccount(page: Page, authenticated: boolean): Promise<void> {
       currency: 'SEK', country: 'SE', sector: 'Technology', industry: 'Software',
       instrument_type: 'common_stock', status: 'active', purchasability_status: 'unverified',
       latest_session: '2026-06-02', latest_close: '109.50', change_absolute: '1.00',
-      change_percent: 0.0092, return_20: 0.0412, return_90: null, volatility: 0.1875,
+      change_percent: 0.0092, return_20: '0.041200000000', return_90: null, volatility: '0.187500000000',
       stored_sessions: 120, freshness: { state: 'current', sessions_behind: 0 },
     },
     coverage: { first_session: '2026-01-05', last_session: '2026-06-02', stored_sessions: 120 },
