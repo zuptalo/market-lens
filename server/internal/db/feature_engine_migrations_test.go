@@ -47,9 +47,13 @@ func TestFeatureEngineMigrationsCleanInstall(t *testing.T) {
 	assertPrimaryKey(t, ctx, pool, "universe_composites", "universe_id, session_date, definition_id")
 	assertPrimaryKey(t, ctx, pool, "feature_run_items", "run_id, instrument_id")
 
+	// Scoped to this test's own schema: pg_indexes spans the whole database, and reading it
+	// unscoped both accepts another schema's index as proof and races the teardown of the
+	// tests running beside this one ("could not open relation with OID").
 	var indexed bool
 	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_indexes
-		WHERE tablename = 'feature_values' AND indexdef LIKE '%(definition_id, session_date)%')`).Scan(&indexed); err != nil {
+		WHERE schemaname = current_schema() AND tablename = 'feature_values'
+		  AND indexdef LIKE '%(definition_id, session_date)%')`).Scan(&indexed); err != nil {
 		t.Fatal(err)
 	}
 	if !indexed {
