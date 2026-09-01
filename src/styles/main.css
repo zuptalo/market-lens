@@ -5,6 +5,41 @@
   color: #172321;
 }
 :root.market-lens-dark { color-scheme: dark; background: #0b1211; color: #e7f1ef; }
+
+/*
+ * Chart colours.
+ *
+ * The chart draws to a canvas, which cannot resolve `currentColor` or any other CSS keyword —
+ * it needs a real colour string. These tokens keep the palette in the stylesheet where the
+ * rest of the theme lives, and the chart reads their computed values at runtime and again
+ * whenever the theme changes.
+ *
+ * The grid is deliberately faint. It sits behind the data and its job is to make values
+ * locatable, not to be seen; the library's own default is tuned for a light background and
+ * reads as near-white on dark, where it drowns the candles.
+ */
+:root {
+  --chart-grid: rgb(15 23 21 / 0.10);
+  --chart-text: #55635f;
+  --chart-border: rgb(15 23 21 / 0.18);
+  --chart-crosshair: rgb(15 23 21 / 0.35);
+  --chart-up: #0f9d76;
+  --chart-down: #d1495b;
+  --chart-volume: rgb(15 157 118 / 0.45);
+  --chart-overlay: #2f6fed;
+}
+
+:root.market-lens-dark {
+  --chart-grid: rgb(231 241 239 / 0.08);
+  --chart-text: #9aaba7;
+  --chart-border: rgb(231 241 239 / 0.16);
+  --chart-crosshair: rgb(231 241 239 / 0.4);
+  --chart-up: #2dd4a7;
+  --chart-down: #f2708a;
+  --chart-volume: rgb(45 212 167 / 0.32);
+  --chart-overlay: #6fa8ff;
+}
+
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; min-height: 100vh; background: inherit; color: inherit; }
 a { color: inherit; }
