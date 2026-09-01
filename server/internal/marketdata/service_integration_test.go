@@ -670,3 +670,101 @@ func TestAnImportDoesNotResolveFindingsOutsideItsRange(t *testing.T) {
 		t.Errorf("a finding outside the imported range was marked %q", status)
 	}
 }
+
+// A finding is a record of a condition, not of an observation of it.
+//
+// Every import re-inserted a row for a gap that was already recorded, so repeated backfills
+// multiplied the same facts: production held 25,853 missing-session findings describing 8,662
+// distinct conditions. The count then measured how often imports had run rather than how much
+// was wrong, and no amount of resolving could keep up with it.
+func TestAPersistingConditionRecordsOneFindingNotOnePerImport(t *testing.T) {
+	pool := migratedPool(t)
+	provider := newScriptedProvider()
+	page := marketdata.DailyPage{Bars: []marketdata.ProviderBar{
+		bar(t, "2024-04-03", "53", "53", 181000, "bar-3"),
+	}}
+
+	service := marketdata.NewImportService(marketdata.NewRepository(pool), provider)
+	request := importRequest(t, target(t, stockholmInstrument, "NORD.ST"))
+
+	provider.set("NORD.ST", "", page)
+	if _, err := service.Import(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	var afterFirst, eventsAfterFirst int
+	if err := pool.QueryRow(context.Background(), `SELECT
+		(SELECT count(*) FROM data_quality_findings WHERE rule='missing_session'),
+		(SELECT count(*) FROM client_events WHERE event_type='quality_finding.changed.v1')`).
+		Scan(&afterFirst, &eventsAfterFirst); err != nil {
+		t.Fatal(err)
+	}
+	if afterFirst == 0 {
+		t.Fatal("the first import recorded no missing-session finding")
+	}
+
+	// The very same gap, observed again.
+	provider.set("NORD.ST", "", page)
+	if _, err := service.Import(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+
+	var afterSecond, eventsAfterSecond, distinct int
+	if err := pool.QueryRow(context.Background(), `SELECT
+		(SELECT count(*) FROM data_quality_findings WHERE rule='missing_session'),
+		(SELECT count(*) FROM client_events WHERE event_type='quality_finding.changed.v1'),
+		(SELECT count(DISTINCT (instrument_id, session_date, rule)) FROM data_quality_findings)`).
+		Scan(&afterSecond, &eventsAfterSecond, &distinct); err != nil {
+		t.Fatal(err)
+	}
+	if afterSecond != afterFirst {
+		t.Errorf("re-observing the same gap added %d findings; rows=%d distinct conditions=%d",
+			afterSecond-afterFirst, afterSecond, distinct)
+	}
+	// Nothing changed, so nothing is published. An event per import for an unchanged condition
+	// is the storm the client had to be taught to coalesce.
+	if eventsAfterSecond != eventsAfterFirst {
+		t.Errorf("re-observing the same gap published %d further events",
+			eventsAfterSecond-eventsAfterFirst)
+	}
+}
+
+// Resolving a finding must not prevent the same condition being recorded again if it returns.
+func TestAConditionThatReturnsIsRecordedAgain(t *testing.T) {
+	pool := migratedPool(t)
+	provider := newScriptedProvider()
+	service := marketdata.NewImportService(marketdata.NewRepository(pool), provider)
+	request := importRequest(t, target(t, stockholmInstrument, "NORD.ST"))
+
+	gap := marketdata.DailyPage{Bars: []marketdata.ProviderBar{bar(t, "2024-04-03", "53", "53", 181000, "bar-3")}}
+	complete := marketdata.DailyPage{Bars: []marketdata.ProviderBar{
+		bar(t, "2024-04-02", "51.75", "51.75", 180000, "bar-2"),
+		bar(t, "2024-04-03", "53", "53", 181000, "bar-3"),
+	}}
+
+	provider.set("NORD.ST", "", gap)
+	if _, err := service.Import(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	provider.set("NORD.ST", "", complete)
+	if _, err := service.Import(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	provider.set("NORD.ST", "", gap)
+	if _, err := service.Import(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+
+	var open, resolved int
+	if err := pool.QueryRow(context.Background(), `SELECT
+		(SELECT count(*) FROM data_quality_findings WHERE rule='missing_session' AND status='open'),
+		(SELECT count(*) FROM data_quality_findings WHERE rule='missing_session' AND status='resolved')`).
+		Scan(&open, &resolved); err != nil {
+		t.Fatal(err)
+	}
+	if open == 0 {
+		t.Error("a gap that returned was not recorded again")
+	}
+	if resolved == 0 {
+		t.Error("the import that filled the gap resolved nothing")
+	}
+}
