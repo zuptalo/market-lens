@@ -269,6 +269,40 @@ func mapBar(row barResponse) (marketdata.ProviderBar, error) {
 	return marketdata.ProviderBar{SessionDate: date, Open: open, High: high, Low: low, Close: closeValue, AdjustedClose: adjusted, Volume: row.Volume, SourceHash: sourceHash(canonical)}, nil
 }
 
+// ListInstruments returns everything the provider lists for one exchange.
+//
+// Resolve answers "does this ticker exist"; this answers "what does this exchange contain",
+// which is the question worth asking when a stored ticker has gone stale. Each entry carries
+// its ISIN, so an instrument that has been renamed can be found again by the identifier that
+// did not change.
+func (c *Client) ListInstruments(ctx context.Context, mic string) ([]marketdata.CatalogEntry, error) {
+	exchange, ok := nordicExchange(mic)
+	if !ok {
+		return nil, providerError("provider_request", "Market-data provider request is invalid.", false, 0)
+	}
+
+	var rows []symbolResponse
+	if err := c.getJSON(ctx, "/exchange-symbol-list/"+exchange.code, nil, &rows); err != nil {
+		return nil, err
+	}
+
+	catalog := make([]marketdata.CatalogEntry, 0, len(rows))
+	for _, row := range rows {
+		ticker := strings.TrimSpace(row.Code)
+		if ticker == "" {
+			continue
+		}
+		catalog = append(catalog, marketdata.CatalogEntry{
+			ProviderSymbol: ticker + "." + exchange.code,
+			ISIN:           strings.TrimSpace(row.ISIN),
+			Ticker:         ticker,
+			Name:           strings.TrimSpace(row.Name),
+			Currency:       strings.ToUpper(strings.TrimSpace(row.Currency)),
+		})
+	}
+	return catalog, nil
+}
+
 func mapSplit(symbol string, row splitResponse) (marketdata.ProviderAction, error) {
 	date, err := marketdata.ParseSessionDate(row.Date)
 	if err != nil {

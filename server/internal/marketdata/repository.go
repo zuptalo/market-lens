@@ -24,6 +24,36 @@ type Repository struct {
 
 func NewRepository(pool *pgxpool.Pool) *Repository { return &Repository{pool: pool} }
 
+// UniverseEntries reads the universe as this installation has it stored, with the identifier
+// each instrument is imported under. It is what the symbol audit compares against the
+// provider's own catalog.
+func (r *Repository) UniverseEntries(ctx context.Context, provider, universe string) ([]UniverseEntry, error) {
+	if strings.TrimSpace(provider) == "" || strings.TrimSpace(universe) == "" {
+		return nil, errors.New("provider and universe are required")
+	}
+	rows, err := r.pool.Query(ctx, `SELECT i.ticker,i.isin,i.name,e.mic,p.provider_symbol
+		FROM research_universes u
+		JOIN universe_memberships m ON m.universe_id=u.id AND m.included_to IS NULL
+		JOIN instruments i ON i.id=m.instrument_id AND i.active
+		JOIN provider_instruments p ON p.instrument_id=i.id AND p.provider=$2 AND p.active
+		JOIN exchanges e ON e.id=i.exchange_id
+		WHERE u.code=$1 AND u.active
+		ORDER BY e.mic,i.ticker`, universe, provider)
+	if err != nil {
+		return nil, fmt.Errorf("load universe entries: %w", err)
+	}
+	defer rows.Close()
+	entries := make([]UniverseEntry, 0)
+	for rows.Next() {
+		var entry UniverseEntry
+		if err := rows.Scan(&entry.Ticker, &entry.ISIN, &entry.Name, &entry.MIC, &entry.ProviderSymbol); err != nil {
+			return nil, fmt.Errorf("scan universe entry: %w", err)
+		}
+		entries = append(entries, entry)
+	}
+	return entries, rows.Err()
+}
+
 func (r *Repository) TargetsForUniverse(ctx context.Context, provider, universe string) ([]ImportTarget, error) {
 	if strings.TrimSpace(provider) == "" || strings.TrimSpace(universe) == "" {
 		return nil, errors.New("provider and universe are required")

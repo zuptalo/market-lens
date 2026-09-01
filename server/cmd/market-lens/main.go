@@ -43,6 +43,11 @@ var version = "dev"
 // a signature drift is a build failure rather than a nil dependency discovered in a browser.
 var _ api.IntegrationAdministration = (*identity.Service)(nil)
 
+// marketDataResolve is not an import kind: resolve reads the provider's catalog and reports,
+// changing nothing. It shares this struct because it takes the same universe flag, and it is
+// given a value no import kind uses so the two can never be confused.
+const marketDataResolve marketdata.ImportKind = "resolve"
+
 type marketDataCommand struct {
 	Kind     marketdata.ImportKind
 	Universe string
@@ -545,6 +550,51 @@ func (sender *storedSMTPSender) Send(ctx context.Context, message mail.Message) 
 	return transport.Send(ctx, message)
 }
 
+// reportSymbolAudit writes what the provider's catalog says about the symbols this
+// installation stores.
+//
+// It reports and changes nothing. Correcting a stale symbol means correcting seeded reference
+// data, which is an ordered migration, and a migration must not be written from a guess — so
+// the job here is to turn a guess into a fact.
+//
+// Correct instruments are counted rather than listed. A hundred lines saying "fine" would
+// bury the two that are not.
+func reportSymbolAudit(output io.Writer, universe []marketdata.UniverseEntry,
+	catalog map[string][]marketdata.CatalogEntry) error {
+	findings := marketdata.AuditProviderSymbols(universe, catalog)
+	counts := map[marketdata.SymbolState]int{}
+	for _, finding := range findings {
+		counts[finding.State]++
+	}
+
+	for _, finding := range findings {
+		if finding.State == marketdata.SymbolOK {
+			continue
+		}
+		line := fmt.Sprintf("%s %s stored=%s state=%s",
+			finding.Entry.MIC, finding.Entry.Ticker, finding.Entry.ProviderSymbol, finding.State)
+		if finding.Suggested != "" {
+			line += fmt.Sprintf(" suggested=%s", finding.Suggested)
+		}
+		if finding.CatalogName != "" {
+			line += fmt.Sprintf(" provider_name=%q", finding.CatalogName)
+		}
+		if finding.Entry.ISIN != "" {
+			line += fmt.Sprintf(" isin=%s", finding.Entry.ISIN)
+		}
+		if _, err := fmt.Fprintln(output, line); err != nil {
+			return err
+		}
+	}
+
+	_, err := fmt.Fprintf(output,
+		"checked=%d ok=%d renamed=%d absent=%d mismatched=%d unchecked=%d\n",
+		len(findings), counts[marketdata.SymbolOK], counts[marketdata.SymbolRenamed],
+		counts[marketdata.SymbolAbsent], counts[marketdata.SymbolMismatched],
+		counts[marketdata.SymbolUnchecked])
+	return err
+}
+
 func executeMarketDataRetry(ctx context.Context, command marketDataCommand, retrier marketDataRetrier,
 	output io.Writer, appVersion string, maxRetries, workers int) error {
 	if err := ctx.Err(); err != nil {
@@ -561,7 +611,8 @@ func executeMarketDataRetry(ctx context.Context, command marketDataCommand, retr
 
 func parseMarketDataCommand(args []string, now time.Time) (marketDataCommand, error) {
 	if len(args) < 2 || args[0] != "marketdata" {
-		return marketDataCommand{}, errors.New("expected marketdata backfill, marketdata update, or marketdata retry")
+		return marketDataCommand{}, errors.New(
+			"expected marketdata backfill, marketdata update, marketdata retry, or marketdata resolve")
 	}
 	if args[1] == "retry" {
 		flags := flag.NewFlagSet("marketdata retry", flag.ContinueOnError)
@@ -587,6 +638,13 @@ func parseMarketDataCommand(args []string, now time.Time) (marketDataCommand, er
 	}
 	command.To = to
 	switch args[1] {
+	case "resolve":
+		if err := flags.Parse(args[2:]); err != nil || flags.NArg() != 0 ||
+			strings.TrimSpace(command.Universe) == "" {
+			return marketDataCommand{}, errors.New("resolve takes only a universe")
+		}
+		command.Kind = marketDataResolve
+		return command, nil
 	case "backfill":
 		years := flags.Int("years", 10, "inclusive number of years to request")
 		if err := flags.Parse(args[2:]); err != nil || flags.NArg() != 0 || *years < 1 || *years > 30 {
@@ -705,6 +763,30 @@ func run() error {
 			return err
 		}
 		repository := marketdata.NewRepository(pool)
+		if command.Kind == marketDataResolve {
+			entries, err := repository.UniverseEntries(ctx, cfg.MarketData.Provider, command.Universe)
+			if err != nil {
+				return err
+			}
+			// One catalog fetch per exchange, not per instrument: the whole universe is
+			// audited with four requests.
+			catalog := map[string][]marketdata.CatalogEntry{}
+			for _, entry := range entries {
+				if _, done := catalog[entry.MIC]; done {
+					continue
+				}
+				listed, err := provider.ListInstruments(ctx, entry.MIC)
+				if err != nil {
+					// An exchange that cannot be read is reported as unchecked rather than
+					// silently turning every one of its instruments into a finding.
+					slog.Default().Warn("market-data catalog unavailable", "mic", entry.MIC,
+						"reason", marketdata.NormalizeSafeError(marketdata.SanitizeError(err.Error())).Code)
+					continue
+				}
+				catalog[entry.MIC] = listed
+			}
+			return reportSymbolAudit(os.Stdout, entries, catalog)
+		}
 		service := marketdata.NewImportService(repository, provider)
 		if command.Kind == marketdata.ImportRetry {
 			return executeMarketDataRetry(ctx, command, service, os.Stdout, version,

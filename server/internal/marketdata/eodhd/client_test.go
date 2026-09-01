@@ -276,3 +276,46 @@ func TestAnUnusableSplitRatioIsStillRejected(t *testing.T) {
 		}
 	}
 }
+
+// Listing an exchange's instruments is what makes a stale symbol diagnosable: the catalog
+// carries the ISIN, which does not change when a ticker does, so a renamed company can be
+// found again by the identifier we already hold.
+func TestListInstrumentsReturnsTheExchangeCatalogWithISINs(t *testing.T) {
+	const token = "test-provider-secret"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/exchange-symbol-list/HE" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		assertCommonQuery(t, r, token)
+		_, _ = w.Write([]byte(`[
+			{"Code":"METSO","Name":"Metso Oyj","Country":"Finland","Exchange":"Helsinki","Currency":"EUR","Type":"Common Stock","Isin":"FI0009014575"},
+			{"Code":"NOKIA","Name":"Nokia Oyj","Country":"Finland","Exchange":"Helsinki","Currency":"EUR","Type":"Common Stock","Isin":"FI0009000681"}
+		]`))
+	}))
+	defer server.Close()
+
+	catalog, err := newTestClient(t, server, token, time.Second).ListInstruments(context.Background(), "XHEL")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog) != 2 {
+		t.Fatalf("catalog held %d entries", len(catalog))
+	}
+	metso := catalog[0]
+	if metso.ProviderSymbol != "METSO.HE" || metso.ISIN != "FI0009014575" ||
+		metso.Ticker != "METSO" || metso.Name != "Metso Oyj" || metso.Currency != "EUR" {
+		t.Fatalf("catalog entry = %#v", metso)
+	}
+}
+
+func TestListInstrumentsRejectsAnExchangeItDoesNotCover(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Error("an unsupported exchange must not reach the provider")
+	}))
+	defer server.Close()
+
+	if _, err := newTestClient(t, server, "token", time.Second).
+		ListInstruments(context.Background(), "XNYS"); err == nil {
+		t.Fatal("an unsupported exchange was accepted")
+	}
+}
