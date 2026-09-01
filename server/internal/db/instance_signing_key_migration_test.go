@@ -14,13 +14,19 @@ func TestInstanceSigningKeyMigrationIsEmbedded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(migrations) != 11 {
-		t.Fatalf("embedded migration count = %d, want 11", len(migrations))
+	// Found by version rather than by index and total. What this test is about is that the
+	// signing-key migration is embedded at version 11; asserting how many migrations exist
+	// altogether made every later feature break it for no reason. TestLoadMigrations owns
+	// the full ordered list.
+	var signingKey migration
+	for _, candidate := range migrations {
+		if candidate.version == 11 {
+			signingKey = candidate
+			break
+		}
 	}
-	signingKey := migrations[10]
-	if signingKey.version != 11 || signingKey.name != "0011_instance_signing_key.sql" {
-		t.Fatalf("instance signing key migration = %d %q, want 11 %q",
-			signingKey.version, signingKey.name, "0011_instance_signing_key.sql")
+	if signingKey.name != "0011_instance_signing_key.sql" {
+		t.Fatalf("migration 11 is %q, want %q", signingKey.name, "0011_instance_signing_key.sql")
 	}
 }
 
