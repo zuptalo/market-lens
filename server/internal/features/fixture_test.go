@@ -56,11 +56,14 @@ const (
 
 // Fixed identifiers; the composite sums contributors in this order.
 var (
-	fixtureA      = features.UUID("ffffffff-0013-4000-8000-000000000001")
-	fixtureB      = features.UUID("ffffffff-0013-4000-8000-000000000002")
-	fixtureC      = features.UUID("ffffffff-0013-4000-8000-000000000003")
-	fixtureD      = features.UUID("ffffffff-0013-4000-8000-000000000004")
-	fixtureE      = features.UUID("ffffffff-0013-4000-8000-000000000005")
+	fixtureA = features.UUID("ffffffff-0013-4000-8000-000000000001")
+	fixtureB = features.UUID("ffffffff-0013-4000-8000-000000000002")
+	fixtureC = features.UUID("ffffffff-0013-4000-8000-000000000003")
+	fixtureD = features.UUID("ffffffff-0013-4000-8000-000000000004")
+	fixtureE = features.UUID("ffffffff-0013-4000-8000-000000000005")
+	// fixtureF is not created by newEngineFixture: it is the instrument a suite lists after
+	// the others to show that a newcomer changes nothing before its first bar.
+	fixtureF      = features.UUID("ffffffff-0013-4000-8000-000000000006")
 	fixtureUnivID = features.UUID("ffffffff-0013-4000-8000-0000000000ff")
 	fixtureRunID  = features.UUID("ffffffff-0013-4000-8000-0000000000aa")
 )
@@ -81,6 +84,8 @@ func fixtureSeed(instrument features.UUID) int {
 		return 4
 	case fixtureE:
 		return 5
+	case fixtureF:
+		return 6
 	}
 	for index := range fixtureFillerCount {
 		if instrument == fixtureFiller(index) {
@@ -371,4 +376,69 @@ func (f *engineFixture) newImportRun(id features.UUID) features.UUID {
 	f.exec(`INSERT INTO import_runs (id, kind, provider, status, started_at, finished_at, app_version)
 		VALUES ($1, 'daily_update', 'fixture', 'succeeded', now(), now(), 'test')`, id.String())
 	return id
+}
+
+// truncateHistory removes an instrument's bars after a session and rewinds the generator so
+// that extendHistory later regenerates exactly the bars removed. It is how a suite computes
+// over history cut short at N and then extends it.
+func (f *engineFixture) truncateHistory(instrument features.UUID, through features.SessionDate) {
+	f.t.Helper()
+	var kept int
+	if err := f.pool.QueryRow(f.ctx, `WITH removed AS (
+			DELETE FROM daily_price_bars WHERE instrument_id = $1 AND session_date > $2 RETURNING 1)
+		SELECT count(*) FROM daily_price_bars WHERE instrument_id = $1 AND session_date <= $2`,
+		instrument.String(), through.String()).Scan(&kept); err != nil {
+		f.t.Fatalf("truncate history: %v", err)
+	}
+	// The generator counts positions over the stored sessions including skipped ones, so
+	// rewind by the number of sessions removed, not the number of bars kept.
+	removed := len(f.openSessions(through, fixtureAsOf)) - 1
+	f.positions[instrument] -= removed
+	if f.positions[instrument] < kept {
+		f.t.Fatalf("truncate history: %d positions for %d bars", f.positions[instrument], kept)
+	}
+}
+
+// snapshot copies the value and composite tables under a name so a later diff can compare.
+func (f *engineFixture) snapshot(name string) {
+	f.t.Helper()
+	f.exec(fmt.Sprintf(`CREATE TABLE %s_values AS SELECT * FROM feature_values`, name))
+	f.exec(fmt.Sprintf(`CREATE TABLE %s_composites AS SELECT * FROM universe_composites`, name))
+}
+
+// changedValues counts the values whose value, label, absence reason or currency differ from
+// a snapshot, for rows present in both, matching an optional extra condition on v.
+func (f *engineFixture) changedValues(name, where string, args ...any) int64 {
+	f.t.Helper()
+	if where == "" {
+		where = "true"
+	}
+	var n int64
+	if err := f.pool.QueryRow(f.ctx, fmt.Sprintf(`SELECT count(*) FROM feature_values v
+		JOIN %s_values b USING (instrument_id, session_date, definition_id)
+		JOIN feature_definitions d ON d.id = v.definition_id
+		WHERE (%s) AND (v.value IS DISTINCT FROM b.value OR v.label IS DISTINCT FROM b.label
+		   OR v.absence_reason IS DISTINCT FROM b.absence_reason OR v.currency IS DISTINCT FROM b.currency)`,
+		name, where), args...).Scan(&n); err != nil {
+		f.t.Fatalf("changed values: %v", err)
+	}
+	return n
+}
+
+// changedComposites counts composite sessions that differ from a snapshot in mean, count or
+// absence, for rows present in both.
+func (f *engineFixture) changedComposites(name, where string, args ...any) int64 {
+	f.t.Helper()
+	if where == "" {
+		where = "true"
+	}
+	var n int64
+	if err := f.pool.QueryRow(f.ctx, fmt.Sprintf(`SELECT count(*) FROM universe_composites c
+		JOIN %s_composites b USING (universe_id, session_date, definition_id)
+		WHERE (%s) AND (c.mean_return IS DISTINCT FROM b.mean_return
+		   OR c.contributor_count IS DISTINCT FROM b.contributor_count
+		   OR c.absence_reason IS DISTINCT FROM b.absence_reason)`, name, where), args...).Scan(&n); err != nil {
+		f.t.Fatalf("changed composites: %v", err)
+	}
+	return n
 }
