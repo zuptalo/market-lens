@@ -261,3 +261,86 @@ func TestLogInstanceConfigurationNamesRetainedValuesWithoutSecrets(t *testing.T)
 		})
 	}
 }
+
+// The resolve command reports what the provider has, rather than changing anything.
+//
+// A stale ticker is invisible today: the instrument imports nothing and the provider says it
+// has no data, which reads as a provider problem rather than as an identifier of ours that
+// went out of date. Correcting one is a migration, and a migration must not be written from a
+// guess, so the first thing needed is a way to ask.
+func TestParseMarketDataResolveCommand(t *testing.T) {
+	now := time.Date(2026, time.September, 1, 12, 0, 0, 0, time.UTC)
+
+	command, err := parseMarketDataCommand([]string{"marketdata", "resolve"}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if command.Kind != marketDataResolve || command.Universe != "nordic-liquid-v1" {
+		t.Fatalf("command = %#v", command)
+	}
+
+	command, err = parseMarketDataCommand(
+		[]string{"marketdata", "resolve", "--universe", "other-universe"}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if command.Universe != "other-universe" {
+		t.Fatalf("universe = %q", command.Universe)
+	}
+
+	if _, err := parseMarketDataCommand([]string{"marketdata", "resolve", "--universe", ""}, now); err == nil {
+		t.Fatal("an empty universe was accepted")
+	}
+}
+
+func TestResolveReportsRenamedSymbolsAndChangesNothing(t *testing.T) {
+	universe := []marketdata.UniverseEntry{
+		{Ticker: "MOCORP", ISIN: "FI0009014575", Name: "Metso Oyj", MIC: "XHEL", ProviderSymbol: "MOCORP.HE"},
+		{Ticker: "NOKIA", ISIN: "FI0009000681", Name: "Nokia Oyj", MIC: "XHEL", ProviderSymbol: "NOKIA.HE"},
+		{Ticker: "GONE", ISIN: "SE0000000999", Name: "Delisted AB", MIC: "XSTO", ProviderSymbol: "GONE.ST"},
+	}
+	catalog := map[string][]marketdata.CatalogEntry{
+		"XHEL": {
+			{ProviderSymbol: "METSO.HE", ISIN: "FI0009014575", Ticker: "METSO", Name: "Metso Oyj"},
+			{ProviderSymbol: "NOKIA.HE", ISIN: "FI0009000681", Ticker: "NOKIA", Name: "Nokia Oyj"},
+		},
+		"XSTO": {{ProviderSymbol: "ERIC-B.ST", ISIN: "SE0000108656", Ticker: "ERIC-B", Name: "Ericsson"}},
+	}
+
+	var output strings.Builder
+	if err := reportSymbolAudit(&output, universe, catalog); err != nil {
+		t.Fatal(err)
+	}
+	report := output.String()
+
+	for _, want := range []string{
+		"MOCORP.HE", "METSO.HE", "renamed",
+		"GONE.ST", "absent",
+		"checked=3",
+	} {
+		if !strings.Contains(report, want) {
+			t.Errorf("the report does not mention %q:\n%s", want, report)
+		}
+	}
+	// An instrument that is fine must not be listed line by line; a hundred correct rows
+	// would bury the two that are not.
+	if strings.Contains(report, "NOKIA.HE") {
+		t.Errorf("a correct symbol was listed individually:\n%s", report)
+	}
+}
+
+func TestResolveSaysSoWhenEverythingIsCorrect(t *testing.T) {
+	universe := []marketdata.UniverseEntry{
+		{Ticker: "NOKIA", ISIN: "FI0009000681", Name: "Nokia Oyj", MIC: "XHEL", ProviderSymbol: "NOKIA.HE"},
+	}
+	catalog := map[string][]marketdata.CatalogEntry{
+		"XHEL": {{ProviderSymbol: "NOKIA.HE", ISIN: "FI0009000681", Ticker: "NOKIA", Name: "Nokia Oyj"}},
+	}
+	var output strings.Builder
+	if err := reportSymbolAudit(&output, universe, catalog); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "checked=1") {
+		t.Errorf("report = %s", output.String())
+	}
+}
