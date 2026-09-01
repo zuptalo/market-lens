@@ -299,6 +299,9 @@ func (s *ImportScope) persist(ctx context.Context, input persistInput) (ImportCo
 			return ImportCounts{}, err
 		}
 	}
+	if err := s.resolveSettledFindings(ctx, input); err != nil {
+		return ImportCounts{}, err
+	}
 	status := ImportSucceeded
 	if counts.Rejected > 0 {
 		status = ImportPartial
@@ -440,6 +443,76 @@ func (s *ImportScope) upsertAction(ctx context.Context, input persistInput, acti
 		return false, err
 	}
 	return true, nil
+}
+
+// resolveSettledFindings closes the findings this import proved are no longer true.
+//
+// A finding describes a condition, and conditions end: a gap gets filled, a suspicious jump
+// turns out to be a split that is now recorded, a rejected row is replaced by a good one.
+// Nothing ever wrote resolved_at or resolving_run_id, so every finding recorded stayed open
+// forever, and the count of open findings measured how much had ever been wrong rather than
+// how much still was.
+//
+// The rule is narrow on purpose. A finding is resolved only when this import covered its
+// session and re-validated it without raising that rule again. Anything outside the requested
+// range is none of this import's business, and a finding with no session is not tied to one
+// so a session-scoped import cannot speak for it.
+//
+// Resolution is a client-visible committed change, so each one publishes its event on the same
+// transaction as the row it reports.
+func (s *ImportScope) resolveSettledFindings(ctx context.Context, input persistInput) error {
+	// The rules this import raised, as two parallel arrays. A single two-dimensional array
+	// cannot be used here: ANY iterates a 2-D array's scalars, not its rows, so the pair
+	// never matches and every finding — including the ones this import just wrote — resolves.
+	sessions := make([]string, 0, len(input.Validation.Issues))
+	rules := make([]string, 0, len(input.Validation.Issues))
+	for _, issue := range input.Validation.Issues {
+		sessions = append(sessions, issue.SessionDate.String())
+		rules = append(rules, issue.Rule)
+	}
+
+	rows, err := s.tx.Query(ctx, `UPDATE data_quality_findings d SET
+			status='resolved', resolved_at=$4, resolving_run_id=$5
+		WHERE d.instrument_id=$1
+		  AND d.status='open'
+		  AND d.session_date IS NOT NULL
+		  AND d.session_date BETWEEN $2 AND $3
+		  AND NOT EXISTS (
+		      SELECT 1 FROM unnest($6::text[], $7::text[]) AS raised(session_date, rule)
+		      WHERE raised.session_date = d.session_date::text AND raised.rule = d.rule
+		  )
+		RETURNING d.id::text, d.session_date::text, d.rule`,
+		input.Target.InstrumentID.String(), input.Target.From.String(), input.Target.To.String(),
+		input.ObservedAt, input.RunID.String(), sessions, rules)
+	if err != nil {
+		return fmt.Errorf("resolve settled quality findings: %w", err)
+	}
+	type resolved struct{ id, session, rule string }
+	settled := make([]resolved, 0)
+	for rows.Next() {
+		var entry resolved
+		if err := rows.Scan(&entry.id, &entry.session, &entry.rule); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan resolved quality finding: %w", err)
+		}
+		settled = append(settled, entry)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("resolve settled quality findings: %w", err)
+	}
+
+	for _, entry := range settled {
+		if err := emitEvent(ctx, s.tx, "quality_finding", entry.id, map[string]any{
+			"instrument_id": input.Target.InstrumentID.String(),
+			"rule":          entry.rule,
+			"session_date":  entry.session,
+			"status":        "resolved",
+		}, input.ObservedAt); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *ImportScope) insertFinding(ctx context.Context, input persistInput, issue ValidationIssue) (instruments.UUID, error) {
