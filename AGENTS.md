@@ -74,11 +74,15 @@ proportion to the change. Never disable a failing check to hide a regression.
 <!-- SPECKIT START -->
 For durable cross-session context, read `docs/product-vision.md`, `ROADMAP.md`, and
 `specs/README.md`, which is the authority on lifecycle status. Everything specified so far is
-shipped: `v0.5.0` carries features 002, 003, 004 and 009 through 012.
+shipped: `v0.5.0` carries features 002, 003, 004 and 009 through 012, and `v0.6.0` carries
+005, Instrument Exploration and Financial Charts.
 
-The next product feature is Instrument Exploration and Financial Charts. Its specification,
-plan, research, data model and contracts are reviewed on the `005-instrument-exploration`
-branch and are not yet on `main`; task breakdown and implementation remain.
+The next product feature is the Reusable Feature Engine. Its specification and implementation
+plan are on `main` at `specs/013-feature-engine/plan.md`, with research, data model and
+contracts alongside; task breakdown and implementation remain. It computes versioned,
+point-in-time features over stored sessions and takes ownership of the three descriptive
+statistics feature 005 currently derives in its listing query — adopting their definitions
+verbatim, so that no displayed number changes when the source of it does.
 
 Two constraints that outlive any single feature:
 
