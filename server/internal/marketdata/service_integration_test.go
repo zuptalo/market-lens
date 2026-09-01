@@ -777,3 +777,102 @@ func TestAConditionThatReturnsIsRecordedAgain(t *testing.T) {
 		t.Error("the import that filled the gap resolved nothing")
 	}
 }
+
+// A finding below the floor of every future import can never be settled.
+//
+// The backfill window is "the last N years", so its lower bound moves forward a day at a time.
+// A finding recorded at yesterday's oldest requested session is, today, outside every range
+// the importer will ever ask for again — and resolution is deliberately scoped to the range an
+// import covered, so nothing can re-examine it. Production held eight of these, all raised by
+// a validation rule that had since been corrected, all permanently open.
+//
+// Widening the resolution query would be the wrong fix: an import genuinely cannot speak for
+// sessions it did not request, which is what TestAnImportDoesNotResolveFindingsOutsideItsRange
+// pins down. So the import reaches back instead, far enough to cover what is still open
+// against the instrument, and then settles it on the evidence like anything else.
+func TestAnImportReachesBackFarEnoughToSettleItsOldestOpenFinding(t *testing.T) {
+	pool := migratedPool(t)
+	ctx := context.Background()
+
+	var runID string
+	if err := pool.QueryRow(ctx, `INSERT INTO import_runs
+		(id,kind,provider,status,started_at,finished_at,app_version)
+		VALUES (gen_random_uuid(),'backfill','fixture','succeeded',now(),now(),'test')
+		RETURNING id::text`).Scan(&runID); err != nil {
+		t.Fatal(err)
+	}
+	// Stranded below the floor: the request built by target() starts at 2024-03-28.
+	if _, err := pool.Exec(ctx, `INSERT INTO data_quality_findings
+		(id,instrument_id,session_date,run_id,rule,severity,disposition,detail,status,created_at)
+		VALUES (gen_random_uuid(),$1,'2019-05-06',$2,'missing_session','warning','flagged',
+		        'raised by a rule that has since been corrected','open',now())`,
+		stockholmInstrument, runID); err != nil {
+		t.Fatal(err)
+	}
+
+	repository := marketdata.NewRepository(pool)
+
+	// Every target carries how far back it still needs re-examining, loaded with the rest of
+	// the universe rather than one query per instrument.
+	loaded, err := repository.TargetsForUniverse(ctx, "eodhd", "nordic-liquid-v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reach marketdata.SessionDate
+	settled := 0
+	for _, candidate := range loaded {
+		if candidate.InstrumentID == uuid(t, stockholmInstrument) {
+			reach = candidate.EarliestUnsettled
+		} else if candidate.EarliestUnsettled != "" {
+			settled++
+		}
+	}
+	if reach.String() != "2019-05-06" {
+		t.Fatalf("earliest unsettled session = %q, want 2019-05-06", reach)
+	}
+	if settled != 0 {
+		t.Fatalf("%d instruments with nothing open still reported a session to reach back to", settled)
+	}
+
+	stockholm := target(t, stockholmInstrument, "NORD.ST")
+	stockholm.From = marketdata.WidenToUnsettled(stockholm.From, reach)
+
+	provider := newScriptedProvider()
+	provider.set("NORD.ST", "", marketdata.DailyPage{Bars: []marketdata.ProviderBar{
+		bar(t, "2024-04-02", "51.75", "51.75", 180000, "reach-2"),
+		bar(t, "2024-04-03", "53", "53", 181000, "reach-3"),
+	}})
+	service := marketdata.NewImportService(repository, provider)
+	if _, err := service.Import(ctx, importRequest(t, stockholm)); err != nil {
+		t.Fatal(err)
+	}
+
+	var status string
+	if err := pool.QueryRow(ctx, `SELECT status FROM data_quality_findings
+		WHERE session_date='2019-05-06'`).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "resolved" {
+		t.Errorf("a finding the import reached back to cover is still %q", status)
+	}
+}
+
+// Reaching back only ever widens a request, and only when there is something to reach.
+func TestWideningOnlyEverReachesFurtherBack(t *testing.T) {
+	requested := session(t, "2024-03-28")
+	for _, testCase := range []struct {
+		name      string
+		unsettled marketdata.SessionDate
+		want      marketdata.SessionDate
+	}{
+		{"nothing open leaves the request alone", "", requested},
+		{"an older finding widens the request", session(t, "2019-05-06"), session(t, "2019-05-06")},
+		{"a finding inside the request changes nothing", session(t, "2024-04-01"), requested},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := marketdata.WidenToUnsettled(requested, testCase.unsettled); got != testCase.want {
+				t.Errorf("widened to %q, want %q", got, testCase.want)
+			}
+		})
+	}
+}

@@ -60,11 +60,35 @@ func (r *Repository) UniverseEntries(ctx context.Context, provider, universe str
 	return entries, rows.Err()
 }
 
+// WidenToUnsettled extends an import's lower bound to cover a finding that is still open.
+//
+// The backfill window is relative — "the last N years" — so its lower bound moves forward a
+// day at a time. A finding recorded at what was then the oldest requested session falls out of
+// every range the importer will ask for again, and resolution is deliberately scoped to the
+// range an import covered, because an import cannot speak for sessions it did not request.
+// Between the two, such a finding can never be re-examined and stays open for good. Production
+// held eight of them, all raised by a validation rule that had since been corrected.
+//
+// The fix belongs here rather than in the resolution query. Widening that query would have an
+// import settle findings it has no evidence about; widening the request gets it the evidence,
+// and the existing rule then settles them on the same terms as everything else. It only ever
+// reaches further back, and only for an instrument that has something open.
+func WidenToUnsettled(requested, unsettled SessionDate) SessionDate {
+	if unsettled == "" || unsettled >= requested {
+		return requested
+	}
+	return unsettled
+}
+
 func (r *Repository) TargetsForUniverse(ctx context.Context, provider, universe string) ([]ImportTarget, error) {
 	if strings.TrimSpace(provider) == "" || strings.TrimSpace(universe) == "" {
 		return nil, errors.New("provider and universe are required")
 	}
-	rows, err := r.pool.Query(ctx, `SELECT i.id::text,p.provider_symbol,i.currency
+	// The oldest open finding rides along with each target so a hundred instruments cost one
+	// query rather than a hundred, and so no caller can forget to ask for it.
+	rows, err := r.pool.Query(ctx, `SELECT i.id::text,p.provider_symbol,i.currency,
+			coalesce((SELECT min(d.session_date)::text FROM data_quality_findings d
+				WHERE d.instrument_id=i.id AND d.status='open' AND d.session_date IS NOT NULL),'')
 		FROM research_universes u
 		JOIN universe_memberships m ON m.universe_id=u.id AND m.included_to IS NULL
 		JOIN instruments i ON i.id=m.instrument_id AND i.active
@@ -80,7 +104,8 @@ func (r *Repository) TargetsForUniverse(ctx context.Context, provider, universe 
 	for rows.Next() {
 		var rawID string
 		var target ImportTarget
-		if err := rows.Scan(&rawID, &target.ProviderSymbol, &target.Currency); err != nil {
+		if err := rows.Scan(&rawID, &target.ProviderSymbol, &target.Currency,
+			&target.EarliestUnsettled); err != nil {
 			return nil, err
 		}
 		target.InstrumentID, err = instruments.ParseUUID(rawID)

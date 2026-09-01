@@ -741,7 +741,11 @@ func executeMarketDataCommand(ctx context.Context, command marketDataCommand, ta
 		return err
 	}
 	for index := range targets {
-		targets[index].From = command.From
+		// Reach back past the requested floor when the instrument still has a finding older
+		// than it. The window is relative, so it walks forward a day at a time and would
+		// otherwise leave anything below it permanently unexaminable — and a finding that
+		// cannot be re-examined cannot be resolved.
+		targets[index].From = marketdata.WidenToUnsettled(command.From, targets[index].EarliestUnsettled)
 		targets[index].To = command.To
 	}
 	run, err := importer.Import(ctx, marketdata.ImportRequest{
