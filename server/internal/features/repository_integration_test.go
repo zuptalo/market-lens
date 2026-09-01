@@ -33,6 +33,7 @@ func activeDefinitionNames(t *testing.T, f *engineFixture) []string {
 func TestReadingAnInstrumentAsOfASessionReturnsEveryDefinedFeatureWithItsVersion(t *testing.T) {
 	f := newEngineFixture(t)
 	repository := features.NewRepository(f.pool)
+	computeFixture(t, f, 1)
 
 	set, err := repository.ReadAsOf(context.Background(), fixtureA, fixtureAsOf)
 	if err != nil {

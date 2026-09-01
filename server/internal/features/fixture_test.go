@@ -165,7 +165,7 @@ func newEngineFixture(t *testing.T) *engineFixture {
 	f.exec(`INSERT INTO research_universes (id, code, name, description)
 		VALUES ($1, $2, 'Feature engine fixture', 'the engine test universe')`,
 		fixtureUnivID.String(), fixtureUniverse)
-	members := []features.UUID{fixtureA, fixtureB, fixtureD, fixtureE}
+	members := []features.UUID{fixtureA, fixtureB, fixtureC, fixtureD, fixtureE}
 	for index := range fixtureFillerCount {
 		members = append(members, fixtureFiller(index))
 	}
