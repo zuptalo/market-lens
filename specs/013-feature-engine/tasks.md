@@ -305,9 +305,9 @@ the number a person sees did not move.
 - [x] T086 [P] Write `TestNoSurfaceCallsTheCompositeAnIndexOrABenchmark` in `server/internal/features/vocabulary_test.go`: grep `server/internal/features`, `server/internal/api/features.go`, `src/`, the migrations 0017–0019 and `specs/013-feature-engine/` for `\bindex\b` (outside SQL `CREATE INDEX`/`index` in Go identifiers) and `\bbenchmark\b`, and fail on any match in user-facing strings, definitions or documentation (SC-003a)
 - [x] T087 [P] Write `TestEveryFeatureValueResolvesToAPublishedDefinition` and `TestNoFeatureValueExistsForAClosedOrGappedSession` in `server/internal/features/invariants_integration_test.go` running the SC-003 and SC-004 queries from quickstart.md over the computed fixture
 - [x] T088 [P] Write `TestAnUncomputableStatisticIsAbsentInEverySurface` in `server/internal/features/invariants_integration_test.go`: for instrument B, `ReadAsOf`, the API body and the listing row all carry null (never `"0"`, never `0`) for every windowed feature (SC-005)
-- [ ] T089 Run `make verify` and fix anything it reports without weakening a test
-- [ ] T090 Run `npm run test:e2e` across `mobile-chromium`, `tablet-chromium` and `desktop-chromium` and confirm `e2e/instrument-exploration.spec.ts` passes **with no edits**, including `never shows an uncomputable statistic as a zero move` and the 320-pixel and stacked-card journeys
-- [ ] T091 Run `docker build -t market-lens:local .` and `docker compose config`
+- [x] T089 Run `make verify` and fix anything it reports without weakening a test
+- [x] T090 Run `npm run test:e2e` across `mobile-chromium`, `tablet-chromium` and `desktop-chromium` and confirm `e2e/instrument-exploration.spec.ts` passes **with no edits**, including `never shows an uncomputable statistic as a zero move` and the 320-pixel and stacked-card journeys
+- [x] T091 Run `docker build -t market-lens:local .` and `docker compose config`
 - [ ] T092 Ship Phases 1–6 as one PR from branch `013-feature-engine` (`feat(features): …`), wait for Keel to roll it, and run `features compute --universe nordic-liquid-v1` on the pod per quickstart.md
 - [ ] T093 Run the five quickstart verification queries against production and record each result in `specs/013-feature-engine/quickstart.md` under *Recorded evidence*, with the date and app version
 - [ ] T094 Record the production figures against R-008's budgets in `specs/013-feature-engine/research.md` (full computation elapsed, incremental pass elapsed after the next scheduled import, value-row count) — the budgets become measurements
