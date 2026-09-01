@@ -1,0 +1,289 @@
+{
+  "instrument": "A",
+  "as_of": "2026-06-30",
+  "sessions": {
+    "2026-06-30": {
+      "position": 319,
+      "offset": 0,
+      "note": "latest session; every window satisfied",
+      "composite_return_1": {
+        "value": "0.008080584933",
+        "contributor_count": 12
+      },
+      "features": {
+        "return_1": {
+          "value": "-0.004522450738"
+        },
+        "return_5": {
+          "value": "-0.000216286363"
+        },
+        "return_20": {
+          "value": "0.034116331096"
+        },
+        "return_60": {
+          "value": "0.096353394604"
+        },
+        "return_90": {
+          "value": "0.139037762582"
+        },
+        "return_250": {
+          "value": "0.509264549833"
+        },
+        "log_return_1": {
+          "value": "-0.004532707955"
+        },
+        "sma_20": {
+          "value": "183.002500000000"
+        },
+        "sma_50": {
+          "value": "178.828200000000"
+        },
+        "sma_200": {
+          "value": "159.950000000000"
+        },
+        "trend_50_200": {
+          "value": "0.118025633010"
+        },
+        "momentum_20": {
+          "value": "0.010368710810"
+        },
+        "relative_strength_20": {
+          "value": "0.002598225846"
+        },
+        "relative_strength_90": {
+          "value": "0.018443039676"
+        },
+        "volatility_20": {
+          "value": "0.090353158105"
+        },
+        "atr_14": {
+          "value": "3.021428571429"
+        },
+        "rsi_14": {
+          "value": "60.273282158467"
+        },
+        "macd_12_26": {
+          "value": "1.944287703646"
+        },
+        "macd_signal_9": {
+          "value": "1.985689532047"
+        },
+        "macd_histogram": {
+          "value": "-0.041401828401"
+        },
+        "drawdown_250": {
+          "value": "-0.004522450738"
+        },
+        "volume_sma_20": {
+          "value": "3377.900000000000"
+        },
+        "volume_ratio_20": {
+          "value": "0.669646821990"
+        },
+        "regime": {
+          "label": "trending_up"
+        }
+      }
+    },
+    "2026-03-18": {
+      "position": 250,
+      "offset": 69,
+      "note": "first session at which the 251-session window is satisfied",
+      "composite_return_1": {
+        "value": "0.008878184654",
+        "contributor_count": 11
+      },
+      "features": {
+        "return_1": {
+          "value": "0.013303501240"
+        },
+        "return_5": {
+          "value": "0.019034298224"
+        },
+        "return_20": {
+          "value": "0.041972391494"
+        },
+        "return_60": {
+          "value": "0.092515321424"
+        },
+        "return_90": {
+          "value": "0.163034425319"
+        },
+        "return_250": {
+          "value": "0.625788299214"
+        },
+        "log_return_1": {
+          "value": "0.013215786751"
+        },
+        "sma_20": {
+          "value": "164.862500000000"
+        },
+        "sma_50": {
+          "value": "161.283400000000"
+        },
+        "sma_200": {
+          "value": "142.614300000000"
+        },
+        "trend_50_200": {
+          "value": "0.130906227496"
+        },
+        "momentum_20": {
+          "value": "0.016422776556"
+        },
+        "relative_strength_20": {
+          "value": "0.007441465071"
+        },
+        "relative_strength_90": {
+          "value": "0.030293589484"
+        },
+        "volatility_20": {
+          "value": "0.165930312068"
+        },
+        "atr_14": {
+          "value": "3.310714285714"
+        },
+        "rsi_14": {
+          "value": "60.236144651967"
+        },
+        "macd_12_26": {
+          "value": "1.503681227230"
+        },
+        "macd_signal_9": {
+          "value": "1.571468915558"
+        },
+        "macd_histogram": {
+          "value": "-0.067787688327"
+        },
+        "drawdown_250": {
+          "value": "0.000000000000"
+        },
+        "volume_sma_20": {
+          "value": "3620.500000000000"
+        },
+        "volume_ratio_20": {
+          "value": "1.616075127745"
+        },
+        "regime": {
+          "label": "trending_up"
+        }
+      }
+    },
+    "2025-08-12": {
+      "position": 100,
+      "offset": 219,
+      "note": "inside the warm-up: windows longer than 101 sessions are unsatisfied",
+      "composite_return_1": {
+        "absence_reason": "insufficient_contributors",
+        "contributor_count": 9
+      },
+      "features": {
+        "return_1": {
+          "value": "0.003420132141"
+        },
+        "return_5": {
+          "value": "-0.012695984704"
+        },
+        "return_20": {
+          "value": "0.028933524629"
+        },
+        "return_60": {
+          "value": "0.110547143840"
+        },
+        "return_90": {
+          "value": "0.199609701701"
+        },
+        "return_250": {
+          "absence_reason": "insufficient_history"
+        },
+        "log_return_1": {
+          "value": "0.003414296791"
+        },
+        "sma_20": {
+          "value": "127.463500000000"
+        },
+        "sma_50": {
+          "value": "123.818400000000"
+        },
+        "sma_200": {
+          "absence_reason": "insufficient_history"
+        },
+        "trend_50_200": {
+          "absence_reason": "insufficient_history"
+        },
+        "momentum_20": {
+          "value": "0.012760515755"
+        },
+        "relative_strength_20": {
+          "absence_reason": "composite_undefined"
+        },
+        "relative_strength_90": {
+          "absence_reason": "composite_undefined"
+        },
+        "volatility_20": {
+          "value": "0.237607647205"
+        },
+        "atr_14": {
+          "value": "3.447142857143"
+        },
+        "rsi_14": {
+          "absence_reason": "insufficient_history"
+        },
+        "macd_12_26": {
+          "absence_reason": "insufficient_history"
+        },
+        "macd_signal_9": {
+          "absence_reason": "insufficient_history"
+        },
+        "macd_histogram": {
+          "absence_reason": "insufficient_history"
+        },
+        "drawdown_250": {
+          "absence_reason": "insufficient_history"
+        },
+        "volume_sma_20": {
+          "value": "3520.500000000000"
+        },
+        "volume_ratio_20": {
+          "value": "0.852435733561"
+        },
+        "regime": {
+          "absence_reason": "insufficient_history"
+        }
+      }
+    }
+  },
+  "composite_samples": {
+    "2026-06-30": {
+      "contributor_count": 12,
+      "value": "0.008080584933"
+    },
+    "2026-05-04": {
+      "contributor_count": 10,
+      "value": "-0.006729808464"
+    },
+    "2026-04-30": {
+      "contributor_count": 10,
+      "value": "0.000027744072"
+    },
+    "2026-04-27": {
+      "contributor_count": 11,
+      "value": "0.004665938033"
+    },
+    "2026-04-24": {
+      "contributor_count": 11,
+      "value": "-0.000620679799"
+    },
+    "2025-09-10": {
+      "contributor_count": 10,
+      "value": "-0.005910491546"
+    },
+    "2025-09-09": {
+      "contributor_count": 9,
+      "value": null
+    },
+    "2025-09-08": {
+      "contributor_count": 9,
+      "value": null
+    }
+  }
+}

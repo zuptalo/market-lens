@@ -98,6 +98,8 @@ func TestMarketDataSchedulerStopsWithContext(t *testing.T) {
 type recordingImporter struct {
 	mu       sync.Mutex
 	recorded []marketdata.ImportRequest
+	runs     []instruments.UUID
+	err      error
 }
 
 func (i *recordingImporter) Import(ctx context.Context, request marketdata.ImportRequest) (marketdata.ImportRun, error) {
@@ -107,7 +109,13 @@ func (i *recordingImporter) Import(ctx context.Context, request marketdata.Impor
 	i.mu.Lock()
 	i.recorded = append(i.recorded, request)
 	i.mu.Unlock()
+	if i.err != nil {
+		return marketdata.ImportRun{}, i.err
+	}
 	id, _ := instruments.NewUUID()
+	i.mu.Lock()
+	i.runs = append(i.runs, id)
+	i.mu.Unlock()
 	return marketdata.ImportRun{ID: id, Status: marketdata.ImportSucceeded}, nil
 }
 
@@ -150,4 +158,82 @@ func mustLocation(t *testing.T, name string) *time.Location {
 		t.Fatal(err)
 	}
 	return location
+}
+
+// An import that succeeds hands its run to the feature engine so the store follows the data;
+// an import that fails does not, and a feature failure never becomes an import failure.
+func TestAnImportTriggersTheIncrementalPass(t *testing.T) {
+	location := mustLocation(t, "Europe/Stockholm")
+	at := time.Date(2026, 7, 1, 20, 0, 0, 0, location)
+	newScheduler := func(t *testing.T, importer Importer, computer *recordingComputer) *MarketData {
+		t.Helper()
+		scheduler, err := NewMarketData(MarketDataConfig{
+			Enabled: true, Hour: 20, Minute: 0, Location: location,
+			Provider: "fixture", Universe: "nordic-liquid-v1", AppVersion: "test", Workers: 1,
+		}, staticTargets(t), importer)
+		if err != nil {
+			t.Fatal(err)
+		}
+		scheduler.Features = computer
+		return scheduler
+	}
+	t.Run("a successful import triggers one pass with its run id", func(t *testing.T) {
+		importer := &recordingImporter{}
+		computer := &recordingComputer{}
+		scheduler := newScheduler(t, importer, computer)
+		if err := scheduler.RunDue(context.Background(), at); err != nil {
+			t.Fatal(err)
+		}
+		if len(importer.runs) != 1 || len(computer.runs) != 1 || computer.runs[0] != importer.runs[0] {
+			t.Fatalf("import runs %v, feature passes %v", importer.runs, computer.runs)
+		}
+	})
+	t.Run("a failed import triggers nothing", func(t *testing.T) {
+		importer := &recordingImporter{err: errors.New("provider down")}
+		computer := &recordingComputer{}
+		scheduler := newScheduler(t, importer, computer)
+		if err := scheduler.RunDue(context.Background(), at); err == nil {
+			t.Fatal("expected the import error")
+		}
+		if len(computer.runs) != 0 {
+			t.Fatalf("feature passes = %v", computer.runs)
+		}
+	})
+	t.Run("a feature failure is logged and does not fail the import", func(t *testing.T) {
+		importer := &recordingImporter{}
+		computer := &recordingComputer{err: errors.New("engine broke")}
+		scheduler := newScheduler(t, importer, computer)
+		if err := scheduler.RunDue(context.Background(), at); err != nil {
+			t.Fatalf("the import was reported failed: %v", err)
+		}
+		if len(computer.runs) != 1 {
+			t.Fatalf("feature passes = %v", computer.runs)
+		}
+	})
+	t.Run("without a feature collaborator the import still runs", func(t *testing.T) {
+		importer := &recordingImporter{}
+		scheduler, err := NewMarketData(MarketDataConfig{
+			Enabled: true, Hour: 20, Minute: 0, Location: location,
+			Provider: "fixture", Universe: "nordic-liquid-v1", AppVersion: "test", Workers: 1,
+		}, staticTargets(t), importer)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := scheduler.RunDue(context.Background(), at); err != nil || importer.calls() != 1 {
+			t.Fatalf("err = %v, imports = %d", err, importer.calls())
+		}
+	})
+}
+
+type recordingComputer struct {
+	mu   sync.Mutex
+	runs []instruments.UUID
+	err  error
+}
+
+func (c *recordingComputer) ComputeSinceRun(_ context.Context, runID instruments.UUID) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.runs = append(c.runs, runID)
+	return c.err
 }

@@ -100,6 +100,7 @@ type Dependencies struct {
 	Version                 string
 	MarketData              MarketDataReader
 	Instruments             InstrumentReader
+	Features                FeatureReader
 	Events                  EventReader
 	EventHeartbeat          time.Duration
 	EventBatchLimit         int
@@ -149,6 +150,10 @@ func NewRouter(deps Dependencies) http.Handler {
 		protected.HandleFunc("GET /api/v1/instruments/{id}", getInstrumentHandler(deps.Instruments))
 		protected.HandleFunc("GET /api/v1/instruments/{id}/prices", listInstrumentPricesHandler(deps.Instruments))
 		protected.HandleFunc("GET /api/v1/instruments/{id}/history", getInstrumentHistoryHandler(deps.Instruments))
+	}
+	if deps.Features != nil {
+		protected.HandleFunc("GET /api/v1/instruments/{id}/features", getInstrumentFeaturesHandler(deps.Features))
+		protected.HandleFunc("GET /api/v1/feature-definitions", listFeatureDefinitionsHandler(deps.Features))
 	}
 	if deps.Events != nil {
 		protected.HandleFunc("GET /api/v1/events", eventsHandler(deps.Events, deps.EventHeartbeat,

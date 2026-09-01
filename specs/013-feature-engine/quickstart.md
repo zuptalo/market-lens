@@ -17,7 +17,7 @@ market-lens features compute --universe nordic-liquid-v1
 market-lens features compute --since-run <import-run-id>
 
 # One definition across the full history, after publishing a new version.
-market-lens features compute --definition rsi
+market-lens features compute --definition rsi_14
 ```
 
 Mirrors `marketdata backfill` deliberately — same run/item vocabulary, same advisory locking,
@@ -93,6 +93,19 @@ WHERE v.session_date <= :truncation_point
 -- expect 0
 ```
 
+*Verification record (T059, 2026-09-02).* The four leakage suites in
+`server/internal/features/leakage_integration_test.go` — extending A's history by 60 sessions,
+walking every satisfied window of A, D and E, adding a split to E first after the last session
+and then inside the history, and listing a newcomer 30 sessions before the end — all passed on
+first run and exposed nothing; no production code changed for US3. That they can fail was
+proven by a throwaway one-session lookahead in `History.Window` (the window's last bar replaced
+by the next stored bar): the extension test then reported *63 values on or before 2026-03-31
+changed* and *1 composite session changed*, the window walk reported every definition reading a
+bar after its session, the split test reported *20 values before the ex-date changed*, and the
+newcomer test reported *20 values on or before the cut changed*. The lookahead was reverted
+before commit. One expectation was corrected during the work: a newcomer's own first bar has no
+prior bar, so the composite counts it only from the second session, not the first.
+
 **Every value has a resolvable definition (SC-003)**
 
 ```sql
@@ -109,8 +122,10 @@ SELECT count(*) FROM feature_values v
 JOIN instruments i ON i.id = v.instrument_id
 LEFT JOIN exchange_sessions s
   ON s.exchange_id = i.exchange_id AND s.session_date = v.session_date
-WHERE s.session_date IS NULL OR s.status <> 'open';
+WHERE s.session_date IS NULL OR s.status NOT IN ('open', 'half_day');
 -- expect 0
+-- A half day is a session: XSTO trades a short day on 01-05 and 04-30 (migration 0005), and
+-- the engine computes on it. Comparing against 'open' alone would report every one of them.
 ```
 
 **Markets agrees with the engine (SC-010)** — open Markets, pick any row, read that

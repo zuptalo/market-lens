@@ -156,7 +156,7 @@ components:
             Not the same as an undefined value: this means the engine has not run for them.
     FeatureValue:
       type: object
-      required: [name, definitionVersion, value, absenceReason, computedAt]
+      required: [name, definitionVersion, value, label, absenceReason, computedAt]
       properties:
         name: { type: string, example: return_20 }
         definitionVersion:
@@ -170,13 +170,19 @@ components:
           description: >
             Decimal string, never a JSON number — the stored column is numeric(24,12) and a
             JavaScript number cannot hold every value it can. Null when undefined.
+        label:
+          type: [string, 'null']
+          description: >
+            The value of a categorical feature — the regime is a name, not a number. Null for
+            every numeric feature. Exactly one of value, label and absenceReason is non-null.
         absenceReason:
           type: [string, 'null']
-          enum: [insufficient_history, window_gap, composite_undefined, null]
+          enum: [insufficient_history, window_gap, composite_undefined, zero_denominator, null]
           description: >
-            Non-null exactly when value is null (FR-014, FR-017). insufficient_history and
-            window_gap are deliberately distinct: the first means the instrument is too young,
-            the second that a session inside the window has no stored bar.
+            Non-null exactly when value and label are null (FR-014, FR-017).
+            insufficient_history and window_gap are deliberately distinct: the first means the
+            instrument is too young, the second that a session inside the window has no stored
+            bar. zero_denominator is a ratio with nothing to divide by.
         currency:
           type: [string, 'null']
           pattern: '^[A-Z]{3}$'
@@ -209,7 +215,12 @@ components:
         priceBasis:
           type: string
           enum: [raw, adjusted]
-          description: FR-001 requires the price basis be explicit for every definition.
+          description: >
+            FR-001 requires the price basis be explicit for every definition. adjusted means
+            engine-applied: closes before a split's ex-date are divided by its ratio, considering
+            only splits with an ex-date on or before the session being computed — never the
+            provider's back-adjusted column, which would reflect splits that had not yet
+            happened (FR-019).
         parameters:
           type: object
           additionalProperties: true

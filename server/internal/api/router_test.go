@@ -64,3 +64,24 @@ func authenticatedAPIRequest(method, path string) *http.Request {
 	request.AddCookie(&http.Cookie{Name: httpx.SessionCookieName, Value: "test-session"})
 	return request
 }
+
+// No HTTP route triggers a computation: the engine runs from the CLI and the import trigger
+// only (spec 013, security evidence). The routes below do not exist and must keep not existing.
+func TestNoHTTPRouteTriggersAComputation(t *testing.T) {
+	router := NewRouter(authenticatedDependencies(Dependencies{}))
+	for _, path := range []string{
+		"/api/v1/features/compute",
+		"/api/v1/feature-runs",
+		"/api/v1/instruments/33000000-0000-4000-8000-000000000001/features",
+	} {
+		for _, method := range []string{http.MethodPost, http.MethodPut} {
+			recorder := httptest.NewRecorder()
+			request := authenticatedAPIRequest(method, path)
+			request.Header.Set("X-CSRF-Token", "valid-csrf")
+			router.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusNotFound && recorder.Code != http.StatusMethodNotAllowed {
+				t.Errorf("%s %s returned %d; no route may start a computation", method, path, recorder.Code)
+			}
+		}
+	}
+}
