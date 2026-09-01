@@ -90,13 +90,36 @@ func ValidateDailyPage(page DailyPage, options ValidationOptions) (ValidationRes
 			result.flag(current.SessionDate, "suspicious_jump", "Provider returned a suspicious session-to-session price jump.")
 		}
 	}
-	if len(options.ExpectedSessions) > 0 {
-		missing := make([]SessionDate, 0)
+	// A gap is a hole *inside* a history, so only sessions between the provider's first and
+	// last returned bar can be one.
+	//
+	// Requesting ten years for every instrument and flagging every session before a company
+	// was listed produced 8,054 of 8,662 findings in production — years of "missing" sessions
+	// in a series that had not started. Before a history begins there is no hole, there is no
+	// history, and coverage says that once rather than a thousand times. It is also the same
+	// rule the chart already uses to decide what to draw as an interruption, so the two now
+	// agree instead of contradicting each other on screen.
+	if len(options.ExpectedSessions) > 0 && len(page.Bars) > 0 {
 		accepted := make(map[SessionDate]struct{}, len(result.Bars))
-		for _, bar := range result.Bars {
+		var first, last SessionDate
+		for index, bar := range result.Bars {
 			accepted[bar.SessionDate] = struct{}{}
+			if index == 0 || bar.SessionDate < first {
+				first = bar.SessionDate
+			}
+			if index == 0 || bar.SessionDate > last {
+				last = bar.SessionDate
+			}
 		}
+
+		missing := make([]SessionDate, 0)
 		for session := range options.ExpectedSessions {
+			// With nothing accepted the provider sent data but none of it usable, so every
+			// expected session is genuinely unaccounted for. With some accepted, only the
+			// sessions between the first and last of them can be holes.
+			if len(result.Bars) > 0 && (session < first || session > last) {
+				continue
+			}
 			if _, exists := accepted[session]; !exists {
 				missing = append(missing, session)
 			}

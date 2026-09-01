@@ -257,7 +257,9 @@ test('reads one instrument: range, overlay, and an honest gap', async ({ page })
   await expect(page.getByLabel('20-session moving average')).toHaveAttribute('aria-pressed', 'false');
 
   // The gap is stated in words, not only drawn (FR-017).
-  await expect(page.getByText(/2 sessions the exchange was open with no stored bar/)).toBeVisible();
+  // The count leads and its qualifier sits beneath it, so the eye lands on the number.
+  await expect(page.getByText('2 sessions', { exact: false })).toBeVisible();
+  await expect(page.getByText('the exchange was open with no stored bar')).toBeVisible();
   await expect(page.getByText('2026-05-25')).toBeVisible();
 });
 
@@ -267,7 +269,8 @@ test('shows a corporate action and an open finding without hovering', async ({ p
   // Visible with no pointer anywhere near the chart.
   await expect(page.getByText('2026-05-28')).toBeVisible();
   await expect(page.getByText('ratio 2')).toBeVisible();
-  await expect(page.getByText('suspicious_jump')).toBeVisible();
+  // Rules read as phrases now, not as their identifiers. The fact asserted is unchanged.
+  await expect(page.getByText('Suspicious jump')).toBeVisible();
   await expect(page.getByText(/Provider-adjusted/)).toBeVisible();
 });
 

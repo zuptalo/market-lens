@@ -224,37 +224,48 @@ onBeforeUnmount(() => {
           The same facts as the chart, in words. This is not a fallback: it is the only form
           in which a screen reader, or anyone reading rather than looking, can get them.
         -->
+        <!--
+          The facts the chart cannot show, ordered as a reader needs them: what is on screen,
+          what exists behind it, whether anything is missing from it, and only then where it
+          came from. Provenance matters but is not what someone opens the page to learn.
+        -->
         <dl class="window-facts">
-          <div>
+          <div class="window-facts__item">
             <dt>Showing</dt>
             <dd>
-              {{ window_.requestedFrom ?? '—' }} to {{ window_.requestedTo ?? '—' }}
-              ({{ window_.bars.length }} stored sessions)
+              <span class="window-facts__value">{{ window_.requestedFrom ?? '—' }} to {{ window_.requestedTo ?? '—' }}</span>
+              <span class="window-facts__note">{{ window_.bars.length }} stored sessions</span>
             </dd>
           </div>
-          <div>
+          <div class="window-facts__item">
             <dt>Stored coverage</dt>
             <dd>
-              {{ window_.coverage.firstSession ?? '—' }} to {{ window_.coverage.lastSession ?? '—' }}
-              ({{ window_.coverage.storedSessions }} sessions)
+              <span class="window-facts__value">{{ window_.coverage.firstSession ?? '—' }} to {{ window_.coverage.lastSession ?? '—' }}</span>
+              <span class="window-facts__note">{{ window_.coverage.storedSessions }} sessions in total</span>
             </dd>
           </div>
-          <div>
+          <div class="window-facts__item">
             <dt>Missing in view</dt>
             <dd>
-              <template v-if="missingInView === 0">None — every open session in view is stored</template>
-              <template v-else>
-                {{ missingInView }} sessions the exchange was open with no stored bar
-              </template>
+              <span class="window-facts__value">
+                {{ missingInView === 0 ? 'None' : `${missingInView} sessions` }}
+              </span>
+              <span class="window-facts__note">
+                <template v-if="missingInView === 0">every open session in view is stored</template>
+                <template v-else>the exchange was open with no stored bar</template>
+              </span>
             </dd>
           </div>
-          <div>
+          <div class="window-facts__item">
             <dt>Series basis</dt>
-            <dd>{{ seriesBasisLabel }}</dd>
+            <dd><span class="window-facts__value">{{ seriesBasisLabel }}</span></dd>
           </div>
-          <div v-if="window_.provider">
+          <div v-if="window_.provider" class="window-facts__item">
             <dt>Provider</dt>
-            <dd>{{ window_.provider }}<template v-if="observedAtLabel">, observed {{ observedAtLabel }}</template></dd>
+            <dd>
+              <span class="window-facts__value">{{ window_.provider }}</span>
+              <span v-if="observedAtLabel" class="window-facts__note">observed {{ observedAtLabel }}</span>
+            </dd>
           </div>
         </dl>
 
@@ -281,31 +292,66 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.identity-facts,
-.window-facts {
+.identity-facts {
   display: grid;
   gap: 0.5rem 1.5rem;
   grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
   margin: 0;
 }
 
-.identity-facts div,
-.window-facts div {
+.identity-facts div {
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
 }
 
-.identity-facts dt,
-.window-facts dt {
+.identity-facts dt {
   font-weight: 600;
   opacity: 0.75;
   margin: 0;
 }
 
-.identity-facts dd,
-.window-facts dd {
+.identity-facts dd {
   margin: 0;
+}
+
+/*
+ * Each fact is a labelled block rather than a row of loose text. The label is small and
+ * quiet, the value is the thing being read, and its qualifier sits underneath — so the eye
+ * lands on the answer rather than on the word "Showing". Separated from the chart by a rule,
+ * because these are about the data and not part of the picture.
+ */
+.window-facts {
+  display: grid;
+  gap: 1rem 2rem;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  margin: 1rem 0 0;
+  padding-block-start: 1rem;
+  border-block-start: 1px solid var(--p-content-border-color, rgb(0 0 0 / 0.12));
+}
+
+.window-facts__item dt {
+  margin: 0 0 0.15rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+
+.window-facts__item dd {
+  margin: 0;
+  display: grid;
+  gap: 0.1rem;
+}
+
+.window-facts__value {
+  font-variant-numeric: tabular-nums;
+}
+
+.window-facts__note {
+  font-size: 0.85em;
+  opacity: 0.7;
 }
 
 .chart-panel {
