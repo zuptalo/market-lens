@@ -109,3 +109,67 @@ func TestAuditIsOrderedAndCountsWhatItChecked(t *testing.T) {
 		t.Fatalf("findings are not ordered by ticker: %#v", findings)
 	}
 }
+
+// "Absent" is two different situations and only one of them needs acting on.
+//
+// An instrument missing from the catalog that also stores nothing is broken. One missing from
+// the catalog that imports its full history is a disagreement between the provider's own
+// endpoints — the symbol list omits it while the price endpoint serves it — and changing our
+// data would break the import that currently works.
+func TestAuditSaysWhetherAnAbsentInstrumentIsActuallyImporting(t *testing.T) {
+	universe := []UniverseEntry{
+		{Ticker: "WORKS", ISIN: "FI4000312251", Name: "Kojamo Oyj", MIC: "XHEL",
+			ProviderSymbol: "WORKS.HE", StoredBars: 2500},
+		{Ticker: "BROKEN", ISIN: "FI0000000001", Name: "Nothing Oyj", MIC: "XHEL",
+			ProviderSymbol: "BROKEN.HE", StoredBars: 0},
+	}
+	catalog := map[string][]CatalogEntry{"XHEL": {
+		{ProviderSymbol: "NOKIA.HE", ISIN: "FI0009000681", Ticker: "NOKIA", Name: "Nokia Oyj"},
+	}}
+
+	byTicker := map[string]SymbolFinding{}
+	for _, finding := range AuditProviderSymbols(universe, catalog) {
+		byTicker[finding.Entry.Ticker] = finding
+	}
+
+	if byTicker["WORKS"].State != SymbolUncatalogued {
+		t.Errorf("an absent instrument that imports was reported as %q", byTicker["WORKS"].State)
+	}
+	if byTicker["BROKEN"].State != SymbolAbsent {
+		t.Errorf("an absent instrument that imports nothing was reported as %q", byTicker["BROKEN"].State)
+	}
+}
+
+// When a symbol is absent, the catalog is still searched by name, because a company that has
+// been renamed or re-tickered is usually still there under a name a reader will recognise.
+func TestAuditOffersANameMatchWhenNeitherSymbolNorISINIsFound(t *testing.T) {
+	universe := []UniverseEntry{
+		{Ticker: "OLD", ISIN: "FI0000000009", Name: "Nokia Oyj", MIC: "XHEL", ProviderSymbol: "OLD.HE"},
+	}
+	catalog := map[string][]CatalogEntry{"XHEL": {
+		{ProviderSymbol: "NOKIA.HE", ISIN: "FI0009000681", Ticker: "NOKIA", Name: "Nokia Oyj"},
+	}}
+
+	finding := AuditProviderSymbols(universe, catalog)[0]
+	if finding.Suggested != "NOKIA.HE" {
+		t.Errorf("no name match was offered: %#v", finding)
+	}
+	// A name match is weaker evidence than an ISIN match and must not be presented as though
+	// it were the same thing.
+	if finding.MatchedOn != MatchedOnName {
+		t.Errorf("the match was reported as %q, expected it to say it came from the name", finding.MatchedOn)
+	}
+}
+
+func TestAuditSaysAnISINMatchCameFromTheISIN(t *testing.T) {
+	universe := []UniverseEntry{
+		{Ticker: "MOCORP", ISIN: "FI0009014575", Name: "Metso Oyj", MIC: "XHEL", ProviderSymbol: "MOCORP.HE"},
+	}
+	catalog := map[string][]CatalogEntry{"XHEL": {
+		{ProviderSymbol: "METSO.HE", ISIN: "FI0009014575", Ticker: "METSO", Name: "Metso Oyj"},
+	}}
+	finding := AuditProviderSymbols(universe, catalog)[0]
+	if finding.State != SymbolRenamed || finding.MatchedOn != MatchedOnISIN {
+		t.Errorf("finding = %#v", finding)
+	}
+}

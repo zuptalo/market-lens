@@ -344,3 +344,37 @@ func TestResolveSaysSoWhenEverythingIsCorrect(t *testing.T) {
 		t.Errorf("report = %s", output.String())
 	}
 }
+
+// The report has to separate the instrument that needs fixing from the one that only looks
+// like it does, and say plainly how much history the working one already holds — otherwise the
+// reader has no way to tell the two apart and will "correct" a symbol that works.
+func TestResolveDistinguishesUncataloguedFromBrokenAndNamesTheEvidence(t *testing.T) {
+	universe := []marketdata.UniverseEntry{
+		{Ticker: "KOJAMO", ISIN: "FI4000312251", Name: "Kojamo Oyj", MIC: "XHEL",
+			ProviderSymbol: "KOJAMO.HE", StoredBars: 2035},
+		{Ticker: "GONE", ISIN: "FI0000000999", Name: "Delisted Oyj", MIC: "XHEL",
+			ProviderSymbol: "GONE.HE", StoredBars: 0},
+		{Ticker: "MOCORP", ISIN: "FI0009014575", Name: "Metso Oyj", MIC: "XHEL",
+			ProviderSymbol: "MOCORP.HE", StoredBars: 500},
+	}
+	catalog := map[string][]marketdata.CatalogEntry{"XHEL": {
+		{ProviderSymbol: "METSO.HE", ISIN: "FI0009014575", Ticker: "METSO", Name: "Metso Oyj"},
+	}}
+
+	var output strings.Builder
+	if err := reportSymbolAudit(&output, universe, catalog); err != nil {
+		t.Fatal(err)
+	}
+	report := output.String()
+
+	for _, want := range []string{
+		"KOJAMO.HE", "uncatalogued", "stored_bars=2035",
+		"GONE.HE", "absent",
+		"matched_on=isin",
+		"uncatalogued=1", "absent=1",
+	} {
+		if !strings.Contains(report, want) {
+			t.Errorf("the report does not mention %q:\n%s", want, report)
+		}
+	}
+}
