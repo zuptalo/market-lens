@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-31
 
-**Status**: planned
+**Status**: shipped
 <!-- Market Lens spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: User description: "Reusable feature engine. Deterministic, versioned, timestamped

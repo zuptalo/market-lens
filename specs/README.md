@@ -21,7 +21,7 @@ test before production code changes.
 | 010 | [Actionable owner setup errors](010-setup-error-clarity/spec.md) | Shipped | In spec | In spec | 004 | Shipped in `v0.5.0`. Setup names every field to fix, and verifies SMTP before storing it. |
 | 011 | [Owner integration settings](011-integration-settings/spec.md) | Shipped | In spec | In spec | 004, 010 | Shipped in `v0.5.0`. The owner can see, check, and change provider configuration; nothing is stored until it verifies. |
 | 012 | [One component library everywhere](012-primevue-consistency/spec.md) | Shipped | In spec | In spec | 004, 010, 011 | Shipped in `v0.5.0`. Enforced by a test; corrected three latent accessibility defects in the theme. |
-| 013 | [Reusable feature engine](013-feature-engine/spec.md) | Planned | [Planned](013-feature-engine/plan.md) | [Ready](013-feature-engine/tasks.md) | 002, 004 | Deterministic, versioned, point-in-time features over stored sessions. Owns the definitions feature 005 displays. Relative strength is measured against an equal-weighted composite of the curated universe, decided 2026-08-31. |
+| 013 | [Reusable feature engine](013-feature-engine/spec.md) | Shipped | [Complete](013-feature-engine/plan.md) | [Complete](013-feature-engine/tasks.md) | 002, 004 | Deterministic, versioned, point-in-time features over stored sessions. Owns the definitions feature 005 displays. Relative strength is measured against an equal-weighted composite of the curated universe, decided 2026-08-31. |
 
 Feature lifecycle values are `planned → in-progress → in-review → shipped`. Update the
 spec and this registry together when lifecycle changes.

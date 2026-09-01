@@ -74,16 +74,20 @@ proportion to the change. Never disable a failing check to hide a regression.
 <!-- SPECKIT START -->
 For durable cross-session context, read `docs/product-vision.md`, `ROADMAP.md`, and
 `specs/README.md`, which is the authority on lifecycle status. Everything specified so far is
-shipped: `v0.5.0` carries features 002, 003, 004 and 009 through 012, and `v0.6.0` carries
-005, Instrument Exploration and Financial Charts.
+shipped: `v0.5.0` carries features 002, 003, 004 and 009 through 012, `v0.6.0` carries 005,
+Instrument Exploration and Financial Charts, and `v0.9.0` carries 013, the Reusable Feature
+Engine.
 
-The next product feature is the Reusable Feature Engine. Its specification and implementation
-plan are on `main` at `specs/013-feature-engine/plan.md`, with research, data model,
-contracts and the task list `specs/013-feature-engine/tasks.md` alongside; implementation
-remains, and must begin with T016 observed red. It computes versioned,
-point-in-time features over stored sessions and takes ownership of the three descriptive
-statistics feature 005 currently derives in its listing query — adopting their definitions
-verbatim, so that no displayed number changes when the source of it does.
+The engine (`server/internal/features`, `specs/013-feature-engine/`) computes twenty-four
+versioned definitions plus the universe composite from stored sessions alone. Three rules
+govern anything built on it: a value may never read a session later than its own; a definition
+is never changed in place, only superseded by a new version; and a statistic that cannot be
+computed is stored and shown as an absence with a reason, never as a zero. The Markets table
+reads `return_20`, `return_90` and `volatility_20` from it — feature 005's definitions adopted
+verbatim as version 1, so adopting the engine moved no displayed number.
+
+The next product feature is Milestone 4, deterministic strategies and signals, which is not
+yet specified.
 
 Two constraints that outlive any single feature:
 
