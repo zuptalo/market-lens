@@ -350,12 +350,12 @@ func TestResolveSaysSoWhenEverythingIsCorrect(t *testing.T) {
 // reader has no way to tell the two apart and will "correct" a symbol that works.
 func TestResolveDistinguishesUncataloguedFromBrokenAndNamesTheEvidence(t *testing.T) {
 	universe := []marketdata.UniverseEntry{
-		{Ticker: "KOJAMO", ISIN: "FI4000312251", Name: "Kojamo Oyj", MIC: "XHEL",
-			ProviderSymbol: "KOJAMO.HE", StoredBars: 2035},
+		{Ticker: "LIVE", ISIN: "FI4000312251", Name: "Live Oyj", MIC: "XHEL",
+			ProviderSymbol: "LIVE.HE", StoredBars: 2035, LastSession: "2026-08-31"},
 		{Ticker: "GONE", ISIN: "FI0000000999", Name: "Delisted Oyj", MIC: "XHEL",
 			ProviderSymbol: "GONE.HE", StoredBars: 0},
 		{Ticker: "MOCORP", ISIN: "FI0009014575", Name: "Metso Oyj", MIC: "XHEL",
-			ProviderSymbol: "MOCORP.HE", StoredBars: 500},
+			ProviderSymbol: "MOCORP.HE", StoredBars: 500, LastSession: "2026-08-31"},
 	}
 	catalog := map[string][]marketdata.CatalogEntry{"XHEL": {
 		{ProviderSymbol: "METSO.HE", ISIN: "FI0009014575", Ticker: "METSO", Name: "Metso Oyj"},
@@ -368,7 +368,7 @@ func TestResolveDistinguishesUncataloguedFromBrokenAndNamesTheEvidence(t *testin
 	report := output.String()
 
 	for _, want := range []string{
-		"KOJAMO.HE", "uncatalogued", "stored_bars=2035",
+		"LIVE.HE", "uncatalogued", "stored_bars=2035", "last_session=2026-08-31",
 		"GONE.HE", "absent",
 		"matched_on=isin",
 		"uncatalogued=1", "absent=1",
@@ -376,5 +376,54 @@ func TestResolveDistinguishesUncataloguedFromBrokenAndNamesTheEvidence(t *testin
 		if !strings.Contains(report, want) {
 			t.Errorf("the report does not mention %q:\n%s", want, report)
 		}
+	}
+}
+
+func TestResolveAcceptsASearchTerm(t *testing.T) {
+	now := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	command, err := parseMarketDataCommand([]string{"marketdata", "resolve", "--search", "lumo"}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if command.Kind != marketDataResolve || command.Search != "lumo" {
+		t.Fatalf("command = %#v", command)
+	}
+}
+
+// Searching the catalog is how a suggestion becomes a fact. The audit can only match on what
+// this installation already stores, so a company that changed both its name and its ticker
+// falls out of every lookup — and that is exactly when someone needs to see the provider's own
+// rows before writing a migration against them.
+func TestCatalogSearchListsMatchingRowsBySymbolNameAndISIN(t *testing.T) {
+	catalog := map[string][]marketdata.CatalogEntry{
+		"XHEL": {
+			{ProviderSymbol: "LUMO.HE", ISIN: "FI4000312251", Ticker: "LUMO", Name: "Lumo Kodit Oyj", Currency: "EUR"},
+			{ProviderSymbol: "NOKIA.HE", ISIN: "FI0009000681", Ticker: "NOKIA", Name: "Nokia Oyj", Currency: "EUR"},
+		},
+		"XSTO": {{ProviderSymbol: "LUMOX.ST", ISIN: "SE0000000111", Ticker: "LUMOX", Name: "Unrelated AB", Currency: "SEK"}},
+	}
+
+	var output strings.Builder
+	if err := reportCatalogSearch(&output, "lumo", catalog); err != nil {
+		t.Fatal(err)
+	}
+	report := output.String()
+
+	for _, want := range []string{"LUMO.HE", "Lumo Kodit Oyj", "FI4000312251", "XHEL", "LUMOX.ST", "matches=2"} {
+		if !strings.Contains(report, want) {
+			t.Errorf("the report does not mention %q:\n%s", want, report)
+		}
+	}
+	if strings.Contains(report, "NOKIA") {
+		t.Errorf("a non-matching row was listed:\n%s", report)
+	}
+
+	// An ISIN is the thing worth searching for when a company has changed everything else.
+	output.Reset()
+	if err := reportCatalogSearch(&output, "fi4000312251", catalog); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "LUMO.HE") || !strings.Contains(output.String(), "matches=1") {
+		t.Errorf("an ISIN search found nothing:\n%s", output.String())
 	}
 }

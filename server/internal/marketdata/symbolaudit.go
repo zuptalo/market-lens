@@ -3,6 +3,7 @@ package marketdata
 import (
 	"sort"
 	"strings"
+	"time"
 )
 
 // Auditing the provider symbols a universe is stored with.
@@ -31,10 +32,13 @@ const (
 	// SymbolAbsent: neither the symbol nor the ISIN appears in the provider's catalog, and
 	// nothing is stored for it either. This one is broken.
 	SymbolAbsent SymbolState = "absent"
-	// SymbolUncatalogued: absent from the catalog, yet importing its history anyway. That is a
+	// SymbolUncatalogued: absent from the catalog, yet still receiving sessions. That is a
 	// disagreement between the provider's own endpoints — its symbol list omits what its price
 	// endpoint serves — and not something to correct on our side, because the symbol works.
 	SymbolUncatalogued SymbolState = "uncatalogued"
+	// SymbolStale: absent from the catalog, and its history has stopped while the rest of the
+	// universe moved on. The listing ended or moved; search the catalog for where it went.
+	SymbolStale SymbolState = "stale"
 	// SymbolMismatched: the symbol exists but carries a different ISIN, so importing it would
 	// attach one company's prices to another company's record.
 	SymbolMismatched SymbolState = "mismatched"
@@ -50,9 +54,13 @@ type UniverseEntry struct {
 	Name           string
 	MIC            string
 	ProviderSymbol string
-	// StoredBars separates an instrument that is broken from one that merely disagrees with
-	// the provider's catalog while importing perfectly well.
+	// StoredBars is how much history is held. It says nothing about whether the symbol still
+	// works — KOJAMO held 1,986 bars months after its last one arrived — so it is reported, not
+	// judged on.
 	StoredBars int64
+	// LastSession is the newest session stored, empty when nothing is. Compared against the
+	// rest of the universe it is what actually distinguishes a live symbol from a dead one.
+	LastSession string
 }
 
 // CatalogEntry is one instrument as the provider lists it.
@@ -99,12 +107,41 @@ func normalizedName(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
 }
 
+// staleGraceDays is how far behind the rest of the universe an instrument may fall before its
+// history counts as stopped. A fortnight absorbs a run of holidays and a provider's slow day
+// without absorbing a listing that ended.
+const staleGraceDays = 14
+
+// staleThreshold returns the session date an instrument must have reached to count as current.
+//
+// The reference is the newest session anywhere in the universe rather than the clock, so the
+// same inputs always yield the same verdict — including in a test written years from now, and
+// including when the whole import is a week behind for reasons that have nothing to do with
+// any one instrument.
+func staleThreshold(universe []UniverseEntry) string {
+	newest := ""
+	for _, entry := range universe {
+		if entry.LastSession > newest {
+			newest = entry.LastSession
+		}
+	}
+	if newest == "" {
+		return ""
+	}
+	parsed, err := time.Parse("2006-01-02", newest)
+	if err != nil {
+		return ""
+	}
+	return parsed.AddDate(0, 0, -staleGraceDays).Format("2006-01-02")
+}
+
 // AuditProviderSymbols compares stored provider symbols against the provider's own catalog.
 //
 // It is a pure function over data someone else fetched, so it can be tested exhaustively
 // without a network or a database, and so the fetching stays where the credentials are.
 func AuditProviderSymbols(universe []UniverseEntry, catalog map[string][]CatalogEntry) []SymbolFinding {
 	findings := make([]SymbolFinding, 0, len(universe))
+	staleBefore := staleThreshold(universe)
 
 	for _, entry := range universe {
 		entries, known := catalog[strings.ToUpper(strings.TrimSpace(entry.MIC))]
@@ -152,8 +189,12 @@ func AuditProviderSymbols(universe []UniverseEntry, catalog map[string][]Catalog
 			// not broken — the provider's symbol list simply omits what its price endpoint
 			// serves — so it is reported as uncatalogued rather than as a fault to correct.
 			state := SymbolAbsent
-			if entry.StoredBars > 0 {
+			switch {
+			case entry.LastSession == "":
+			case entry.LastSession >= staleBefore:
 				state = SymbolUncatalogued
+			default:
+				state = SymbolStale
 			}
 			finding := SymbolFinding{Entry: entry, State: state}
 			// The name is a last resort and a weaker one, so the match says where it came from.

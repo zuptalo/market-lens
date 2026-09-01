@@ -110,33 +110,45 @@ func TestAuditIsOrderedAndCountsWhatItChecked(t *testing.T) {
 	}
 }
 
-// "Absent" is two different situations and only one of them needs acting on.
+// "Absent" is three different situations and they call for opposite actions.
 //
-// An instrument missing from the catalog that also stores nothing is broken. One missing from
-// the catalog that imports its full history is a disagreement between the provider's own
-// endpoints — the symbol list omits it while the price endpoint serves it — and changing our
-// data would break the import that currently works.
-func TestAuditSaysWhetherAnAbsentInstrumentIsActuallyImporting(t *testing.T) {
+// The stored bar count cannot tell them apart, which this project learned the hard way:
+// KOJAMO held 1,986 bars and looked perfectly healthy by that measure, while its history had
+// in fact stopped four months earlier because the company had been renamed. What separates a
+// working instrument from a dead one is whether it is *still* receiving sessions.
+func TestAuditJudgesAnAbsentInstrumentOnFreshnessNotOnVolume(t *testing.T) {
 	universe := []UniverseEntry{
-		{Ticker: "WORKS", ISIN: "FI4000312251", Name: "Kojamo Oyj", MIC: "XHEL",
-			ProviderSymbol: "WORKS.HE", StoredBars: 2500},
-		{Ticker: "BROKEN", ISIN: "FI0000000001", Name: "Nothing Oyj", MIC: "XHEL",
-			ProviderSymbol: "BROKEN.HE", StoredBars: 0},
+		{Ticker: "LIVE", ISIN: "FI4000000001", Name: "Live Oyj", MIC: "XHEL",
+			ProviderSymbol: "LIVE.HE", LastSession: "2026-08-31"},
+		{Ticker: "RENAMED", ISIN: "FI4000312251", Name: "Kojamo Oyj", MIC: "XHEL",
+			ProviderSymbol: "KOJAMO.HE", LastSession: "2026-05-15"},
+		{Ticker: "EMPTY", ISIN: "FI4000000002", Name: "Nothing Oyj", MIC: "XHEL",
+			ProviderSymbol: "EMPTY.HE", LastSession: ""},
+		// The reference point is the universe's own newest session, never the clock, so the
+		// same inputs always produce the same verdict.
+		{Ticker: "NOKIA", ISIN: "FI0009000681", Name: "Nokia Oyj", MIC: "XHEL",
+			ProviderSymbol: "NOKIA.HE", LastSession: "2026-08-31"},
 	}
 	catalog := map[string][]CatalogEntry{"XHEL": {
 		{ProviderSymbol: "NOKIA.HE", ISIN: "FI0009000681", Ticker: "NOKIA", Name: "Nokia Oyj"},
 	}}
 
-	byTicker := map[string]SymbolFinding{}
+	states := map[string]SymbolState{}
 	for _, finding := range AuditProviderSymbols(universe, catalog) {
-		byTicker[finding.Entry.Ticker] = finding
+		states[finding.Entry.Ticker] = finding.State
 	}
 
-	if byTicker["WORKS"].State != SymbolUncatalogued {
-		t.Errorf("an absent instrument that imports was reported as %q", byTicker["WORKS"].State)
+	if states["LIVE"] != SymbolUncatalogued {
+		t.Errorf("an absent instrument still importing was reported as %q", states["LIVE"])
 	}
-	if byTicker["BROKEN"].State != SymbolAbsent {
-		t.Errorf("an absent instrument that imports nothing was reported as %q", byTicker["BROKEN"].State)
+	if states["RENAMED"] != SymbolStale {
+		t.Errorf("an absent instrument that stopped importing was reported as %q", states["RENAMED"])
+	}
+	if states["EMPTY"] != SymbolAbsent {
+		t.Errorf("an absent instrument that never imported was reported as %q", states["EMPTY"])
+	}
+	if states["NOKIA"] != SymbolOK {
+		t.Errorf("a catalogued instrument was reported as %q", states["NOKIA"])
 	}
 }
 

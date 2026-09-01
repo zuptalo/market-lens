@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -54,6 +55,10 @@ type marketDataCommand struct {
 	From     marketdata.SessionDate
 	To       marketdata.SessionDate
 	RunID    instruments.UUID
+	// Search asks resolve to print the provider's own catalog rows matching a term instead of
+	// auditing what is stored. It is how a suspected replacement symbol is confirmed before a
+	// migration is written against it.
+	Search string
 }
 
 type marketDataImporter interface {
@@ -590,8 +595,9 @@ func reportSymbolAudit(output io.Writer, universe []marketdata.UniverseEntry,
 		}
 		// How much history is stored is the evidence for leaving an uncatalogued symbol alone,
 		// so it belongs on the line rather than in a separate query the reader has to think to run.
-		if finding.State == marketdata.SymbolUncatalogued {
-			line += fmt.Sprintf(" stored_bars=%d", finding.Entry.StoredBars)
+		if finding.State == marketdata.SymbolUncatalogued || finding.State == marketdata.SymbolStale {
+			line += fmt.Sprintf(" stored_bars=%d last_session=%s",
+				finding.Entry.StoredBars, valueOrDash(finding.Entry.LastSession))
 		}
 		if _, err := fmt.Fprintln(output, line); err != nil {
 			return err
@@ -599,11 +605,58 @@ func reportSymbolAudit(output io.Writer, universe []marketdata.UniverseEntry,
 	}
 
 	_, err := fmt.Fprintf(output,
-		"checked=%d ok=%d renamed=%d absent=%d uncatalogued=%d mismatched=%d unchecked=%d\n",
+		"checked=%d ok=%d renamed=%d absent=%d stale=%d uncatalogued=%d mismatched=%d unchecked=%d\n",
 		len(findings), counts[marketdata.SymbolOK], counts[marketdata.SymbolRenamed],
-		counts[marketdata.SymbolAbsent], counts[marketdata.SymbolUncatalogued],
+		counts[marketdata.SymbolAbsent], counts[marketdata.SymbolStale],
+		counts[marketdata.SymbolUncatalogued],
 		counts[marketdata.SymbolMismatched], counts[marketdata.SymbolUnchecked])
 	return err
+}
+
+// reportCatalogSearch prints the provider's own rows matching a term, across every exchange
+// the universe covers.
+//
+// The audit can only match on identifiers this installation already stores, so a company that
+// changed its ticker and its name at once falls out of every lookup it makes. This is the way
+// back in: search the catalog for whatever is known — a fragment of the new name, the
+// unchanged ISIN — and read the provider's answer directly, rather than writing a migration
+// against a guess about it.
+func reportCatalogSearch(output io.Writer, term string,
+	catalog map[string][]marketdata.CatalogEntry) error {
+	needle := strings.ToLower(strings.TrimSpace(term))
+	mics := make([]string, 0, len(catalog))
+	for mic := range catalog {
+		mics = append(mics, mic)
+	}
+	sort.Strings(mics)
+
+	matches := 0
+	for _, mic := range mics {
+		for _, row := range catalog[mic] {
+			if !strings.Contains(strings.ToLower(row.ProviderSymbol), needle) &&
+				!strings.Contains(strings.ToLower(row.Name), needle) &&
+				!strings.Contains(strings.ToLower(row.ISIN), needle) {
+				continue
+			}
+			matches++
+			if _, err := fmt.Fprintf(output, "%s %s isin=%s name=%q currency=%s\n",
+				mic, row.ProviderSymbol, valueOrDash(row.ISIN), row.Name,
+				valueOrDash(row.Currency)); err != nil {
+				return err
+			}
+		}
+	}
+	_, err := fmt.Fprintf(output, "matches=%d\n", matches)
+	return err
+}
+
+// valueOrDash keeps a blank provider field visible. An empty ISIN is itself the finding when a
+// symbol that plainly exists cannot be matched by identifier.
+func valueOrDash(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "-"
+	}
+	return value
 }
 
 func executeMarketDataRetry(ctx context.Context, command marketDataCommand, retrier marketDataRetrier,
@@ -650,10 +703,12 @@ func parseMarketDataCommand(args []string, now time.Time) (marketDataCommand, er
 	command.To = to
 	switch args[1] {
 	case "resolve":
+		search := flags.String("search", "", "print provider catalog rows matching this term")
 		if err := flags.Parse(args[2:]); err != nil || flags.NArg() != 0 ||
 			strings.TrimSpace(command.Universe) == "" {
-			return marketDataCommand{}, errors.New("resolve takes only a universe")
+			return marketDataCommand{}, errors.New("resolve takes only a universe and an optional search term")
 		}
+		command.Search = strings.TrimSpace(*search)
 		command.Kind = marketDataResolve
 		return command, nil
 	case "backfill":
@@ -795,6 +850,9 @@ func run() error {
 					continue
 				}
 				catalog[entry.MIC] = listed
+			}
+			if command.Search != "" {
+				return reportCatalogSearch(os.Stdout, command.Search, catalog)
 			}
 			return reportSymbolAudit(os.Stdout, entries, catalog)
 		}
