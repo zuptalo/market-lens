@@ -58,9 +58,13 @@ type SymbolFinding struct {
 	// Suggested is the provider symbol the ISIN maps to, when one exists and differs from
 	// what is stored. Empty otherwise — a suggestion is only ever made from an ISIN match.
 	Suggested string
-	// CatalogName is the name the provider has for the suggested symbol, so a reader can see
-	// that the replacement really is the same company before acting on it.
+	// CatalogName is the name the provider has for the symbol it matched, so a reader can see
+	// that a replacement really is the same company before acting on it.
 	CatalogName string
+	// CatalogISIN is the provider's identifier for the symbol it matched. It is what a
+	// mismatch is actually about: without both identifiers side by side, the finding says only
+	// that they disagree and leaves the reader to guess which is wrong.
+	CatalogISIN string
 }
 
 // AuditProviderSymbols compares stored provider symbols against the provider's own catalog.
@@ -98,12 +102,14 @@ func AuditProviderSymbols(universe []UniverseEntry, catalog map[string][]Catalog
 			// The symbol resolves, but to something else. Naming the replacement here would
 			// be unhelpful, because the interesting fact is the collision.
 			findings = append(findings, SymbolFinding{
-				Entry: entry, State: SymbolMismatched, CatalogName: matchedSymbol.Name,
+				Entry: entry, State: SymbolMismatched,
+				CatalogName: matchedSymbol.Name, CatalogISIN: matchedSymbol.ISIN,
 			})
 		case isinExists:
 			findings = append(findings, SymbolFinding{
 				Entry: entry, State: SymbolRenamed,
 				Suggested: matchedISIN.ProviderSymbol, CatalogName: matchedISIN.Name,
+				CatalogISIN: matchedISIN.ISIN,
 			})
 		default:
 			findings = append(findings, SymbolFinding{Entry: entry, State: SymbolAbsent})
