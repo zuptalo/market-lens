@@ -3,8 +3,9 @@ package features
 // CompositeValue is the composite at one session, as stored: undefined when its contributor
 // count fell below the minimum.
 type CompositeValue struct {
-	MeanReturn float64
-	Defined    bool
+	MeanReturn       float64
+	Defined          bool
+	ContributorCount int
 }
 
 // RelativeStrength is the instrument's growth over the window relative to the composite's:
