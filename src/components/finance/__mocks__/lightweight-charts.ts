@@ -35,6 +35,8 @@ export interface RecordedRange {
 export interface RecordedChart {
   container: HTMLElement | string;
   options: Record<string, unknown>;
+  /** Options applied to each price scale, keyed by its id. */
+  priceScales: Record<string, Record<string, unknown>>;
   series: RecordedSeries[];
   applied: Record<string, unknown>[];
   /** Logical/visible ranges the component asked the time scale to show. */
@@ -137,6 +139,7 @@ export function createChart(
     container,
     options: structuredClone(options),
     series: [],
+    priceScales: {},
     applied: [],
     ranges: [],
     fitContentCalls: 0,
@@ -192,7 +195,12 @@ export function createChart(
     },
     options: () => structuredClone(record.options),
     timeScale: () => timeScale,
-    priceScale: () => ({ applyOptions: () => {} }),
+    priceScale: (id: string = 'right') => ({
+      applyOptions: (options: Record<string, unknown>) => {
+        record.priceScales[id] = { ...(record.priceScales[id] ?? {}), ...structuredClone(options) };
+      },
+      options: () => ({ ...(record.priceScales[id] ?? {}) }),
+    }),
     resize: (width: number, height: number) => {
       record.resized.push({ width, height });
     },
