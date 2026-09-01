@@ -185,3 +185,36 @@ func TestAuditSaysAnISINMatchCameFromTheISIN(t *testing.T) {
 		t.Errorf("finding = %#v", finding)
 	}
 }
+
+// A blank ISIN in the provider's catalog is missing information, not a conflict.
+//
+// "Mismatched" is the audit's most alarming state, and it means something specific: the symbol
+// resolves to a *different* company, so importing it would file one company's prices under
+// another's record. A row the provider publishes no identifier for supports no such claim.
+// Reporting it as a mismatch is absence of evidence dressed up as evidence of conflict, and it
+// sends the reader chasing a data corruption that is not there.
+func TestABlankCatalogISINIsNotAMismatch(t *testing.T) {
+	universe := []UniverseEntry{
+		{Ticker: "LUMO", ISIN: "FI4000312251", Name: "Lumo Kodit Oyj", MIC: "XHEL",
+			ProviderSymbol: "LUMO.HE", LastSession: "2026-08-31"},
+		{Ticker: "IMPOSTOR", ISIN: "FI0009000681", Name: "Nokia Oyj", MIC: "XHEL",
+			ProviderSymbol: "IMPOSTOR.HE", LastSession: "2026-08-31"},
+	}
+	catalog := map[string][]CatalogEntry{"XHEL": {
+		{ProviderSymbol: "LUMO.HE", ISIN: "", Ticker: "LUMO", Name: "LUMO KODIT OYJ"},
+		{ProviderSymbol: "IMPOSTOR.HE", ISIN: "FI0000000123", Ticker: "IMPOSTOR", Name: "Someone Else Oyj"},
+	}}
+
+	states := map[string]SymbolState{}
+	for _, finding := range AuditProviderSymbols(universe, catalog) {
+		states[finding.Entry.Ticker] = finding.State
+	}
+
+	if states["LUMO"] != SymbolUnverified {
+		t.Errorf("a symbol the provider publishes no ISIN for was reported as %q", states["LUMO"])
+	}
+	// A genuinely conflicting identifier must still be reported as loudly as before.
+	if states["IMPOSTOR"] != SymbolMismatched {
+		t.Errorf("a real identifier conflict was reported as %q", states["IMPOSTOR"])
+	}
+}

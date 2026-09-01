@@ -605,11 +605,12 @@ func reportSymbolAudit(output io.Writer, universe []marketdata.UniverseEntry,
 	}
 
 	_, err := fmt.Fprintf(output,
-		"checked=%d ok=%d renamed=%d absent=%d stale=%d uncatalogued=%d mismatched=%d unchecked=%d\n",
+		"checked=%d ok=%d renamed=%d absent=%d stale=%d uncatalogued=%d "+
+			"mismatched=%d unverified=%d unchecked=%d\n",
 		len(findings), counts[marketdata.SymbolOK], counts[marketdata.SymbolRenamed],
 		counts[marketdata.SymbolAbsent], counts[marketdata.SymbolStale],
-		counts[marketdata.SymbolUncatalogued],
-		counts[marketdata.SymbolMismatched], counts[marketdata.SymbolUnchecked])
+		counts[marketdata.SymbolUncatalogued], counts[marketdata.SymbolMismatched],
+		counts[marketdata.SymbolUnverified], counts[marketdata.SymbolUnchecked])
 	return err
 }
 
