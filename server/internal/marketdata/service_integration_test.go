@@ -525,3 +525,148 @@ func TestACorporateActionEventIsWrittenInTheSameTransactionAsTheAction(t *testin
 			"not transactionally coupled", actions, events)
 	}
 }
+
+// A finding describes a condition, and conditions end.
+//
+// Nothing ever wrote resolved_at or resolving_run_id, so every finding ever recorded stayed
+// open forever — 8,408 of them in production, most describing gaps that later imports had
+// already filled. The chart then marked sessions that were fine, and the count of open
+// findings measured how much had ever been wrong rather than how much still was.
+//
+// Feature 002 specified this: the finding entity carries a resolution state and a resolving
+// run. The columns existed and were only ever read.
+func TestAnImportResolvesFindingsWhoseConditionHasPassed(t *testing.T) {
+	pool := migratedPool(t)
+	repository := marketdata.NewRepository(pool)
+	provider := newScriptedProvider()
+
+	// The first import is missing 2024-04-02, a session the exchange was open for.
+	provider.set("NORD.ST", "", marketdata.DailyPage{Bars: []marketdata.ProviderBar{
+		bar(t, "2024-04-03", "53", "53", 181000, "bar-3"),
+	}})
+	service := marketdata.NewImportService(repository, provider)
+	request := importRequest(t, target(t, stockholmInstrument, "NORD.ST"))
+	if _, err := service.Import(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+
+	var openBefore int
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM data_quality_findings
+		WHERE rule='missing_session' AND status='open'`).Scan(&openBefore); err != nil {
+		t.Fatal(err)
+	}
+	if openBefore == 0 {
+		t.Fatal("the first import recorded no missing-session finding, so there is nothing to resolve")
+	}
+
+	// The second import supplies the session that was missing.
+	provider.set("NORD.ST", "", marketdata.DailyPage{Bars: []marketdata.ProviderBar{
+		bar(t, "2024-04-02", "51.75", "51.75", 180000, "bar-2"),
+		bar(t, "2024-04-03", "53", "53", 181000, "bar-3"),
+	}})
+	secondRun, err := service.Import(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var stillOpen, resolved int
+	var resolvingRun *string
+	if err := pool.QueryRow(context.Background(), `SELECT
+		(SELECT count(*) FROM data_quality_findings WHERE rule='missing_session' AND status='open'),
+		(SELECT count(*) FROM data_quality_findings WHERE rule='missing_session' AND status='resolved'),
+		(SELECT max(resolving_run_id::text) FROM data_quality_findings WHERE status='resolved')`).
+		Scan(&stillOpen, &resolved, &resolvingRun); err != nil {
+		t.Fatal(err)
+	}
+	if resolved == 0 {
+		t.Fatalf("filling the gap resolved nothing: %d still open", stillOpen)
+	}
+	if resolvingRun == nil || *resolvingRun != secondRun.ID.String() {
+		t.Errorf("resolving run = %v, expected the import that filled the gap (%s)",
+			resolvingRun, secondRun.ID)
+	}
+
+	// Resolution is a client-visible committed change and must publish its event.
+	var events int
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM client_events
+		WHERE event_type='quality_finding.changed.v1'`).Scan(&events); err != nil {
+		t.Fatal(err)
+	}
+	if events < 2 {
+		t.Errorf("only %d quality-finding events were published; resolving one publishes none", events)
+	}
+}
+
+// A gap that is still a gap stays open. Resolving on any import at all would turn the finding
+// into a record of "an import happened" rather than of a condition.
+func TestAnImportLeavesAFindingOpenWhileItsConditionHolds(t *testing.T) {
+	pool := migratedPool(t)
+	provider := newScriptedProvider()
+	page := marketdata.DailyPage{Bars: []marketdata.ProviderBar{
+		bar(t, "2024-04-03", "53", "53", 181000, "bar-3"),
+	}}
+	provider.set("NORD.ST", "", page)
+
+	service := marketdata.NewImportService(marketdata.NewRepository(pool), provider)
+	request := importRequest(t, target(t, stockholmInstrument, "NORD.ST"))
+	if _, err := service.Import(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	// The same incomplete page again: the session is still missing.
+	provider.set("NORD.ST", "", page)
+	if _, err := service.Import(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+
+	var open, resolved int
+	if err := pool.QueryRow(context.Background(), `SELECT
+		(SELECT count(*) FROM data_quality_findings WHERE rule='missing_session' AND status='open'),
+		(SELECT count(*) FROM data_quality_findings WHERE rule='missing_session' AND status='resolved')`).
+		Scan(&open, &resolved); err != nil {
+		t.Fatal(err)
+	}
+	if open == 0 || resolved != 0 {
+		t.Fatalf("a persisting gap reported open=%d resolved=%d", open, resolved)
+	}
+}
+
+// A finding for a session the import never covered is none of that import's business.
+func TestAnImportDoesNotResolveFindingsOutsideItsRange(t *testing.T) {
+	pool := migratedPool(t)
+	ctx := context.Background()
+
+	// A finding from an earlier era, well outside the range the import below requests.
+	var runID string
+	if err := pool.QueryRow(ctx, `INSERT INTO import_runs
+		(id,kind,provider,status,started_at,finished_at,app_version)
+		VALUES (gen_random_uuid(),'backfill','fixture','succeeded',now(),now(),'test')
+		RETURNING id::text`).Scan(&runID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO data_quality_findings
+		(id,instrument_id,session_date,run_id,rule,severity,disposition,detail,status,created_at)
+		VALUES (gen_random_uuid(),$1,'2019-05-06',$2,'missing_session','warning','flagged',
+		        'older than the imported range','open',now())`,
+		stockholmInstrument, runID); err != nil {
+		t.Fatal(err)
+	}
+
+	provider := newScriptedProvider()
+	provider.set("NORD.ST", "", marketdata.DailyPage{Bars: []marketdata.ProviderBar{
+		bar(t, "2024-04-02", "51.75", "51.75", 180000, "bar-2"),
+		bar(t, "2024-04-03", "53", "53", 181000, "bar-3"),
+	}})
+	service := marketdata.NewImportService(marketdata.NewRepository(pool), provider)
+	if _, err := service.Import(ctx, importRequest(t, target(t, stockholmInstrument, "NORD.ST"))); err != nil {
+		t.Fatal(err)
+	}
+
+	var status string
+	if err := pool.QueryRow(ctx, `SELECT status FROM data_quality_findings
+		WHERE session_date='2019-05-06'`).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "open" {
+		t.Errorf("a finding outside the imported range was marked %q", status)
+	}
+}
