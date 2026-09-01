@@ -982,6 +982,7 @@ func run() error {
 		SecureCookies: cfg.Auth.SecureCookies,
 		MarketData:    marketdata.NewRepository(pool),
 		Instruments:   instruments.NewQueryService(instruments.NewRepository(pool), marketdata.NewRepository(pool)),
+		Features:      features.NewRepository(pool),
 		Events:        clientevents.NewService(clientevents.NewRepository(pool)),
 		// An open stream re-reads its session and account on a bound tighter than the product's
 		// five-second promise, so a revocation or deactivation ends it without a reconnect.

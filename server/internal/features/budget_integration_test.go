@@ -3,6 +3,8 @@ package features_test
 import (
 	"testing"
 	"time"
+
+	"market-lens/server/internal/features"
 )
 
 // SC-006 / research R-008: a full computation from empty over the curated universe must
@@ -21,5 +23,24 @@ func TestAFullFixtureComputationStaysWithinItsScaledBudget(t *testing.T) {
 		bars, run.ValueCount, run.InstrumentCount, elapsed.Round(time.Millisecond), budget)
 	if elapsed > budget {
 		t.Errorf("full fixture computation took %s, over the %s budget", elapsed.Round(time.Millisecond), budget)
+	}
+}
+
+// SC-007: reading one instrument's features as of a session is bounded by the same two-second
+// budget the Markets listing's first page already enforces.
+func TestReadingOneInstrumentsFeaturesStaysWithinTheListingsBudget(t *testing.T) {
+	const budget = 2 * time.Second
+	f := newEngineFixture(t)
+	computeFixture(t, f, 4)
+	repository := features.NewRepository(f.pool)
+	started := time.Now()
+	set, err := repository.ReadAsOf(f.ctx, fixtureA, fixtureAsOf)
+	elapsed := time.Since(started)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("read %d features as of %s in %s (budget %s)", len(set.Features), fixtureAsOf, elapsed.Round(time.Microsecond), budget)
+	if elapsed > budget {
+		t.Errorf("reading one instrument took %s, over the %s budget", elapsed.Round(time.Millisecond), budget)
 	}
 }

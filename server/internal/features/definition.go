@@ -204,6 +204,9 @@ func (r *Registry) WMax() int { return r.wMax }
 func (r *Registry) Currency(name string) bool { return specs[name].currency }
 
 // UsesComposite reports whether a definition reads the composite series.
+// usesComposite reports whether a definition reads the universe composite, by name.
+func usesComposite(name string) bool { return specs[name].usesComposite }
+
 func (r *Registry) UsesComposite(name string) bool { return specs[name].usesComposite }
 
 // Compute evaluates one definition over its satisfied window.

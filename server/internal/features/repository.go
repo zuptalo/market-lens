@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -13,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	clientevents "market-lens/server/internal/events"
+	"market-lens/server/internal/instruments"
 )
 
 // EventFeatureValuesChanged is published in the transaction that commits one instrument's
@@ -35,12 +39,20 @@ func (r *Repository) ready() error {
 
 // Definitions returns every published definition, superseded ones included.
 func (r *Repository) Definitions(ctx context.Context) ([]Definition, error) {
+	return r.ListDefinitions(ctx, "", true)
+}
+
+// ListDefinitions returns the published definitions ordered by name then version, optionally
+// one name only, and optionally without the versions that have been superseded.
+func (r *Repository) ListDefinitions(ctx context.Context, name string, includeSuperseded bool) ([]Definition, error) {
 	if err := r.ready(); err != nil {
 		return nil, err
 	}
 	rows, err := r.pool.Query(ctx, `SELECT id::text, name, version, window_sessions, price_basis, parameters,
 		undefined_conditions, session_length_sensitive, published_at, superseded_at
-		FROM feature_definitions ORDER BY name, version`)
+		FROM feature_definitions
+		WHERE ($1 = '' OR name = $1) AND ($2 OR superseded_at IS NULL)
+		ORDER BY name, version`, name, includeSuperseded)
 	if err != nil {
 		return nil, fmt.Errorf("read feature definitions: %w", err)
 	}
@@ -476,32 +488,109 @@ func (s *Scope) Rollback(ctx context.Context) error {
 	return s.tx.Rollback(ctx)
 }
 
-// ReadAsOf returns every active definition for one instrument at one session: a stored value
-// or absence for each definition that has a row, and the names of those that have none.
+// ReadRequest asks for one instrument's features. AsOf empty means the latest stored session;
+// Features empty means every active definition.
+type ReadRequest struct {
+	InstrumentID UUID
+	AsOf         SessionDate
+	Features     []string
+}
+
+// UnknownFeatureError names a requested feature that does not exist alongside the sorted
+// names of the ones that do (US2-3). It unwraps to ErrUnknownFeature.
+type UnknownFeatureError struct {
+	Name  string
+	Known []string
+}
+
+func (e *UnknownFeatureError) Error() string {
+	return fmt.Sprintf("unknown feature %q; known features: %s", e.Name, strings.Join(e.Known, ", "))
+}
+
+func (e *UnknownFeatureError) Unwrap() error { return ErrUnknownFeature }
+
+// ReadAsOf returns every active definition for one instrument as of one session.
 func (r *Repository) ReadAsOf(ctx context.Context, instrumentID UUID, asOf SessionDate) (FeatureSet, error) {
+	return r.Read(ctx, ReadRequest{InstrumentID: instrumentID, AsOf: asOf})
+}
+
+// Read returns the requested active definitions for one instrument as of a session: a stored
+// value or absence for each definition that has a row at the instrument's latest stored
+// session on or before AsOf, and the names of those that have none. A date the exchange was
+// closed is refused; an instrument with no bar on or before the date has no history.
+func (r *Repository) Read(ctx context.Context, request ReadRequest) (FeatureSet, error) {
 	if err := r.ready(); err != nil {
 		return FeatureSet{}, err
 	}
-	set := FeatureSet{InstrumentID: instrumentID, SessionDate: asOf}
+	var exchangeID string
+	err := r.pool.QueryRow(ctx, `SELECT exchange_id FROM instruments WHERE id = $1`, request.InstrumentID.String()).Scan(&exchangeID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return FeatureSet{}, ErrNoHistory
+	}
+	if err != nil {
+		return FeatureSet{}, fmt.Errorf("read instrument: %w", err)
+	}
+	if request.AsOf != "" {
+		if _, err := instruments.ParseSessionDate(request.AsOf.String()); err != nil {
+			return FeatureSet{}, ErrClosedDate
+		}
+		var open bool
+		if err := r.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM exchange_sessions
+			WHERE exchange_id = $1 AND session_date = $2 AND status <> 'closed')`,
+			exchangeID, request.AsOf.String()).Scan(&open); err != nil {
+			return FeatureSet{}, fmt.Errorf("read exchange session: %w", err)
+		}
+		if !open {
+			return FeatureSet{}, ErrClosedDate
+		}
+	}
+	var session *string
+	if err := r.pool.QueryRow(ctx, `SELECT max(session_date)::text FROM daily_price_bars
+		WHERE instrument_id = $1 AND ($2 = '' OR session_date <= $2::date)`,
+		request.InstrumentID.String(), request.AsOf.String()).Scan(&session); err != nil {
+		return FeatureSet{}, fmt.Errorf("read latest session: %w", err)
+	}
+	if session == nil {
+		return FeatureSet{}, ErrNoHistory
+	}
+	asOf := SessionDate(*session)
+	names, err := r.requestedNames(ctx, request.Features)
+	if err != nil {
+		return FeatureSet{}, err
+	}
+	set := FeatureSet{InstrumentID: request.InstrumentID, SessionDate: asOf, NotComputed: []string{}}
+	// The composite a relative-strength value was measured against is the one of the run
+	// that produced it, at the same session; the latest version stored wins when several are.
 	rows, err := r.pool.Query(ctx, `
 		SELECT d.name, d.version, d.window_sessions,
-		       v.value::text, v.label, v.absence_reason, v.currency, v.computed_at
+		       v.value::text, v.label, v.absence_reason, v.currency, v.computed_at,
+		       c.version, c.contributor_count
 		FROM feature_definitions d
 		LEFT JOIN feature_values v
 		       ON v.definition_id = d.id AND v.instrument_id = $1 AND v.session_date = $2
-		WHERE d.superseded_at IS NULL AND d.name <> $3
-		ORDER BY d.name`, instrumentID.String(), asOf.String(), CompositeDefinitionName)
+		LEFT JOIN feature_runs r ON r.id = v.run_id
+		LEFT JOIN LATERAL (
+			SELECT cd.version, uc.contributor_count
+			FROM universe_composites uc
+			JOIN feature_definitions cd ON cd.id = uc.definition_id
+			WHERE uc.universe_id = r.universe_id AND uc.session_date = v.session_date
+			ORDER BY cd.version DESC
+			LIMIT 1
+		) c ON $4
+		WHERE d.superseded_at IS NULL AND d.name <> $3 AND d.name = ANY($5::text[])
+		ORDER BY d.name`, request.InstrumentID.String(), asOf.String(), CompositeDefinitionName, true, names)
 	if err != nil {
 		return FeatureSet{}, fmt.Errorf("read features as of %s: %w", asOf, err)
 	}
 	defer rows.Close()
-	set.NotComputed = []string{}
 	for rows.Next() {
 		var value Value
 		var reason *string
 		var computedAt *time.Time
+		var compositeVersion, contributorCount *int
 		if err := rows.Scan(&value.Name, &value.DefinitionVersion, &value.WindowSessions,
-			&value.Value, &value.Label, &reason, &value.Currency, &computedAt); err != nil {
+			&value.Value, &value.Label, &reason, &value.Currency, &computedAt,
+			&compositeVersion, &contributorCount); err != nil {
 			return FeatureSet{}, fmt.Errorf("scan feature value: %w", err)
 		}
 		if value.Value == nil && value.Label == nil && reason == nil {
@@ -516,10 +605,51 @@ func (r *Repository) ReadAsOf(ctx context.Context, instrumentID UUID, asOf Sessi
 		if computedAt != nil {
 			value.ComputedAt = *computedAt
 		}
+		if usesComposite(value.Name) && compositeVersion != nil && contributorCount != nil {
+			value.ComparedTo = &CompositeReference{
+				Composite: "universe_equal_weighted", Version: *compositeVersion, ContributorCount: *contributorCount,
+			}
+		}
 		set.Features = append(set.Features, value)
 	}
 	if err := rows.Err(); err != nil {
 		return FeatureSet{}, fmt.Errorf("read features as of %s: %w", asOf, err)
 	}
 	return set, nil
+}
+
+// requestedNames validates a feature filter against the active per-instrument definitions
+// and returns the names to read, sorted; an empty filter reads them all.
+func (r *Repository) requestedNames(ctx context.Context, requested []string) ([]string, error) {
+	rows, err := r.pool.Query(ctx, `SELECT name FROM feature_definitions
+		WHERE superseded_at IS NULL AND name <> $1 ORDER BY name`, CompositeDefinitionName)
+	if err != nil {
+		return nil, fmt.Errorf("read active definitions: %w", err)
+	}
+	defer rows.Close()
+	var known []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("scan definition name: %w", err)
+		}
+		known = append(known, name)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read active definitions: %w", err)
+	}
+	if len(requested) == 0 {
+		return known, nil
+	}
+	names := make([]string, 0, len(requested))
+	for _, name := range requested {
+		if !slices.Contains(known, name) {
+			return nil, &UnknownFeatureError{Name: name, Known: known}
+		}
+		if !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names, nil
 }
