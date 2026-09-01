@@ -204,6 +204,35 @@ func (r *Repository) Splits(ctx context.Context, instrumentID UUID) ([]Split, er
 	return splits, rows.Err()
 }
 
+// SessionsTouchedByRun lists, per instrument, the sessions an import run wrote or revised:
+// the bars it stamped and the observations it superseded.
+func (r *Repository) SessionsTouchedByRun(ctx context.Context, importRunID UUID) (map[UUID][]SessionDate, error) {
+	if err := r.ready(); err != nil {
+		return nil, err
+	}
+	rows, err := r.pool.Query(ctx, `
+		SELECT instrument_id::text, session_date::text FROM daily_price_bars WHERE import_run_id = $1
+		UNION
+		SELECT instrument_id::text, session_date::text FROM price_bar_revisions WHERE superseding_run_id = $1
+		ORDER BY 1, 2`, importRunID.String())
+	if err != nil {
+		return nil, fmt.Errorf("read sessions touched by run %s: %w", importRunID, err)
+	}
+	defer rows.Close()
+	touched := map[UUID][]SessionDate{}
+	for rows.Next() {
+		var instrument, session string
+		if err := rows.Scan(&instrument, &session); err != nil {
+			return nil, fmt.Errorf("scan touched session: %w", err)
+		}
+		touched[UUID(instrument)] = append(touched[UUID(instrument)], SessionDate(session))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read sessions touched by run %s: %w", importRunID, err)
+	}
+	return touched, nil
+}
+
 // CreateRun records a run in its running state.
 func (r *Repository) CreateRun(ctx context.Context, run Run) error {
 	if err := r.ready(); err != nil {
@@ -412,16 +441,29 @@ func (r *Repository) BeginInstrumentScope(ctx context.Context, instrumentID UUID
 	return &Scope{tx: tx, instrumentID: instrumentID}, nil
 }
 
-// WriteValues replaces every value of the instrument over [from, to] with the rows given.
-// Delete-then-insert over the whole affected range is what makes a definition that no
-// longer yields a row (a session whose bar was removed) disappear rather than linger.
-func (s *Scope) WriteValues(ctx context.Context, runID UUID, from, to SessionDate, rows []ValueRow) error {
+// WriteValues replaces the instrument's values over [from, to] with the rows given — every
+// definition's, or only the listed definitions' when a run is scoped to some. Delete-then-
+// insert over the whole affected range is what makes a definition that no longer yields a
+// row (a session whose bar was removed) disappear rather than linger.
+func (s *Scope) WriteValues(ctx context.Context, runID UUID, from, to SessionDate, only []UUID, rows []ValueRow) error {
 	if s == nil || s.tx == nil {
 		return errors.New("feature scope is not active")
 	}
-	if _, err := s.tx.Exec(ctx, `DELETE FROM feature_values WHERE instrument_id = $1
-		AND session_date BETWEEN $2::date AND $3::date`, s.instrumentID.String(), from.String(), to.String()); err != nil {
-		return fmt.Errorf("clear feature values: %w", err)
+	if len(only) == 0 {
+		if _, err := s.tx.Exec(ctx, `DELETE FROM feature_values WHERE instrument_id = $1
+			AND session_date BETWEEN $2::date AND $3::date`, s.instrumentID.String(), from.String(), to.String()); err != nil {
+			return fmt.Errorf("clear feature values: %w", err)
+		}
+	} else {
+		ids := make([]string, len(only))
+		for i, id := range only {
+			ids[i] = id.String()
+		}
+		if _, err := s.tx.Exec(ctx, `DELETE FROM feature_values WHERE instrument_id = $1
+			AND session_date BETWEEN $2::date AND $3::date AND definition_id = ANY($4::uuid[])`,
+			s.instrumentID.String(), from.String(), to.String(), ids); err != nil {
+			return fmt.Errorf("clear feature values: %w", err)
+		}
 	}
 	if len(rows) == 0 {
 		return nil

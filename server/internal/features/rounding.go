@@ -1,8 +1,8 @@
 package features
 
 import (
-	"math/big"
 	"strconv"
+	"strings"
 )
 
 // Places is the stored precision of every numeric feature value: numeric(24,12).
@@ -12,34 +12,54 @@ const Places = 12
 // rounding half-to-even (research R-001). The rounding is applied to the shortest decimal
 // that round-trips the float64 — the number the computation actually produced — never to its
 // full binary expansion, so 1.5e-12 is a true tie and rounds to 0.000000000002.
+//
+// The shortest decimal is already a digit string, so the rounding is done on its digits: it
+// is exact, and it runs at the speed of a copy rather than of rational arithmetic, which is
+// what keeps an incremental pass inside its budget (SC-006).
 func Round(value float64) string {
 	shortest := strconv.FormatFloat(value, 'f', -1, 64)
-	rounded := new(big.Rat)
-	if _, ok := rounded.SetString(shortest); !ok {
+	if strings.ContainsAny(shortest, "NI") {
 		// Only NaN and the infinities reach here; the callers report them as absences
 		// before storing anything, so a panic is the correct response to a caller that did not.
 		panic("features: Round of a non-finite value " + shortest)
 	}
-	scale := new(big.Int).Exp(big.NewInt(10), big.NewInt(Places), nil)
-	scaled := new(big.Rat).Mul(rounded, new(big.Rat).SetInt(scale))
-	quotient, remainder := new(big.Int).QuoRem(scaled.Num(), scaled.Denom(), new(big.Int))
-	// QuoRem truncates toward zero; decide the last unit from twice the remainder.
-	twice := new(big.Int).Mul(remainder.Abs(remainder), big.NewInt(2))
-	switch twice.Cmp(scaled.Denom()) {
-	case 1:
-		if scaled.Sign() < 0 {
-			quotient.Sub(quotient, big.NewInt(1))
-		} else {
-			quotient.Add(quotient, big.NewInt(1))
+	negative := strings.HasPrefix(shortest, "-")
+	shortest = strings.TrimPrefix(shortest, "-")
+	integer, fraction, _ := strings.Cut(shortest, ".")
+	var digits []byte
+	if len(fraction) <= Places {
+		digits = make([]byte, 0, len(integer)+Places)
+		digits = append(digits, integer...)
+		digits = append(digits, fraction...)
+		for range Places - len(fraction) {
+			digits = append(digits, '0')
 		}
-	case 0:
-		if quotient.Bit(0) == 1 {
-			if scaled.Sign() < 0 {
-				quotient.Sub(quotient, big.NewInt(1))
+	} else {
+		digits = make([]byte, 0, len(integer)+Places+1)
+		digits = append(digits, integer...)
+		digits = append(digits, fraction[:Places]...)
+		tail := fraction[Places:]
+		up := tail[0] > '5'
+		if tail[0] == '5' {
+			// Exactly half only if nothing follows the 5; then the last kept digit decides.
+			up = strings.Trim(tail[1:], "0") != "" || digits[len(digits)-1]%2 == 1
+		}
+		if up {
+			i := len(digits) - 1
+			for ; i >= 0 && digits[i] == '9'; i-- {
+				digits[i] = '0'
+			}
+			if i < 0 {
+				digits = append([]byte{'1'}, digits...)
 			} else {
-				quotient.Add(quotient, big.NewInt(1))
+				digits[i]++
 			}
 		}
 	}
-	return new(big.Rat).SetFrac(quotient, scale).FloatString(Places)
+	split := len(digits) - Places
+	result := string(digits[:split]) + "." + string(digits[split:])
+	if negative && strings.Trim(result, "0.") != "" {
+		return "-" + result
+	}
+	return result
 }

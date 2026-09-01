@@ -496,6 +496,51 @@ func mustSession(t *testing.T, value string) marketdata.SessionDate {
 	return parsed
 }
 
+func TestFeaturesComputeAcceptsSinceRunAndDefinition(t *testing.T) {
+	sinceRun := "ffffffff-0013-4000-8000-00000000a002"
+	command, err := parseFeaturesCommand([]string{"features", "compute", "--since-run", sinceRun})
+	if err != nil || command.Kind != features.RunKindIncremental || command.SinceRun.String() != sinceRun || command.Universe != "nordic-liquid-v1" {
+		t.Fatalf("--since-run: command = %#v, err = %v", command, err)
+	}
+	command, err = parseFeaturesCommand([]string{"features", "compute", "--definition", "rsi_14", "--universe", "fixture-v1"})
+	if err != nil || command.Kind != features.RunKindDefinition || command.Definition != "rsi_14" || command.Universe != "fixture-v1" {
+		t.Fatalf("--definition: command = %#v, err = %v", command, err)
+	}
+	for _, args := range [][]string{
+		{"features", "compute", "--since-run", "not-a-uuid"},
+		{"features", "compute", "--since-run", ""},
+		{"features", "compute", "--definition", ""},
+		{"features", "compute", "--since-run", sinceRun, "--definition", "rsi_14"},
+	} {
+		if _, err := parseFeaturesCommand(args); err == nil || !strings.Contains(err.Error(), "features compute") {
+			t.Errorf("%v: err = %v, expected usage naming features compute", args, err)
+		}
+	}
+	// The kind and its argument reach the service.
+	var received features.ComputeRequest
+	computer := computerFunc(func(_ context.Context, request features.ComputeRequest) (features.Run, error) {
+		received = request
+		return features.Run{ID: features.UUID(sinceRun), Status: features.RunStatusSucceeded}, nil
+	})
+	var output bytes.Buffer
+	if err := executeFeaturesCommand(context.Background(), featuresCommand{
+		Kind: features.RunKindIncremental, Universe: "fixture-v1", SinceRun: features.UUID(sinceRun),
+	}, computer, &output, "v", 1); err != nil {
+		t.Fatal(err)
+	}
+	if received.Kind != features.RunKindIncremental || received.SinceRun.String() != sinceRun {
+		t.Errorf("incremental request = %#v", received)
+	}
+	if err := executeFeaturesCommand(context.Background(), featuresCommand{
+		Kind: features.RunKindDefinition, Universe: "fixture-v1", Definition: "rsi_14",
+	}, computer, &output, "v", 1); err != nil {
+		t.Fatal(err)
+	}
+	if received.Kind != features.RunKindDefinition || received.Definition != "rsi_14" {
+		t.Errorf("definition request = %#v", received)
+	}
+}
+
 func TestFeaturesComputeReportsTheRunLikeMarketDataDoes(t *testing.T) {
 	t.Run("parse", func(t *testing.T) {
 		command, err := parseFeaturesCommand([]string{"features", "compute", "--universe", "fixture-v1"})

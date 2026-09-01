@@ -17,7 +17,7 @@ market-lens features compute --universe nordic-liquid-v1
 market-lens features compute --since-run <import-run-id>
 
 # One definition across the full history, after publishing a new version.
-market-lens features compute --definition rsi
+market-lens features compute --definition rsi_14
 ```
 
 Mirrors `marketdata backfill` deliberately — same run/item vocabulary, same advisory locking,
@@ -122,8 +122,10 @@ SELECT count(*) FROM feature_values v
 JOIN instruments i ON i.id = v.instrument_id
 LEFT JOIN exchange_sessions s
   ON s.exchange_id = i.exchange_id AND s.session_date = v.session_date
-WHERE s.session_date IS NULL OR s.status <> 'open';
+WHERE s.session_date IS NULL OR s.status NOT IN ('open', 'half_day');
 -- expect 0
+-- A half day is a session: XSTO trades a short day on 01-05 and 04-30 (migration 0005), and
+-- the engine computes on it. Comparing against 'open' alone would report every one of them.
 ```
 
 **Markets agrees with the engine (SC-010)** — open Markets, pick any row, read that

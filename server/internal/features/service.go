@@ -19,6 +19,22 @@ type ComputeRequest struct {
 	Universe   string
 	Workers    int
 	AppVersion string
+	// SinceRun is the import run an incremental run follows: the sessions it wrote or revised
+	// are what gets recomputed.
+	SinceRun UUID
+	// Definition is the one definition a definition run recomputes across the full history.
+	Definition string
+}
+
+// scope is one instrument's share of a run: the sessions to recompute and the definitions
+// to recompute there — every active one, or the few a run is limited to.
+type scope struct {
+	h           *history
+	from, to    SessionDate
+	definitions []Definition
+	// all says the definitions are every active one, so the write replaces every value in
+	// the range rather than only the listed definitions'.
+	all bool
 }
 
 // Service runs the engine: one composite stage over the universe, then every instrument in
@@ -64,15 +80,7 @@ func (h *history) adjustedAt(session SessionDate) *History {
 	return view
 }
 
-func (s *Service) load(ctx context.Context, instrument Instrument, calendars map[UUID][]Session) (*history, error) {
-	calendar, ok := calendars[instrument.ExchangeID]
-	if !ok {
-		var err error
-		if calendar, err = s.repository.Calendar(ctx, instrument.ExchangeID); err != nil {
-			return nil, err
-		}
-		calendars[instrument.ExchangeID] = calendar
-	}
+func (s *Service) load(ctx context.Context, instrument Instrument, calendar []Session) (*history, error) {
 	bars, err := s.repository.Bars(ctx, instrument.ID)
 	if err != nil {
 		return nil, err
@@ -86,13 +94,53 @@ func (s *Service) load(ctx context.Context, instrument Instrument, calendars map
 		raw: NewHistory(bars, calendar), adjusted: map[int]*History{}}, nil
 }
 
+// loadAll reads every member's history, the exchange calendars once each and the per-instrument
+// bars and splits concurrently: an incremental pass computes little but still reads whole
+// histories, so the reads, not the arithmetic, set its floor.
+func (s *Service) loadAll(ctx context.Context, members []Instrument, workers int) ([]*history, error) {
+	calendars := map[UUID][]Session{}
+	for _, member := range members {
+		if _, ok := calendars[member.ExchangeID]; ok {
+			continue
+		}
+		calendar, err := s.repository.Calendar(ctx, member.ExchangeID)
+		if err != nil {
+			return nil, err
+		}
+		calendars[member.ExchangeID] = calendar
+	}
+	histories := make([]*history, len(members))
+	errs := make([]error, len(members))
+	semaphore := make(chan struct{}, workers)
+	var wg sync.WaitGroup
+	for index, member := range members {
+		wg.Add(1)
+		semaphore <- struct{}{}
+		go func(index int, member Instrument) {
+			defer wg.Done()
+			defer func() { <-semaphore }()
+			histories[index], errs[index] = s.load(ctx, member, calendars[member.ExchangeID])
+		}(index, member)
+	}
+	wg.Wait()
+	return histories, errors.Join(errs...)
+}
+
 // Compute runs the engine over a universe and reports the run.
 func (s *Service) Compute(ctx context.Context, request ComputeRequest) (Run, error) {
 	if s == nil || s.repository == nil {
 		return Run{}, errors.New("features service is required")
 	}
-	if request.Kind != RunKindFull {
+	switch request.Kind {
+	case RunKindFull, RunKindIncremental, RunKindDefinition:
+	default:
 		return Run{}, fmt.Errorf("features: run kind %q is not supported", request.Kind)
+	}
+	if request.Kind == RunKindIncremental && request.SinceRun == "" {
+		return Run{}, errors.New("features: an incremental run needs the import run it follows")
+	}
+	if request.Kind == RunKindDefinition && request.Definition == "" {
+		return Run{}, errors.New("features: a definition run needs the definition to recompute")
 	}
 	if request.Workers < 1 {
 		request.Workers = 1
@@ -108,6 +156,12 @@ func (s *Service) Compute(ctx context.Context, request ComputeRequest) (Run, err
 	if err != nil {
 		return Run{}, err
 	}
+	var recomputed []Definition
+	if request.Kind == RunKindDefinition {
+		if recomputed = registry.Named(request.Definition); len(recomputed) == 0 {
+			return Run{}, fmt.Errorf("features: %q is not an active definition", request.Definition)
+		}
+	}
 	universeID, err := s.repository.UniverseID(ctx, request.Universe)
 	if err != nil {
 		return Run{}, err
@@ -116,30 +170,63 @@ func (s *Service) Compute(ctx context.Context, request ComputeRequest) (Run, err
 	if err != nil {
 		return Run{}, err
 	}
+	var touched map[UUID][]SessionDate
+	if request.Kind == RunKindIncremental {
+		if touched, err = s.repository.SessionsTouchedByRun(ctx, request.SinceRun); err != nil {
+			return Run{}, err
+		}
+	}
 	runID, err := instruments.NewUUID()
 	if err != nil {
 		return Run{}, err
 	}
 	run := Run{ID: UUID(runID), Kind: request.Kind, Status: RunStatusRunning, UniverseID: universeID,
 		StartedAt: time.Now().UTC(), AppVersion: request.AppVersion}
+	if request.Kind == RunKindIncremental {
+		since := request.SinceRun
+		run.TriggerRunID = &since
+	}
+	if request.Kind == RunKindDefinition {
+		name := request.Definition
+		run.DefinitionName = &name
+	}
 	if err := s.repository.CreateRun(ctx, run); err != nil {
 		return Run{}, err
 	}
 	s.logger.Info("feature run started", "run_id", run.ID, "kind", run.Kind, "universe", request.Universe,
-		"instruments", len(members), "workers", request.Workers)
+		"instruments", len(members), "workers", request.Workers, "trigger_run_id", request.SinceRun,
+		"definition", request.Definition)
 
-	histories := make([]*history, 0, len(members))
-	calendars := map[UUID][]Session{}
-	for _, member := range members {
-		h, err := s.load(ctx, member, calendars)
-		if err != nil {
-			return s.fail(ctx, run, err)
-		}
-		histories = append(histories, h)
+	if request.Kind == RunKindIncremental && len(touched) == 0 {
+		return s.finish(ctx, run, 0, 0, 0, 0)
+	}
+	histories, err := s.loadAll(ctx, members, request.Workers)
+	if err != nil {
+		return s.fail(ctx, run, err)
 	}
 
-	// Stage one: the composite over the whole universe, before any instrument begins.
-	composites, err := s.computeComposite(ctx, registry, run, universeID, histories)
+	// Stage one: the composite over the whole universe, before any instrument begins. A
+	// definition run leaves the stored composite alone unless it is the composite itself.
+	var scopes []scope
+	var writeComposite *SessionRange
+	switch request.Kind {
+	case RunKindFull:
+		writeComposite = &SessionRange{}
+		for _, h := range histories {
+			scopes = append(scopes, s.fullScope(h, registry.Active(), true))
+		}
+	case RunKindDefinition:
+		if _, isComposite := registry.Composite(); isComposite && recomputed[0].Name == CompositeDefinitionName {
+			writeComposite = &SessionRange{}
+			recomputed = registry.CompositeUsers()
+		}
+		for _, h := range histories {
+			scopes = append(scopes, s.fullScope(h, recomputed, false))
+		}
+	case RunKindIncremental:
+		scopes, writeComposite = s.incrementalScopes(registry, histories, touched)
+	}
+	composites, err := s.computeComposite(ctx, registry, run, universeID, histories, writeComposite)
 	if err != nil {
 		return s.fail(ctx, run, err)
 	}
@@ -150,13 +237,13 @@ func (s *Service) Compute(ctx context.Context, request ComputeRequest) (Run, err
 	var values int64
 	semaphore := make(chan struct{}, request.Workers)
 	var wg sync.WaitGroup
-	for _, h := range histories {
+	for _, sc := range scopes {
 		wg.Add(1)
 		semaphore <- struct{}{}
-		go func(h *history) {
+		go func(sc scope) {
 			defer wg.Done()
 			defer func() { <-semaphore }()
-			written, err := s.computeInstrument(ctx, registry, run, h, composites)
+			written, err := s.computeInstrument(ctx, registry, run, sc, composites)
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
@@ -165,10 +252,74 @@ func (s *Service) Compute(ctx context.Context, request ComputeRequest) (Run, err
 				succeeded++
 				values += written
 			}
-		}(h)
+		}(sc)
 	}
 	wg.Wait()
+	return s.finish(ctx, run, len(members), succeeded, failed, values)
+}
 
+// fullScope covers every stored session of an instrument.
+func (s *Service) fullScope(h *history, definitions []Definition, all bool) scope {
+	sc := scope{h: h, definitions: definitions, all: all}
+	if len(h.bars) > 0 {
+		sc.from, sc.to = h.bars[0].Session, h.bars[len(h.bars)-1].Session
+	}
+	return sc
+}
+
+// incrementalScopes limits each instrument to the sessions the touched bars take part in
+// (research R-004). A touched instrument recomputes every definition over
+// [S, S + W_max − 1]. The composite changes at each touched session and the one after it,
+// so every other member recomputes only the definitions that read the composite, over the
+// reach of the longest of their windows. The composite itself is rewritten over the union.
+func (s *Service) incrementalScopes(registry *Registry, histories []*history, touched map[UUID][]SessionDate) ([]scope, *SessionRange) {
+	users := registry.CompositeUsers()
+	usersWindow := 0
+	for _, definition := range users {
+		usersWindow = max(usersWindow, *definition.WindowSessions)
+	}
+	var earliest, latest SessionDate
+	for _, sessions := range touched {
+		for _, session := range sessions {
+			if earliest == "" || session < earliest {
+				earliest = session
+			}
+			latest = max(latest, session)
+		}
+	}
+	write := SessionRange{From: earliest, To: latest}
+	var scopes []scope
+	for _, h := range histories {
+		if len(h.bars) == 0 {
+			continue
+		}
+		lastBar := h.bars[len(h.bars)-1].Session
+		if sessions, ok := touched[h.instrument.ID]; ok {
+			first, last := sessions[0], sessions[0]
+			for _, session := range sessions[1:] {
+				first, last = min(first, session), max(last, session)
+			}
+			reach := AffectedRange(h.calendar, last, registry.WMax())
+			write.To = max(write.To, reach.To)
+			scopes = append(scopes, scope{h: h, from: first, to: min(reach.To, lastBar), definitions: registry.Active(), all: true})
+			continue
+		}
+		if len(users) == 0 {
+			continue
+		}
+		// A window of n sessions reads the composite at its last n−1 sessions, so the
+		// composite at S+1 is read up to S + n − 1: the reach of a window of n from S.
+		reach := AffectedRange(h.calendar, latest, usersWindow)
+		from, to := max(earliest, h.bars[0].Session), min(reach.To, lastBar)
+		if from > to {
+			continue
+		}
+		scopes = append(scopes, scope{h: h, from: from, to: to, definitions: users})
+	}
+	return scopes, &write
+}
+
+func (s *Service) finish(ctx context.Context, run Run, instrumentCount, succeeded, failed int, values int64) (Run, error) {
 	status := RunStatusSucceeded
 	switch {
 	case failed > 0 && succeeded == 0:
@@ -177,11 +328,11 @@ func (s *Service) Compute(ctx context.Context, request ComputeRequest) (Run, err
 		status = RunStatusPartial
 	}
 	finished := time.Now().UTC()
-	if err := s.repository.FinishRun(ctx, run.ID, status, int64(len(members)), values, finished); err != nil {
+	if err := s.repository.FinishRun(ctx, run.ID, status, int64(instrumentCount), values, finished); err != nil {
 		return Run{}, err
 	}
-	run.Status, run.FinishedAt, run.InstrumentCount, run.ValueCount = status, &finished, int64(len(members)), values
-	s.logger.Info("feature run finished", "run_id", run.ID, "status", status, "instruments", len(members),
+	run.Status, run.FinishedAt, run.InstrumentCount, run.ValueCount = status, &finished, int64(instrumentCount), values
+	s.logger.Info("feature run finished", "run_id", run.ID, "status", status, "instruments", instrumentCount,
 		"failed", failed, "values", values, "elapsed", finished.Sub(run.StartedAt))
 	return run, nil
 }
@@ -198,7 +349,10 @@ func (s *Service) fail(ctx context.Context, run Run, cause error) (Run, error) {
 // computeComposite writes the composite at every session any member traded: the
 // equal-weighted mean of the session-over-session adjusted return of every member with a
 // bar at the session and at its exchange's previous session, as adjusted as of that session.
-func (s *Service) computeComposite(ctx context.Context, registry *Registry, run Run, universeID UUID, histories []*history) (map[SessionDate]CompositeValue, error) {
+//
+// The series is computed in full so every window can read it; write says which sessions
+// are stored — nil for none, an empty range for all, a range for the sessions inside it.
+func (s *Service) computeComposite(ctx context.Context, registry *Registry, run Run, universeID UUID, histories []*history, write *SessionRange) (map[SessionDate]CompositeValue, error) {
 	definition, ok := registry.Composite()
 	if !ok {
 		return map[SessionDate]CompositeValue{}, nil
@@ -249,82 +403,125 @@ func (s *Service) computeComposite(ctx context.Context, registry *Registry, run 
 		}
 		rows = append(rows, row)
 	}
-	if err := s.repository.WriteComposite(ctx, universeID, definition.ID, run.ID, sessions[0], sessions[len(sessions)-1], rows); err != nil {
+	if write == nil {
+		return series, nil
+	}
+	from, to := sessions[0], sessions[len(sessions)-1]
+	if write.From != "" || write.To != "" {
+		from, to = max(from, write.From), min(to, write.To)
+		kept := rows[:0]
+		for _, row := range rows {
+			if row.Session >= from && row.Session <= to {
+				kept = append(kept, row)
+			}
+		}
+		rows = kept
+	}
+	if from > to {
+		return series, nil
+	}
+	if err := s.repository.WriteComposite(ctx, universeID, definition.ID, run.ID, from, to, rows); err != nil {
 		return nil, err
 	}
 	s.logger.Info("composite computed", "run_id", run.ID, "definition", definition.Name, "version", definition.Version,
-		"sessions", len(rows))
+		"from", from, "to", to, "sessions", len(rows))
 	return series, nil
 }
 
-// computeInstrument computes every active definition at every session the instrument has a
-// bar for, and commits them with the item and the change event as one transaction.
-func (s *Service) computeInstrument(ctx context.Context, registry *Registry, run Run, h *history, composites map[SessionDate]CompositeValue) (int64, error) {
+// computeInstrument computes the scope's definitions at every session in its range the
+// instrument has a bar for, and commits them with the item and the change event as one
+// transaction. A failure of any kind — an error or a panic inside one definition — is
+// contained to this instrument: the scope rolls back, the item records it, and the run goes
+// on with the previous values still in force (FR-023).
+func (s *Service) computeInstrument(ctx context.Context, registry *Registry, run Run, sc scope, composites map[SessionDate]CompositeValue) (int64, error) {
 	started := time.Now().UTC()
-	item := RunItem{RunID: run.ID, InstrumentID: h.instrument.ID, Status: RunItemRunning, StartedAt: started}
-	if len(h.bars) == 0 {
+	item := RunItem{RunID: run.ID, InstrumentID: sc.h.instrument.ID, Status: RunItemRunning, StartedAt: started}
+	if len(sc.h.bars) == 0 || sc.from == "" {
 		item.Status = RunItemSkipped
 		finished := time.Now().UTC()
 		item.FinishedAt = &finished
 		if err := s.repository.WriteItem(ctx, item); err != nil {
 			return 0, err
 		}
-		s.logger.Info("instrument skipped", "run_id", run.ID, "instrument_id", h.instrument.ID, "reason", "no stored history")
+		s.logger.Info("instrument skipped", "run_id", run.ID, "instrument_id", sc.h.instrument.ID, "reason", "no stored history")
 		return 0, nil
 	}
-	from, to := h.bars[0].Session, h.bars[len(h.bars)-1].Session
-	item.FromSession, item.ToSession = &from, &to
-	rows, err := s.rowsFor(registry, h, from, to, composites)
-	if err == nil {
-		err = s.commit(ctx, run, item, from, to, rows)
-	}
+	item.FromSession, item.ToSession = &sc.from, &sc.to
+	var rows []ValueRow
+	err, code := s.attempt(func() error {
+		var err error
+		if rows, err = s.rowsFor(registry, sc, composites); err != nil {
+			return err
+		}
+		return s.commit(ctx, run, item, sc, rows)
+	})
 	if err != nil {
-		code, summary := "compute_failed", err.Error()
+		summary := err.Error()
 		item.Status, item.ErrorCode, item.ErrorSummary = RunItemFailed, &code, &summary
 		finished := time.Now().UTC()
 		item.FinishedAt = &finished
 		if writeErr := s.repository.WriteItem(ctx, item); writeErr != nil {
 			err = errors.Join(err, writeErr)
 		}
-		s.logger.Error("instrument failed", "run_id", run.ID, "instrument_id", h.instrument.ID, "error", err)
+		s.logger.Error("instrument failed", "run_id", run.ID, "instrument_id", sc.h.instrument.ID, "error_code", code, "error", err)
 		return 0, err
 	}
-	s.logger.Info("instrument computed", "run_id", run.ID, "instrument_id", h.instrument.ID,
-		"from", from, "to", to, "values", len(rows), "elapsed", time.Since(started))
+	s.logger.Info("instrument computed", "run_id", run.ID, "instrument_id", sc.h.instrument.ID,
+		"from", sc.from, "to", sc.to, "definitions", len(sc.definitions), "values", len(rows), "elapsed", time.Since(started))
 	return int64(len(rows)), nil
 }
 
-func (s *Service) commit(ctx context.Context, run Run, item RunItem, from, to SessionDate, rows []ValueRow) error {
-	scope, err := s.repository.BeginInstrumentScope(ctx, item.InstrumentID)
+// attempt runs one instrument's computation and turns a panic into an error with its own
+// code, so a defect in one definition at one session cannot take the run down.
+func (s *Service) attempt(compute func() error) (err error, code string) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err, code = fmt.Errorf("panic: %v", recovered), "compute_panicked"
+		}
+	}()
+	if err := compute(); err != nil {
+		return err, "compute_failed"
+	}
+	return nil, ""
+}
+
+func (s *Service) commit(ctx context.Context, run Run, item RunItem, sc scope, rows []ValueRow) error {
+	tx, err := s.repository.BeginInstrumentScope(ctx, item.InstrumentID)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = scope.Rollback(ctx) }()
-	if err := scope.WriteValues(ctx, run.ID, from, to, rows); err != nil {
+	defer func() { _ = tx.Rollback(ctx) }()
+	var only []UUID
+	if !sc.all {
+		for _, definition := range sc.definitions {
+			only = append(only, definition.ID)
+		}
+	}
+	if err := tx.WriteValues(ctx, run.ID, sc.from, sc.to, only, rows); err != nil {
 		return err
 	}
 	finished := time.Now().UTC()
 	item.Status, item.ValueCount, item.FinishedAt = RunItemSucceeded, int64(len(rows)), &finished
-	if err := scope.WriteItem(ctx, item); err != nil {
+	if err := tx.WriteItem(ctx, item); err != nil {
 		return err
 	}
-	return scope.Commit(ctx, Change{InstrumentID: item.InstrumentID, FromSession: from, ToSession: to, RunID: run.ID})
+	return tx.Commit(ctx, Change{InstrumentID: item.InstrumentID, FromSession: sc.from, ToSession: sc.to, RunID: run.ID})
 }
 
-// rowsFor evaluates every active definition at every stored session in [from, to].
-func (s *Service) rowsFor(registry *Registry, h *history, from, to SessionDate, composites map[SessionDate]CompositeValue) ([]ValueRow, error) {
-	active := registry.Active()
+// rowsFor evaluates the scope's definitions at every stored session in its range.
+func (s *Service) rowsFor(registry *Registry, sc scope, composites map[SessionDate]CompositeValue) ([]ValueRow, error) {
+	h := sc.h
 	var rows []ValueRow
 	currency := h.instrument.Currency
 	for _, session := range h.raw.Sessions() {
-		if session < from || session > to {
+		if session < sc.from || session > sc.to {
 			continue
 		}
 		if _, ok := h.raw.Bar(session); !ok {
 			continue
 		}
 		adjusted := h.adjustedAt(session)
-		for _, definition := range active {
+		for _, definition := range sc.definitions {
 			view := h.raw
 			if definition.PriceBasis == PriceBasisAdjusted {
 				view = adjusted

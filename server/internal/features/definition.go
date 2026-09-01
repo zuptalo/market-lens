@@ -197,6 +197,32 @@ func (r *Registry) Composite() (Definition, bool) { return r.composite, r.hasCom
 // MinContributors is the composite's stated minimum (FR-008b).
 func (r *Registry) MinContributors() int { return r.minContributors }
 
+// Named returns the active definitions with a name: the per-instrument one, or the
+// composite when the name is its.
+func (r *Registry) Named(name string) []Definition {
+	if r.hasComposite && name == r.composite.Name {
+		return []Definition{r.composite}
+	}
+	var named []Definition
+	for _, definition := range r.active {
+		if definition.Name == name {
+			named = append(named, definition)
+		}
+	}
+	return named
+}
+
+// CompositeUsers returns the active definitions that read the composite series.
+func (r *Registry) CompositeUsers() []Definition {
+	var users []Definition
+	for _, definition := range r.active {
+		if specs[definition.Name].usesComposite {
+			users = append(users, definition)
+		}
+	}
+	return users
+}
+
 // WMax is the longest active window, in sessions: the recomputation reach (research R-004).
 func (r *Registry) WMax() int { return r.wMax }
 

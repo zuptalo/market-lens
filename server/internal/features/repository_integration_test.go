@@ -131,14 +131,14 @@ func TestAnInstrumentsValuesCommitAsOneTransactionWithItsEvent(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := scope.WriteValues(f.ctx, run.ID, from, to, rows); err != nil {
+		if err := scope.WriteValues(f.ctx, run.ID, from, to, nil, rows); err != nil {
 			t.Fatalf("stage values: %v", err)
 		}
 		if err := scope.WriteItem(f.ctx, item); err != nil {
 			t.Fatalf("stage item: %v", err)
 		}
 		both := features.ValueRow{DefinitionID: rows[0].DefinitionID, Session: from, Value: &value, Label: &label}
-		if err := scope.WriteValues(f.ctx, run.ID, from, from, []features.ValueRow{both}); err == nil {
+		if err := scope.WriteValues(f.ctx, run.ID, from, from, nil, []features.ValueRow{both}); err == nil {
 			t.Fatal("a row with both a value and a label must be refused by the store")
 		}
 		_ = scope.Rollback(f.ctx)
@@ -158,7 +158,7 @@ func TestAnInstrumentsValuesCommitAsOneTransactionWithItsEvent(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := scope.WriteValues(f.ctx, run.ID, from, to, rows); err != nil {
+		if err := scope.WriteValues(f.ctx, run.ID, from, to, nil, rows); err != nil {
 			t.Fatalf("write values: %v", err)
 		}
 		if err := scope.WriteItem(f.ctx, item); err != nil {
@@ -202,7 +202,7 @@ func TestAnInstrumentsValuesCommitAsOneTransactionWithItsEvent(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := scope.WriteValues(f.ctx, run.ID, from, to, rows[:1]); err != nil {
+		if err := scope.WriteValues(f.ctx, run.ID, from, to, nil, rows[:1]); err != nil {
 			t.Fatalf("write values: %v", err)
 		}
 		if err := scope.Commit(f.ctx, change); err != nil {

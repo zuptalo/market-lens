@@ -4,10 +4,12 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
+	"market-lens/server/internal/instruments"
 	"market-lens/server/internal/marketdata"
 )
 
@@ -31,7 +33,16 @@ type Importer interface {
 	Import(context.Context, marketdata.ImportRequest) (marketdata.ImportRun, error)
 }
 
+// FeatureComputer recomputes the features the bars of one import run take part in. The
+// scheduler treats it as best effort: a computation that fails leaves the import successful
+// and its bars stored, and the next pass — scheduled or manual — picks the work up.
+type FeatureComputer interface {
+	ComputeSinceRun(context.Context, instruments.UUID) error
+}
+
 type MarketData struct {
+	// Features, when set, recomputes features after each successful import.
+	Features    FeatureComputer
 	config      MarketDataConfig
 	targets     TargetSource
 	importer    Importer
@@ -91,11 +102,19 @@ func (s *MarketData) RunDue(ctx context.Context, now time.Time) error {
 		targets[index].From = date
 		targets[index].To = date
 	}
-	_, err = s.importer.Import(ctx, marketdata.ImportRequest{
+	run, err := s.importer.Import(ctx, marketdata.ImportRequest{
 		Kind: marketdata.ImportDailyUpdate, Provider: s.config.Provider, AppVersion: s.config.AppVersion,
 		Targets: targets, MaxRetries: s.config.MaxRetries, Workers: s.config.Workers,
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	if s.Features != nil {
+		if err := s.Features.ComputeSinceRun(ctx, run.ID); err != nil {
+			slog.Default().Error("feature computation after import failed", "import_run_id", run.ID, "error", err)
+		}
+	}
+	return nil
 }
 
 func (s *MarketData) Run(ctx context.Context) error {

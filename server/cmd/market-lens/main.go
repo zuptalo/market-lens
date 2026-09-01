@@ -66,17 +66,58 @@ type marketDataImporter interface {
 	Import(context.Context, marketdata.ImportRequest) (marketdata.ImportRun, error)
 }
 
+// featurePass recomputes the features an import run's bars take part in. The scheduler and
+// the marketdata commands share it, so a manual backfill leaves the engine as current as the
+// nightly update does.
+type featurePass struct {
+	service    *features.Service
+	universe   string
+	appVersion string
+	workers    int
+}
+
+func (p featurePass) ComputeSinceRun(ctx context.Context, runID features.UUID) error {
+	_, err := p.service.Compute(ctx, features.ComputeRequest{
+		Kind: features.RunKindIncremental, Universe: p.universe, SinceRun: runID,
+		Workers: p.workers, AppVersion: p.appVersion,
+	})
+	return err
+}
+
+// featureTriggeringImporter runs the pass after each successful import. A pass that fails is
+// logged and swallowed: the bars are stored and the next pass picks the work up, so a feature
+// defect must never turn a good import into a failed command.
+type featureTriggeringImporter struct {
+	importer marketDataImporter
+	pass     scheduler.FeatureComputer
+}
+
+func (i featureTriggeringImporter) Import(ctx context.Context, request marketdata.ImportRequest) (marketdata.ImportRun, error) {
+	run, err := i.importer.Import(ctx, request)
+	if err != nil {
+		return run, err
+	}
+	if err := i.pass.ComputeSinceRun(ctx, run.ID); err != nil {
+		slog.Default().Error("feature computation after import failed", "import_run_id", run.ID, "error", err)
+	}
+	return run, nil
+}
+
 // featuresCommand mirrors marketDataCommand: one run of the feature engine over a universe.
 type featuresCommand struct {
 	Kind     features.RunKind
 	Universe string
+	// SinceRun names the import run an incremental pass follows; Definition names the one
+	// definition a definition pass recomputes. At most one of them is set.
+	SinceRun   features.UUID
+	Definition string
 }
 
 type featureComputer interface {
 	Compute(context.Context, features.ComputeRequest) (features.Run, error)
 }
 
-const featuresUsage = "expected features compute [--universe CODE]"
+const featuresUsage = "expected features compute [--universe CODE] [--since-run IMPORT_RUN_ID | --definition NAME]"
 
 func parseFeaturesCommand(args []string) (featuresCommand, error) {
 	if len(args) < 2 || args[0] != "features" || args[1] != "compute" {
@@ -86,10 +127,42 @@ func parseFeaturesCommand(args []string) (featuresCommand, error) {
 	flags := flag.NewFlagSet("features compute", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	flags.StringVar(&command.Universe, "universe", command.Universe, "research universe code")
+	var sinceRun, definition string
+	flags.StringVar(&sinceRun, "since-run", "", "recompute only what the bars of this import run take part in")
+	flags.StringVar(&definition, "definition", "", "recompute one definition over every member's history")
 	if err := flags.Parse(args[2:]); err != nil || flags.NArg() != 0 || strings.TrimSpace(command.Universe) == "" {
 		return featuresCommand{}, errors.New(featuresUsage)
 	}
+	sinceRunGiven, definitionGiven := isFlagSet(flags, "since-run"), isFlagSet(flags, "definition")
+	if sinceRunGiven && definitionGiven {
+		return featuresCommand{}, errors.New(featuresUsage)
+	}
+	switch {
+	case sinceRunGiven:
+		parsed, err := instruments.ParseUUID(strings.TrimSpace(sinceRun))
+		if err != nil {
+			return featuresCommand{}, errors.New(featuresUsage)
+		}
+		command.Kind, command.SinceRun = features.RunKindIncremental, features.UUID(parsed)
+	case definitionGiven:
+		if strings.TrimSpace(definition) == "" {
+			return featuresCommand{}, errors.New(featuresUsage)
+		}
+		command.Kind, command.Definition = features.RunKindDefinition, strings.TrimSpace(definition)
+	}
 	return command, nil
+}
+
+// isFlagSet reports whether the caller passed a flag, so an empty value is a usage error
+// rather than a silently ignored one.
+func isFlagSet(flags *flag.FlagSet, name string) bool {
+	given := false
+	flags.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			given = true
+		}
+	})
+	return given
 }
 
 func executeFeaturesCommand(ctx context.Context, command featuresCommand, computer featureComputer,
@@ -99,6 +172,7 @@ func executeFeaturesCommand(ctx context.Context, command featuresCommand, comput
 	}
 	run, err := computer.Compute(ctx, features.ComputeRequest{
 		Kind: command.Kind, Universe: command.Universe, Workers: workers, AppVersion: appVersion,
+		SinceRun: command.SinceRun, Definition: command.Definition,
 	})
 	if err != nil {
 		return err
@@ -913,6 +987,8 @@ func run() error {
 			return reportSymbolAudit(os.Stdout, entries, catalog)
 		}
 		service := marketdata.NewImportService(repository, provider)
+		pass := featurePass{service: features.NewService(features.NewRepository(pool), slog.Default()),
+			universe: command.Universe, appVersion: version, workers: cfg.MarketData.Workers}
 		if command.Kind == marketdata.ImportRetry {
 			return executeMarketDataRetry(ctx, command, service, os.Stdout, version,
 				cfg.MarketData.MaxRetries, cfg.MarketData.Workers)
@@ -921,8 +997,8 @@ func run() error {
 		if err != nil {
 			return err
 		}
-		return executeMarketDataCommand(ctx, command, targets, service, os.Stdout,
-			cfg.MarketData.Provider, version, cfg.MarketData.MaxRetries, cfg.MarketData.Workers)
+		return executeMarketDataCommand(ctx, command, targets, featureTriggeringImporter{importer: service, pass: pass},
+			os.Stdout, cfg.MarketData.Provider, version, cfg.MarketData.MaxRetries, cfg.MarketData.Workers)
 	}
 
 	var scheduleErr <-chan error
@@ -948,6 +1024,8 @@ func run() error {
 		if err != nil {
 			return err
 		}
+		job.Features = featurePass{service: features.NewService(features.NewRepository(pool), slog.Default()),
+			universe: "nordic-liquid-v1", appVersion: version, workers: cfg.MarketData.Workers}
 		jobErrors := make(chan error, 1)
 		scheduleErr = jobErrors
 		go func() { jobErrors <- job.Run(ctx) }()

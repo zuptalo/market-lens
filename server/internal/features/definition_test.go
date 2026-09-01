@@ -1,6 +1,9 @@
 package features_test
 
 import (
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -139,4 +142,60 @@ func TestARegistryComputesADefinitionFromItsWindow(t *testing.T) {
 	if undefined.Reason != features.AbsenceCompositeUndefined {
 		t.Errorf("relative strength over an undefined composite session = %+v", undefined)
 	}
+}
+
+// Every definition the migration publishes must be exercised somewhere in this package's
+// tests by name. It is a guard against the one failure mode a registry of formulas invites:
+// a definition added to the seed and to the compute table, shipped, and never checked at the
+// boundaries of its own window. Naming the definition in a test is the cheap half of the
+// guarantee; the golden and boundary tests are the other half.
+func TestEveryPublishedDefinitionHasAUnitTestAtItsBoundaries(t *testing.T) {
+	published := publishedDefinitionNames(t)
+	if len(published) < 20 {
+		t.Fatalf("read %d published definitions from the migration, expected the full table", len(published))
+	}
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tested := map[string]string{}
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasSuffix(name, "_test.go") || name == "definition_test.go" || strings.Contains(name, "fixture") {
+			continue
+		}
+		body, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, definition := range published {
+			if strings.Contains(string(body), definition) && tested[definition] == "" {
+				tested[definition] = name
+			}
+		}
+	}
+	for _, definition := range published {
+		if tested[definition] == "" {
+			t.Errorf("no test in this package names %q: a published definition with no test of its own", definition)
+		}
+	}
+}
+
+// publishedDefinitionNames reads the names out of the seed migration, which is what
+// "published" means: a definition exists because a migration inserted it.
+func publishedDefinitionNames(t *testing.T) []string {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join("..", "db", "migrations", "0017_feature_definitions.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	seen := map[string]bool{}
+	for _, match := range regexp.MustCompile(`(?m)^\s*\('[0-9a-f-]{36}',\s*'([a-z0-9_]+)'`).FindAllStringSubmatch(string(body), -1) {
+		if !seen[match[1]] {
+			seen[match[1]] = true
+			names = append(names, match[1])
+		}
+	}
+	return names
 }

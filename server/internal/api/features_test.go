@@ -355,3 +355,48 @@ func TestFeaturesEndpointAnswersUnknownAndUnauthorizedIdentically(t *testing.T) 
 		t.Errorf("a malformed identifier returned %d, expected 400 as the history endpoint answers", code)
 	}
 }
+
+// absentReaderStub answers for an instrument whose history is too short for any window: the
+// case a person meets on a newly listed company.
+type absentReaderStub struct{ featureReaderStub }
+
+func (s *absentReaderStub) Read(_ context.Context, request features.ReadRequest) (features.FeatureSet, error) {
+	window := 21
+	reason := features.AbsenceInsufficientHistory
+	set := features.FeatureSet{InstrumentID: request.InstrumentID, SessionDate: "2026-06-30", NotComputed: []string{}}
+	for _, name := range []string{"return_20", "return_90", "volatility_20", "sma_200", "regime"} {
+		set.Features = append(set.Features, features.Value{
+			Name: name, DefinitionVersion: 1, WindowSessions: &window, SessionDate: "2026-06-30",
+			AbsenceReason: &reason, ComputedAt: time.Date(2026, 7, 1, 3, 0, 0, 0, time.UTC),
+		})
+	}
+	return set, nil
+}
+
+// SC-005 at the API surface: an unsatisfied window serialises as an absence with a reason,
+// never as a zero. A zero would be read as "the price did not move", which is a claim about
+// the market rather than about the history behind it.
+func TestAnUncomputableFeatureIsNullInTheBodyNeverZero(t *testing.T) {
+	response := performRequest(NewRouter(authenticatedDependencies(Dependencies{
+		Features: &absentReaderStub{}, Instruments: &instrumentReaderStub{err: instruments.ErrNotFound},
+	})), "/api/v1/instruments/"+featureInstrumentID+"/features")
+	if response.Code != http.StatusOK {
+		t.Fatalf("status %d %s", response.Code, response.Body.String())
+	}
+	if strings.Contains(response.Body.String(), `"value":0`) || strings.Contains(response.Body.String(), `"value":"0`) {
+		t.Errorf("the body prints a zero for an uncomputable feature: %s", response.Body.String())
+	}
+	values, _ := decodeBody(t, response)["features"].([]any)
+	if len(values) != 5 {
+		t.Fatalf("features = %v", values)
+	}
+	for _, raw := range values {
+		value := raw.(map[string]any)
+		if value["value"] != nil || value["label"] != nil {
+			t.Errorf("%v carries a value or label although its window is unsatisfied", value)
+		}
+		if value["absenceReason"] != "insufficient_history" {
+			t.Errorf("%v: absenceReason = %v", value["name"], value["absenceReason"])
+		}
+	}
+}
