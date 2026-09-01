@@ -8,9 +8,10 @@ import (
 )
 
 // The audit's judgement of an instrument missing from the provider's catalog turns on whether
-// it is importing anyway, so the universe it reads has to carry that fact. Without it every
-// absent instrument looks equally broken, and a healthy one gets "corrected" into a broken one.
-func TestUniverseEntriesCarryHowMuchHistoryIsStored(t *testing.T) {
+// it is *still* importing, so the universe it reads has to carry the newest session stored.
+// Without it every absent instrument looks alike, and either a healthy one gets "corrected"
+// into a broken one or a renamed one goes on looking fine because it holds a long history.
+func TestUniverseEntriesCarryStoredHistoryAndItsNewestSession(t *testing.T) {
 	pool := migratedPool(t)
 	ctx := context.Background()
 	repository := marketdata.NewRepository(pool)
@@ -55,13 +56,15 @@ func TestUniverseEntriesCarryHowMuchHistoryIsStored(t *testing.T) {
 	for _, entry := range entries {
 		if entry.ProviderSymbol == withBars {
 			checked++
-			if entry.StoredBars != 2 {
-				t.Errorf("%s stored bars = %d, want 2", entry.Ticker, entry.StoredBars)
+			if entry.StoredBars != 2 || entry.LastSession != "2024-04-03" {
+				t.Errorf("%s stored bars = %d, last session = %q; want 2 and 2024-04-03",
+					entry.Ticker, entry.StoredBars, entry.LastSession)
 			}
 			continue
 		}
-		if entry.StoredBars != 0 {
-			t.Errorf("%s stored bars = %d, want 0", entry.Ticker, entry.StoredBars)
+		if entry.StoredBars != 0 || entry.LastSession != "" {
+			t.Errorf("%s stored bars = %d, last session = %q; want 0 and empty",
+				entry.Ticker, entry.StoredBars, entry.LastSession)
 		}
 	}
 	if checked != 1 {
