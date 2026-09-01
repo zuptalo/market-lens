@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"io"
 	"log/slog"
 	"market-lens/server/internal/auth"
 	"market-lens/server/internal/config"
@@ -426,4 +427,70 @@ func TestCatalogSearchListsMatchingRowsBySymbolNameAndISIN(t *testing.T) {
 	if !strings.Contains(output.String(), "LUMO.HE") || !strings.Contains(output.String(), "matches=1") {
 		t.Errorf("an ISIN search found nothing:\n%s", output.String())
 	}
+}
+
+// The command that actually runs in production has to do the widening, not just be capable of
+// it. Without this the reach-back is a function nothing calls.
+func TestBackfillReachesBackToCoverAnInstrumentsOldestOpenFinding(t *testing.T) {
+	command := marketDataCommand{
+		Kind: marketdata.ImportBackfill, Universe: "nordic-liquid-v1",
+		From: mustSession(t, "2016-09-02"), To: mustSession(t, "2026-09-02"),
+	}
+	targets := []marketdata.ImportTarget{
+		{InstrumentID: mustUUID(t), ProviderSymbol: "STRANDED.HE",
+			Currency: "EUR", EarliestUnsettled: mustSession(t, "2016-08-31")},
+		{InstrumentID: mustUUID(t), ProviderSymbol: "CLEAN.HE", Currency: "EUR"},
+		{InstrumentID: mustUUID(t), ProviderSymbol: "RECENT.HE",
+			Currency: "EUR", EarliestUnsettled: mustSession(t, "2024-01-05")},
+	}
+
+	importer := &capturingImporter{}
+	if err := executeMarketDataCommand(context.Background(), command, targets, importer,
+		io.Discard, "eodhd", "test", 0, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	got := map[string]string{}
+	for _, target := range importer.request.Targets {
+		got[target.ProviderSymbol] = target.From.String()
+		if target.To.String() != "2026-09-02" {
+			t.Errorf("%s ends at %s, want the requested end untouched",
+				target.ProviderSymbol, target.To)
+		}
+	}
+	want := map[string]string{
+		"STRANDED.HE": "2016-08-31", // reached back below the window's floor
+		"CLEAN.HE":    "2016-09-02", // nothing open, so nothing extra requested
+		"RECENT.HE":   "2016-09-02", // already inside the window
+	}
+	for symbol, expected := range want {
+		if got[symbol] != expected {
+			t.Errorf("%s starts at %s, want %s", symbol, got[symbol], expected)
+		}
+	}
+}
+
+type capturingImporter struct{ request marketdata.ImportRequest }
+
+func (c *capturingImporter) Import(_ context.Context, request marketdata.ImportRequest) (marketdata.ImportRun, error) {
+	c.request = request
+	return marketdata.ImportRun{ID: request.Targets[0].InstrumentID, Status: marketdata.ImportSucceeded}, nil
+}
+
+func mustUUID(t *testing.T) instruments.UUID {
+	t.Helper()
+	id, err := instruments.NewUUID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+func mustSession(t *testing.T, value string) marketdata.SessionDate {
+	t.Helper()
+	parsed, err := marketdata.ParseSessionDate(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return parsed
 }

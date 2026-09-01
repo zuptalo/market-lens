@@ -25,6 +25,10 @@ type ImportTarget struct {
 	Currency       string
 	From           SessionDate
 	To             SessionDate
+	// EarliestUnsettled is the oldest session this instrument still has an open finding for,
+	// empty when it has none. It is loaded with the target so a caller can widen the request
+	// far enough to re-examine it — see WidenToUnsettled.
+	EarliestUnsettled SessionDate
 }
 
 type ImportRequest struct {
