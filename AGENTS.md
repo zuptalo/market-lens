@@ -78,8 +78,9 @@ shipped: `v0.5.0` carries features 002, 003, 004 and 009 through 012, and `v0.6.
 005, Instrument Exploration and Financial Charts.
 
 The next product feature is the Reusable Feature Engine. Its specification and implementation
-plan are on `main` at `specs/013-feature-engine/plan.md`, with research, data model and
-contracts alongside; task breakdown and implementation remain. It computes versioned,
+plan are on `main` at `specs/013-feature-engine/plan.md`, with research, data model,
+contracts and the task list `specs/013-feature-engine/tasks.md` alongside; implementation
+remains, and must begin with T016 observed red. It computes versioned,
 point-in-time features over stored sessions and takes ownership of the three descriptive
 statistics feature 005 currently derives in its listing query — adopting their definitions
 verbatim, so that no displayed number changes when the source of it does.
