@@ -27,6 +27,8 @@
   --chart-down: #d1495b;
   --chart-volume: rgb(15 157 118 / 0.45);
   --chart-overlay: #2f6fed;
+  --chart-action: #8a6d1f;
+  --chart-finding: #c0394f;
 }
 
 :root.market-lens-dark {
@@ -38,6 +40,8 @@
   --chart-down: #f2708a;
   --chart-volume: rgb(45 212 167 / 0.32);
   --chart-overlay: #6fa8ff;
+  --chart-action: #c9a227;
+  --chart-finding: #f2708a;
 }
 
 * { box-sizing: border-box; }

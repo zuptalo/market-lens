@@ -166,6 +166,53 @@ describe('PriceChart theming', () => {
     expect(volume.scaleMargins?.top).toBeGreaterThanOrEqual(0.7);
   });
 
+  it('gives markers a real colour instead of an unresolvable keyword', () => {
+    mountChart({
+      actions: [buildAction({ exDate: '2026-05-28' })],
+      findings: [buildFinding({ sessionDate: '2026-05-29' })],
+    });
+    const markers = __series('Candlestick').markers as Array<{ color?: string }>;
+    expect(markers.length).toBeGreaterThan(0);
+    for (const marker of markers) {
+      // `currentColor` is a CSS keyword; canvas ignores it and falls back to opaque black,
+      // which is what turned every marker into a black disc in both themes.
+      expect(marker.color).not.toBe('currentColor');
+      expect(marker.color).toMatch(/^(#|rgb|hsl)/);
+    }
+  });
+
+  it('marks a finding without writing its rule across the candles', () => {
+    mountChart({ findings: [buildFinding({ sessionDate: '2026-05-29' })] });
+    const marker = (__series('Candlestick').markers as Array<{ text?: string; time: string }>)
+      .find((entry) => entry.time === '2026-05-29');
+    expect(marker, 'the affected session is not marked').toBeDefined();
+    // A dozen findings each captioned "missing_session" pile into an unreadable smear. The
+    // marker locates the session; the annotation list beneath states the rule, the session
+    // and the status in full.
+    expect(marker!.text ?? '').toBe('');
+  });
+
+  it('still labels a corporate action, which is rare and worth reading in place', () => {
+    mountChart({ actions: [buildAction({ exDate: '2026-05-28', ratio: '2' })] });
+    const marker = (__series('Candlestick').markers as Array<{ text?: string; time: string }>)
+      .find((entry) => entry.time === '2026-05-28');
+    expect(marker?.text).toContain('split');
+  });
+
+  it('marks only findings that are still open', () => {
+    mountChart({
+      findings: [
+        buildFinding({ id: 'open-1', sessionDate: '2026-05-29', status: 'open' }),
+        buildFinding({ id: 'done-1', sessionDate: '2026-05-28', status: 'resolved' }),
+      ],
+    });
+    const times = (__series('Candlestick').markers as Array<{ time: string }>).map((m) => m.time);
+    expect(times).toContain('2026-05-29');
+    // A resolved finding is history. Marking it clutters the chart with something nobody has
+    // to act on.
+    expect(times).not.toContain('2026-05-28');
+  });
+
   it('keeps the volume badge off the price axis it does not belong to', () => {
     mountChart();
     const volume = __series('Histogram');

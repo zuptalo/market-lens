@@ -69,6 +69,8 @@ function readChartTheme() {
     down: token('--chart-down', dark ? '#f2708a' : '#d1495b'),
     volume: token('--chart-volume', dark ? 'rgb(45 212 167 / 0.32)' : 'rgb(15 157 118 / 0.45)'),
     overlay: token('--chart-overlay', dark ? '#6fa8ff' : '#2f6fed'),
+    action: token('--chart-action', dark ? '#c9a227' : '#8a6d1f'),
+    finding: token('--chart-finding', dark ? '#f2708a' : '#c0394f'),
   };
 }
 
@@ -131,9 +133,24 @@ function volumeData() {
   })), props.missingSessions);
 }
 
-/** Markers for the things that would otherwise look like a real move. */
+/**
+ * Markers for the things that would otherwise look like a real move.
+ *
+ * Colours are resolved from the theme, never `currentColor`: canvas ignores CSS keywords and
+ * falls back to opaque black, which turned every marker into a black disc in both themes.
+ *
+ * Only corporate actions carry text. They are rare, and their value — a ratio, an amount — is
+ * worth reading exactly where it happened. Findings are not rare: a dozen sessions each
+ * captioned with the same rule pile into an unreadable smear over the candles. Their marker
+ * locates the session, and the annotation list beneath states the rule, the session and the
+ * status in full, which is where FR-016 wants that detail anyway.
+ *
+ * Resolved findings are not marked at all. They are history, and nothing about them needs
+ * acting on.
+ */
 function markers() {
   const stored = new Set(props.bars.map((bar) => bar.sessionDate));
+  const theme = readChartTheme();
   const entries = [
     ...props.actions
       .filter((action) => stored.has(action.exDate))
@@ -141,17 +158,19 @@ function markers() {
         time: action.exDate,
         position: 'aboveBar' as const,
         shape: 'arrowDown' as const,
-        color: 'currentColor',
+        color: theme.action,
         text: actionLabel(action),
       })),
     ...props.findings
+      .filter((finding) => finding.status === 'open')
       .filter((finding) => finding.sessionDate !== null && stored.has(finding.sessionDate))
       .map((finding) => ({
         time: finding.sessionDate as string,
         position: 'belowBar' as const,
         shape: 'circle' as const,
-        color: 'currentColor',
-        text: finding.rule,
+        color: theme.finding,
+        size: 0.6,
+        text: '',
       })),
   ];
   entries.sort((left, right) => (left.time < right.time ? -1 : left.time > right.time ? 1 : 0));
