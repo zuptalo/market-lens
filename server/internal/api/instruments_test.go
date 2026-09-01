@@ -133,7 +133,7 @@ func TestListingEndpointAcceptsTheContractsQueryVocabulary(t *testing.T) {
 	id := mustAPIUUID(t, "33000000-0000-4000-8000-000000000001")
 	behind := 3
 	changePercent := 0.0125
-	return20 := 0.0412
+	return20 := instruments.Decimal("0.041200000000")
 	latestClose := instruments.Decimal("101.25")
 	changeAbsolute := instruments.Decimal("1.25")
 	reader := &instrumentReaderStub{
@@ -173,9 +173,9 @@ func TestListingEndpointAcceptsTheContractsQueryVocabulary(t *testing.T) {
 			LatestClose    *string  `json:"latest_close"`
 			ChangeAbsolute *string  `json:"change_absolute"`
 			ChangePercent  *float64 `json:"change_percent"`
-			Return20       *float64 `json:"return_20"`
-			Return90       *float64 `json:"return_90"`
-			Volatility     *float64 `json:"volatility"`
+			Return20       *string  `json:"return_20"`
+			Return90       *string  `json:"return_90"`
+			Volatility     *string  `json:"volatility"`
 			StoredSessions int64    `json:"stored_sessions"`
 			Status         string   `json:"status"`
 			Sector         string   `json:"sector"`
@@ -195,6 +195,14 @@ func TestListingEndpointAcceptsTheContractsQueryVocabulary(t *testing.T) {
 	row := body.Items[0]
 	if row.LatestClose == nil || *row.LatestClose != "101.25" {
 		t.Errorf("latest close was %v; money must stay a decimal string", row.LatestClose)
+	}
+	// The engine's statistics are decimal strings for the same reason money is: a JSON number
+	// would round them on the way out (feature 013, US5-2).
+	if row.Return20 == nil || *row.Return20 != "0.041200000000" {
+		t.Errorf("return_20 was %v; the engine's decimal must survive the response", row.Return20)
+	}
+	if row.Return90 != nil || row.Volatility != nil {
+		t.Errorf("an absent statistic was serialised as %v / %v", row.Return90, row.Volatility)
 	}
 	if row.ChangeAbsolute == nil || *row.ChangeAbsolute != "1.25" {
 		t.Errorf("change was %v", row.ChangeAbsolute)

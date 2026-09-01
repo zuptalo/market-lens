@@ -188,3 +188,84 @@ func hasStreamEntity(feed []events.Event, entityID string) bool {
 	}
 	return false
 }
+
+// Feature 013 US5: the engine's change event is what tells an open Markets page that a
+// statistic moved. It carries no per-user information — a recomputed feature is the same fact
+// for everyone — so it is shared scope, replayed to every active user and to nobody who is
+// not one. A deactivated account must not learn from it that the universe is still moving.
+func TestFeatureValuesEventsAreSharedScopeAndInvisibleUnauthenticated(t *testing.T) {
+	pool := testdb.Open(t)
+	ctx := context.Background()
+	if err := db.Migrate(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, time.September, 1, 12, 0, 0, 0, time.UTC)
+	ownerID := "10000000-0000-4000-8000-000000000101"
+	memberID := "10000000-0000-4000-8000-000000000102"
+	deactivatedID := "10000000-0000-4000-8000-000000000103"
+	for _, user := range []struct{ id, email, role, status string }{
+		{ownerID, "owner-013@example.test", "owner", "active"},
+		{memberID, "member-013@example.test", "member", "active"},
+		{deactivatedID, "gone-013@example.test", "member", "deactivated"},
+	} {
+		var deactivatedAt any
+		if user.status == "deactivated" {
+			deactivatedAt = now
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO users
+			(id,email,normalized_email,display_name,role,status,email_verified_at,deactivated_at,created_at,updated_at)
+			VALUES ($1,$2,$2,$2,$3,$4,$5,$6,$5,$5)`,
+			user.id, user.email, user.role, user.status, now, deactivatedAt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO client_events
+		(event_type,version,scope,entity_type,entity_id,payload,occurred_at)
+		VALUES ('feature_values.changed.v1',1,'shared','instrument',$1,
+		        '{"instrument_id":"22000000-0000-4000-8000-000000000001","from_session":"2026-06-01","to_session":"2026-06-30"}'::jsonb,$2)`,
+		"22000000-0000-4000-8000-000000000001", now); err != nil {
+		t.Fatal(err)
+	}
+
+	repository := events.NewRepository(pool)
+	for _, audience := range []struct {
+		name string
+		of   events.Audience
+	}{
+		{"owner", events.Audience{UserID: ownerID, Role: "owner"}},
+		{"member", events.Audience{UserID: memberID, Role: "member"}},
+	} {
+		events, err := repository.ListAuthorized(ctx, audience.of, 0, 20)
+		if err != nil {
+			t.Fatalf("%s replay: %v", audience.name, err)
+		}
+		found := false
+		for _, event := range events {
+			if event.Type == "feature_values.changed.v1" {
+				found = true
+				if event.Scope != "shared" || event.SubjectUserID != "" {
+					t.Errorf("the feature event carried a subject: %#v", event)
+				}
+				if event.EntityType != "instrument" {
+					t.Errorf("the feature event names entity type %q, expected instrument", event.EntityType)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("%s did not receive the feature change", audience.name)
+		}
+	}
+
+	// A deactivated account keeps no replay access, so it never learns from this event that
+	// the universe is still moving.
+	if _, err := repository.ListAuthorized(ctx, events.Audience{
+		UserID: deactivatedID, Role: "member", Deactivated: true,
+	}, 0, 20); err == nil {
+		t.Error("a deactivated account was replayed the feature change")
+	}
+
+	// An audience the server has not authenticated is refused before anything is replayed.
+	if _, err := repository.ListAuthorized(ctx, events.Audience{}, 0, 20); err == nil {
+		t.Error("an unauthenticated stream request was replayed the feature change")
+	}
+}

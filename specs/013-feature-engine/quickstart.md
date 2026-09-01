@@ -152,6 +152,38 @@ means a computation defect, not a definition change.
 
 ---
 
+## Adopted definitions
+
+The Markets list shows three of the engine's definitions rather than numbers of its own:
+
+| Column | Definition | Version |
+|---|---|---|
+| 20-session | `return_20` | 1 |
+| 90-session | `return_90` | 1 |
+| Volatility | `volatility_20` | 1 |
+
+Each is read from `feature_values` at the instrument's own latest stored session. **No
+definition changed to make this work**: version 1 of each is feature 005's derived statistic
+written down — the same window, the same session counting, the same annualisation — precisely
+so that adopting the engine could not move a number a person had already seen.
+
+What was deleted is the second implementation. The `recent`, `log_returns` and `volatility`
+CTEs and the `close_20`/`close_90` aggregates lived in `listingStatisticsCTE` in
+`server/internal/instruments/listing.go` and computed the same three statistics from bars a
+second time. They are gone; there is no fallback, because a fallback would be
+indistinguishable from the engine whenever both produced a value and would silently hide the
+engine failing to produce one.
+
+Two consequences worth knowing:
+
+- An instrument the engine has not computed shows the three as absent, not as zero. That is
+  the state between an import and the pass that follows it, and between a deployment and the
+  first `features compute`.
+- The three now travel as decimal strings end to end — `numeric(24,12)` through the API to the
+  table — because a JavaScript number cannot hold every value the column can.
+
+---
+
 ## When something is wrong
 
 | Symptom | Where to look |

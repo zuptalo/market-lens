@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import Column from 'primevue/column';
 import DataTable, { type DataTableSortEvent } from 'primevue/datatable';
-import { formatDecimal, formatPercent } from '@/utils/decimal';
+import { formatDecimal, formatDecimalPercent, formatPercent } from '@/utils/decimal';
 import type { InstrumentListingRow, ListingSort } from '@/types/marketData';
 
 /**
@@ -52,13 +52,19 @@ function percent(value: number | null): string {
   return formatPercent(value);
 }
 
+/** The engine's statistics arrive as decimal strings and are formatted as such. */
+function decimalPercent(value: string | null): string {
+  if (value === null) return ABSENT;
+  return formatDecimalPercent(value);
+}
+
 /** Why a statistic is absent, so the marker is never left to be guessed at. */
 function absenceReason(row: InstrumentListingRow): string {
   if (row.storedSessions === 0) return 'No stored sessions';
   return `Not enough sessions (${row.storedSessions} stored)`;
 }
 
-function statisticTitle(row: InstrumentListingRow, value: number | null): string | undefined {
+function statisticTitle(row: InstrumentListingRow, value: string | null): string | undefined {
   return value === null ? absenceReason(row) : undefined;
 }
 
@@ -129,19 +135,19 @@ function freshnessLabel(row: InstrumentListingRow): string {
 
     <Column v-if="shows('return20')" field="return_20" header="20-session" :sortable="true" :pt="{ bodyCell: { 'data-label': '20-session' } }">
       <template #body="{ data }">
-        <span :title="statisticTitle(data, data.return20)">{{ percent(data.return20) }}</span>
+        <span :title="statisticTitle(data, data.return20)">{{ decimalPercent(data.return20) }}</span>
       </template>
     </Column>
 
     <Column v-if="shows('return90')" field="return_90" header="90-session" :sortable="true" :pt="{ bodyCell: { 'data-label': '90-session' } }">
       <template #body="{ data }">
-        <span :title="statisticTitle(data, data.return90)">{{ percent(data.return90) }}</span>
+        <span :title="statisticTitle(data, data.return90)">{{ decimalPercent(data.return90) }}</span>
       </template>
     </Column>
 
     <Column v-if="shows('volatility')" field="volatility" header="Volatility" :sortable="true" :pt="{ bodyCell: { 'data-label': 'Volatility' } }">
       <template #body="{ data }">
-        <span :title="statisticTitle(data, data.volatility)">{{ percent(data.volatility) }}</span>
+        <span :title="statisticTitle(data, data.volatility)">{{ decimalPercent(data.volatility) }}</span>
       </template>
     </Column>
 

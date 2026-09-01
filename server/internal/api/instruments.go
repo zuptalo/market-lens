@@ -54,11 +54,13 @@ type listingRowResponse struct {
 	LatestClose    *string                          `json:"latest_close"`
 	ChangeAbsolute *string                          `json:"change_absolute"`
 	ChangePercent  *float64                         `json:"change_percent"`
-	Return20       *float64                         `json:"return_20"`
-	Return90       *float64                         `json:"return_90"`
-	Volatility     *float64                         `json:"volatility"`
-	StoredSessions int64                            `json:"stored_sessions"`
-	Freshness      freshnessResponse                `json:"freshness"`
+	// The engine's decimals, as stored: a JSON number would round them on the way out
+	// (feature 013, US5-2).
+	Return20       *string           `json:"return_20"`
+	Return90       *string           `json:"return_90"`
+	Volatility     *string           `json:"volatility"`
+	StoredSessions int64             `json:"stored_sessions"`
+	Freshness      freshnessResponse `json:"freshness"`
 }
 
 type dailyBarResponse struct {
@@ -354,9 +356,9 @@ func listingRowDTO(item instruments.ListingRow) listingRowResponse {
 		LatestClose:    optionalDecimal(item.LatestClose),
 		ChangeAbsolute: optionalDecimal(item.ChangeAbsolute),
 		ChangePercent:  item.ChangePercent,
-		Return20:       item.Return20,
-		Return90:       item.Return90,
-		Volatility:     item.Volatility,
+		Return20:       optionalDecimal(item.Return20),
+		Return90:       optionalDecimal(item.Return90),
+		Volatility:     optionalDecimal(item.Volatility),
 		StoredSessions: item.StoredSessions,
 		Freshness: freshnessResponse{
 			State: string(item.Freshness.State), SessionsBehind: item.Freshness.SessionsBehind,

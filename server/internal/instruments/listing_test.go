@@ -1,7 +1,6 @@
 package instruments_test
 
 import (
-	"math"
 	"testing"
 	"time"
 
@@ -178,38 +177,35 @@ func TestListingLeavesUncomputableStatisticsAbsentRatherThanZero(t *testing.T) {
 	}
 	// Twenty stored sessions is one short of the twenty-one a 20-session return needs, and
 	// this is the exact boundary FR-007 is about: the answer is "absent", never "zero".
-	if short.Return20 != nil {
-		t.Errorf("a 20-session return was computed from only %d sessions: %v",
-			short.StoredSessions, *short.Return20)
-	}
-	if short.Volatility != nil {
-		t.Errorf("volatility was computed from only %d sessions: %v",
-			short.StoredSessions, *short.Volatility)
-	}
-	if short.Return90 != nil {
-		t.Errorf("a 90-session return was computed from only %d sessions: %v",
-			short.StoredSessions, *short.Return90)
+	// Twenty stored sessions is one short of the twenty-one a 20-session return needs, so the
+	// engine records an absence for it and nothing downstream may invent one.
+	if short.Return20 != nil || short.Return90 != nil || short.Volatility != nil {
+		t.Errorf("statistics appeared for an instrument with only %d sessions: r20=%s r90=%s vol=%s",
+			short.StoredSessions, decimalOrNil(short.Return20), decimalOrNil(short.Return90),
+			decimalOrNil(short.Volatility))
 	}
 	// It still has a price, so absence of a statistic must not be confused with absence of data.
 	if short.LatestClose == nil {
 		t.Error("an instrument with 20 stored bars reported no latest close")
 	}
 
-	long := rows["LONG"]
+	// The presence side of the same boundary: an instrument the engine has computed shows
+	// exactly what it computed. Since feature 013 the number comes from feature_values rather
+	// than from arithmetic in the listing query, so this seeds it and reads it back.
+	session := fixture.latestSession(t, fixture.long)
+	fixture.seedEngineValue(t, fixture.long, session, "return_20", "0.049875311721")
+	fixture.seedEngineValue(t, fixture.long, session, "return_90", "0.234567890123")
+	fixture.seedEngineValue(t, fixture.long, session, "volatility_20", "0.181818181818")
+
+	long := listingFor(t, fixture, instruments.ListingFilter{})["LONG"]
 	if long.Return20 == nil || long.Return90 == nil || long.Volatility == nil {
-		t.Fatalf("an instrument with %d stored sessions computed no statistics: r20=%v r90=%v vol=%v",
-			long.StoredSessions, long.Return20, long.Return90, long.Volatility)
+		t.Fatalf("an instrument with computed features listed none: r20=%v r90=%v vol=%v",
+			long.Return20, long.Return90, long.Volatility)
 	}
-	// Closes rise 0.25 a session from a base of 100.5 at the oldest, so the 20-session
-	// return is exactly (last / twentyBack) - 1 over a known arithmetic series.
-	last := 100.0 + float64(fixtureLongSessions-1)*0.25 + 0.5
-	twentyBack := last - 20*0.25
-	want := last/twentyBack - 1
-	if math.Abs(*long.Return20-want) > 1e-9 {
-		t.Errorf("20-session return was %v, expected %v", *long.Return20, want)
-	}
-	if *long.Volatility <= 0 {
-		t.Errorf("volatility over a rising series was %v, expected a positive number", *long.Volatility)
+	if long.Return20.String() != "0.049875311721" || long.Return90.String() != "0.234567890123" ||
+		long.Volatility.String() != "0.181818181818" {
+		t.Errorf("statistics were %s, %s, %s; expected the stored decimals exactly",
+			long.Return20, long.Return90, long.Volatility)
 	}
 }
 
@@ -338,6 +334,109 @@ func TestTheFirstPageOfTheUniverseStaysWithinItsBudget(t *testing.T) {
 		}
 		if elapsed > 2*time.Second {
 			t.Errorf("the first page sorted by %s took %s, over the two-second budget", sort, elapsed)
+		}
+	}
+}
+
+// US5-1: the three statistics on the Markets list are the engine's, not this query's. An
+// instrument with plenty of history but no computed values must therefore show them absent —
+// the state a person sees between an import and the pass that follows it. Deriving a number
+// here instead would be a second definition of the same statistic, which is the disagreement
+// feature 013 exists to end.
+func TestListingStatisticsComeFromTheEngineNotTheQuery(t *testing.T) {
+	fixture := newExplorationFixture(t)
+	rows := listingFor(t, fixture, instruments.ListingFilter{})
+
+	gappy := rows["GAPPY"]
+	if gappy.StoredSessions != fixtureGappySessions-int64(len(fixtureGapOffsets)) {
+		t.Fatalf("GAPPY stored %d sessions", gappy.StoredSessions)
+	}
+	if gappy.Return20 != nil || gappy.Return90 != nil || gappy.Volatility != nil {
+		t.Errorf("an instrument with no computed features listed r20=%v r90=%v vol=%v; each must be absent until the engine has run",
+			decimalOrNil(gappy.Return20), decimalOrNil(gappy.Return90), decimalOrNil(gappy.Volatility))
+	}
+	// Everything the listing derives from bars itself is unaffected.
+	if gappy.LatestClose == nil || gappy.ChangePercent == nil {
+		t.Errorf("GAPPY lost its price or its change: close=%v change=%v", gappy.LatestClose, gappy.ChangePercent)
+	}
+}
+
+// US5-2: what the listing shows is exactly what the engine stored — the same decimal, not a
+// number that has been through a float64 on the way. An absence the engine recorded stays an
+// absence here.
+func TestListingStatisticsEqualTheEnginesStoredValues(t *testing.T) {
+	fixture := newExplorationFixture(t)
+	session := fixture.latestSession(t, fixture.long)
+	fixture.seedEngineValue(t, fixture.long, session, "return_20", "0.123456789012")
+	fixture.seedEngineValue(t, fixture.long, session, "return_90", "-0.098765432109")
+	fixture.seedEngineValue(t, fixture.long, session, "volatility_20", "")
+
+	long := listingFor(t, fixture, instruments.ListingFilter{})["LONG"]
+	if got := decimalOrNil(long.Return20); got != "0.123456789012" {
+		t.Errorf("return_20 = %s, expected the stored 0.123456789012", got)
+	}
+	if got := decimalOrNil(long.Return90); got != "-0.098765432109" {
+		t.Errorf("return_90 = %s, expected the stored -0.098765432109", got)
+	}
+	if long.Volatility != nil {
+		t.Errorf("volatility = %s, but the engine recorded an absence for it", decimalOrNil(long.Volatility))
+	}
+}
+
+// US5-2: sorting orders by the engine's column, over the whole result set, with absences last
+// and pagination still total.
+func TestSortingByAnAdoptedStatisticUsesTheEngineColumn(t *testing.T) {
+	fixture := newExplorationFixture(t)
+	// Three instruments with values, deliberately out of alphabetical order, and everything
+	// else in the universe with none.
+	for instrument, value := range map[instruments.UUID]string{
+		fixture.long: "0.050000000000", fixture.gappy: "-0.020000000000", fixture.stale: "0.110000000000",
+	} {
+		fixture.seedEngineValue(t, instrument, fixture.latestSession(t, instrument), "return_20", value)
+	}
+
+	repository := instruments.NewRepository(fixture.pool)
+	page, err := repository.Listing(fixture.ctx, instruments.ListingFilter{
+		Sort: instruments.SortReturn20, Descending: true, Limit: 200, AsOf: fixtureAsOf,
+	})
+	if err != nil {
+		t.Fatalf("listing: %v", err)
+	}
+	var ranked []string
+	for _, row := range page.Items {
+		if row.Return20 != nil {
+			ranked = append(ranked, row.Ticker)
+		} else if len(ranked) < 3 {
+			t.Fatalf("an absent return sorted ahead of a computed one: %s", row.Ticker)
+		}
+	}
+	if len(ranked) != 3 || ranked[0] != "STALE" || ranked[1] != "LONG" || ranked[2] != "GAPPY" {
+		t.Errorf("descending by return_20 gave %v, expected STALE, LONG, GAPPY", ranked)
+	}
+
+	// The same keyset guarantee as every other sort: no row repeats and none is skipped.
+	seen := map[string]int{}
+	cursor := ""
+	for page := 0; page < 100; page++ {
+		result, err := repository.Listing(fixture.ctx, instruments.ListingFilter{
+			Sort: instruments.SortReturn20, Limit: 7, Cursor: cursor, AsOf: fixtureAsOf,
+		})
+		if err != nil {
+			t.Fatalf("paging by return_20: %v", err)
+		}
+		for _, row := range result.Items {
+			seen[row.ID.String()]++
+		}
+		if cursor = result.NextCursor; cursor == "" {
+			break
+		}
+	}
+	if len(seen) != len(page.Items) {
+		t.Errorf("paging by return_20 reached %d instruments, the unpaged listing has %d", len(seen), len(page.Items))
+	}
+	for id, count := range seen {
+		if count != 1 {
+			t.Errorf("paging by return_20 returned %s %d times", id, count)
 		}
 	}
 }

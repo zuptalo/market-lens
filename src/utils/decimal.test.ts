@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatDecimal } from './decimal';
+import { formatDecimal, formatDecimalPercent } from './decimal';
 
 /**
  * Money arrives as a decimal string from `numeric(20,8)`, so a price reads
@@ -45,5 +45,30 @@ describe('formatDecimal', () => {
   it('passes through anything that is not a plain decimal rather than mangling it', () => {
     expect(formatDecimal('')).toBe('');
     expect(formatDecimal('n/a')).toBe('n/a');
+  });
+});
+
+/**
+ * Feature 013 US5-2: the three adopted statistics arrive as the engine's own
+ * `numeric(24,12)` decimals. Parsing one into a JavaScript number to format it would round it
+ * before it is shown — the exact loss the engine stores decimals to avoid.
+ */
+describe('formatDecimalPercent', () => {
+  it('reads the percentage off the decimal string without going through a number', () => {
+    expect(formatDecimalPercent('0.041234567891')).toBe('4.12%');
+    expect(formatDecimalPercent('-0.098765432109')).toBe('-9.88%');
+    expect(formatDecimalPercent('0.000049999999')).toBe('0.00%');
+    expect(formatDecimalPercent('0.005000000000')).toBe('0.50%');
+  });
+
+  it('keeps a value a float64 cannot hold exactly', () => {
+    // 0.1 + 0.2 is 0.30000000000000004 as a double; the engine's decimal says otherwise, and
+    // what the table prints must come from the string.
+    expect(formatDecimalPercent('0.300000000000')).toBe('30.00%');
+    expect(formatDecimalPercent('123456789.123456789012')).toBe('12345678912.35%');
+  });
+
+  it('leaves anything that is not a decimal alone', () => {
+    expect(formatDecimalPercent('n/a')).toBe('n/a');
   });
 });

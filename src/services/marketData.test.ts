@@ -205,6 +205,51 @@ describe('market-data live updates', () => {
     live.stop();
   });
 
+  // Feature 013 US5: a feature recomputation is a market-data change like any other, so the
+  // stream must carry it by name and a reconnection must resume from where the drop happened —
+  // replaying the events that were missed and none that were already applied.
+  it('replays only the feature events missed while the stream was down', async () => {
+    const sources: FakeSource[] = [];
+    const refresh = vi.fn();
+    const live = new MarketDataLive({
+      sourceFactory: (_url, lastEventId) => {
+        const source = new FakeSource(lastEventId);
+        sources.push(source);
+        return source;
+      },
+      onRefresh: refresh,
+      onState: () => {},
+      reconnectDelayMs: 1_000,
+      staleAfterMs: 10_000,
+    });
+    live.start();
+    sources[0].open();
+    sources[0].named({
+      lastEventId: '70', type: 'feature_values.changed.v1',
+      data: '{"entity_type":"instrument","entity_id":"i-1","instrument_id":"i-1","from_session":"2026-06-01","to_session":"2026-06-30"}',
+    });
+    expect(refresh).toHaveBeenCalledWith('instrument', 'i-1', expect.objectContaining({ instrument_id: 'i-1' }));
+
+    sources[0].error();
+    await vi.advanceTimersByTimeAsync(1_000);
+    // The reconnection asks the server to continue from the last event it applied.
+    expect(sources[1].lastEventId).toBe('70');
+    sources[1].open();
+    // The server replays from there: the event already applied must not be applied twice, and
+    // the one that happened during the drop must be.
+    sources[1].named({
+      lastEventId: '70', type: 'feature_values.changed.v1',
+      data: '{"entity_type":"instrument","entity_id":"i-1","instrument_id":"i-1"}',
+    });
+    sources[1].named({
+      lastEventId: '71', type: 'feature_values.changed.v1',
+      data: '{"entity_type":"instrument","entity_id":"i-2","instrument_id":"i-2"}',
+    });
+    expect(refresh).toHaveBeenCalledTimes(2);
+    expect(refresh).toHaveBeenLastCalledWith('instrument', 'i-2', expect.objectContaining({ instrument_id: 'i-2' }));
+    live.stop();
+  });
+
   it('applies a repeated event identifier exactly once even across event names', () => {
     const sources: FakeSource[] = [];
     const refresh = vi.fn();

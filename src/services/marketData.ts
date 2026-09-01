@@ -85,9 +85,9 @@ interface ListingRowWire {
   latest_close: string | null;
   change_absolute: string | null;
   change_percent: number | null;
-  return_20: number | null;
-  return_90: number | null;
-  volatility: number | null;
+  return_20: string | null;
+  return_90: string | null;
+  volatility: string | null;
   stored_sessions: number;
   freshness: { state: 'current' | 'stale' | 'no_history'; sessions_behind: number | null };
 }
@@ -334,6 +334,9 @@ export const MARKET_DATA_EVENT_TYPES = [
   'import_item.changed.v1',
   'quality_finding.changed.v1',
   'corporate_action.changed.v1',
+  // The feature engine's own change: the three statistics on the Markets list are its values,
+  // so the page hears about a recomputation the same way it hears about a new bar.
+  'feature_values.changed.v1',
 ] as const;
 
 /** What a market-data event says about the change it reports. */
