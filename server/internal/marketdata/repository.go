@@ -294,6 +294,11 @@ func (s *ImportScope) persist(ctx context.Context, input persistInput) (ImportCo
 		if err != nil {
 			return ImportCounts{}, err
 		}
+		// Empty means the condition was already recorded, so nothing changed and nothing is
+		// published.
+		if findingID == "" {
+			continue
+		}
 		if err := emitEvent(ctx, s.tx, "quality_finding", findingID.String(),
 			map[string]any{"instrument_id": input.Target.InstrumentID.String(), "rule": issue.Rule}, input.ObservedAt); err != nil {
 			return ImportCounts{}, err
@@ -520,12 +525,24 @@ func (s *ImportScope) insertFinding(ctx context.Context, input persistInput, iss
 	if err != nil {
 		return "", err
 	}
-	_, err = s.tx.Exec(ctx, `INSERT INTO data_quality_findings
+	// A condition already recorded is not recorded again. The unique index over open findings
+	// makes that the database's rule rather than this function's, and the empty result tells
+	// the caller nothing changed — so an unchanged condition publishes no event either.
+	var inserted string
+	err = s.tx.QueryRow(ctx, `INSERT INTO data_quality_findings
 		(id,instrument_id,session_date,run_id,rule,severity,disposition,detail,status,created_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'open',$9)`, id.String(), input.Target.InstrumentID.String(),
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'open',$9)
+		ON CONFLICT DO NOTHING
+		RETURNING id::text`, id.String(), input.Target.InstrumentID.String(),
 		issue.SessionDate.String(), input.RunID.String(), issue.Rule, issue.Severity, issue.Disposition,
-		issue.Detail, input.ObservedAt)
-	return id, err
+		issue.Detail, input.ObservedAt).Scan(&inserted)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return id, nil
 }
 
 func (r *Repository) finishRun(ctx context.Context, runID instruments.UUID, finishedAt time.Time) (ImportRun, error) {

@@ -104,9 +104,9 @@ func TestInstrumentInspectionSummarizesHistoryFreshnessWarningsAndEmptyState(t *
 	observedAt := time.Date(2026, 8, 29, 18, 30, 0, 0, time.UTC)
 	insertQueryBar(t, ctx, pool, runID, withHistory, "2026-08-27", "100.12500000", observedAt.Add(-24*time.Hour))
 	insertQueryBar(t, ctx, pool, runID, withHistory, "2026-08-28", "101.25000000", observedAt)
-	insertQueryFinding(t, ctx, pool, runID, withHistory, "warning", "open")
-	insertQueryFinding(t, ctx, pool, runID, withHistory, "error", "open")
-	insertQueryFinding(t, ctx, pool, runID, withHistory, "warning", "resolved")
+	insertQueryFinding(t, ctx, pool, runID, withHistory, "suspicious_jump", "warning", "open")
+	insertQueryFinding(t, ctx, pool, runID, withHistory, "invalid_ohlc", "error", "open")
+	insertQueryFinding(t, ctx, pool, runID, withHistory, "zero_volume", "warning", "resolved")
 
 	service := instruments.NewQueryService(
 		instruments.NewRepository(pool),
@@ -161,7 +161,10 @@ func insertQueryBar(t *testing.T, ctx context.Context, pool *pgxpool.Pool, runID
 	}
 }
 
-func insertQueryFinding(t *testing.T, ctx context.Context, pool *pgxpool.Pool, runID, instrumentID instruments.UUID, severity, status string) {
+// insertQueryFinding takes the rule because an instrument may hold only one open finding per
+// condition. Two open findings for the same instrument have to differ in their rule or their
+// session, which is the invariant migration 0013 enforces.
+func insertQueryFinding(t *testing.T, ctx context.Context, pool *pgxpool.Pool, runID, instrumentID instruments.UUID, rule, severity, status string) {
 	t.Helper()
 	resolvedAt := any(nil)
 	if status == "resolved" {
@@ -169,8 +172,8 @@ func insertQueryFinding(t *testing.T, ctx context.Context, pool *pgxpool.Pool, r
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO data_quality_findings
 		(id,instrument_id,run_id,rule,severity,disposition,detail,status,created_at,resolved_at)
-		VALUES ($1,$2,$3,'suspicious_jump',$4,'flagged','safe fixture finding',$5,$6,$7)`,
-		mustUUID(t).String(), instrumentID.String(), runID.String(), severity, status,
+		VALUES ($1,$2,$3,$4,$5,'flagged','safe fixture finding',$6,$7,$8)`,
+		mustUUID(t).String(), instrumentID.String(), runID.String(), rule, severity, status,
 		time.Date(2026, 8, 29, 18, 31, 0, 0, time.UTC), resolvedAt); err != nil {
 		t.Fatal(err)
 	}
