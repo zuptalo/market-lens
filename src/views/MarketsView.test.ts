@@ -45,12 +45,62 @@ function wireRow(overrides: Record<string, unknown> = {}) {
 
 let requestedUrls: string[] = [];
 
+/**
+ * A universe of `total` rows served in pages, so scrolling has somewhere to go. Each page
+ * carries the cursor of the next; the first carries the total, later ones carry null, which
+ * is what the server does (research R-001).
+ */
+function stubPagedFetch(total: number, pageSize = 2) {
+  vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
+    const url = String(input);
+    requestedUrls.push(url);
+    if (url.includes('/api/v1/instruments?')) {
+      const parameters = new URLSearchParams(url.split('?')[1] ?? '');
+      const start = Number(parameters.get('cursor') ?? '0');
+      const limit = Math.min(Number(parameters.get('limit') ?? String(pageSize)), pageSize);
+      const rows: ReturnType<typeof wireRow>[] = [];
+      for (let index = start; index < Math.min(start + limit, total); index += 1) {
+        rows.push(wireRow({
+          id: `11111111-1111-4111-8111-${String(index).padStart(12, '0')}`,
+          ticker: `ROW${index}`,
+          name: `Row ${index} AB`,
+        }));
+      }
+      const next = start + limit < total ? String(start + limit) : null;
+      return {
+        ok: true,
+        json: async () => ({ items: rows, next_cursor: next, total: start === 0 ? total : null }),
+      };
+    }
+    if (url.includes('/api/v1/market-data/imports')) {
+      return { ok: true, json: async () => ({ items: [] }) };
+    }
+    return { ok: false, json: async () => ({ error: 'not found' }) };
+  }));
+}
+
+/**
+ * Fire the sentinel the listing watches, the way a scroll would. The DOM these tests run in
+ * has no IntersectionObserver, so the view takes one from the window when a test provides it.
+ */
+function installObserver(): void {
+  (window as unknown as { __listingObserver?: unknown }).__listingObserver = {
+    observe: () => {},
+    trigger: () => {},
+  };
+}
+
+function scrollToEnd(): void {
+  const loadMore = (window as unknown as { __listingLoadMore?: () => void }).__listingLoadMore;
+  loadMore?.();
+}
+
 function stubFetch(items: unknown[] = [wireRow()]) {
   vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
     const url = String(input);
     requestedUrls.push(url);
     if (url.includes('/api/v1/instruments?')) {
-      return { ok: true, json: async () => ({ items, next_cursor: null }) };
+      return { ok: true, json: async () => ({ items, next_cursor: null, total: items.length }) };
     }
     if (url.includes('/api/v1/market-data/imports')) {
       return { ok: true, json: async () => ({ items: [] }) };
@@ -67,6 +117,7 @@ describe('MarketsView', () => {
   beforeEach(() => {
     requestedUrls = [];
     window.localStorage.clear();
+    window.history.replaceState({}, '', '/markets');
     vi.stubGlobal('EventSource', QuietEventSource);
     stubFetch();
   });
@@ -81,6 +132,23 @@ describe('MarketsView', () => {
     expect(text).toContain('109.50');
     expect(text).toContain('SEK');
     expect(text).toContain('Current');
+  });
+
+  // Feature 014 US1: operational reporting belongs on its own screen. A research page that
+  // ends in a maintenance console serves neither reader — one scrolls past it, the other
+  // cannot find it.
+  it('carries no operational report, only a compact freshness statement that links onward', async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    const text = wrapper.text();
+    // The import report's own vocabulary must be gone from this page.
+    expect(text).not.toContain('Recent imports');
+    expect(text).not.toContain('Copy retry command');
+    expect(wrapper.find('[data-testid="import-run-list"]').exists()).toBe(false);
+    // What remains is one statement about freshness, and a way to the detail.
+    const link = wrapper.find('a[href="/operations"]');
+    expect(link.exists()).toBe(true);
+    expect(wrapper.findAll('a[href="/operations"]').length).toBe(1);
   });
 
   it('renders an uncomputed statistic as an absence rather than as a zero move', async () => {
@@ -153,11 +221,223 @@ describe('MarketsView', () => {
   });
 });
 
+describe('MarketsView as a continuous list', () => {
+  beforeEach(() => {
+    requestedUrls = [];
+    window.localStorage.clear();
+    window.history.replaceState({}, '', '/markets');
+    vi.stubGlobal('EventSource', QuietEventSource);
+    installObserver();
+  });
+
+  // Feature 014 US2. The listing is read by scrolling; the button interrupted that once per
+  // page, and nothing on the page said how large the result set was.
+  it('loads the next page when the end of the loaded rows comes into view', async () => {
+    stubPagedFetch(6);
+    const wrapper = mountView();
+    await flushPromises();
+    expect(wrapper.text()).toContain('Row 0 AB');
+    expect(wrapper.text()).not.toContain('Row 2 AB');
+    const before = requestedUrls.length;
+
+    scrollToEnd();
+    await flushPromises();
+
+    expect(requestedUrls.length - before, 'scrolling requested no page').toBe(1);
+    // The rows already read stay, and the new ones join them.
+    expect(wrapper.text()).toContain('Row 0 AB');
+    expect(wrapper.text()).toContain('Row 2 AB');
+    wrapper.unmount();
+  });
+
+  it('states its position, its total, and where the list ends', async () => {
+    stubPagedFetch(5);
+    const wrapper = mountView();
+    await flushPromises();
+    expect(wrapper.text()).toMatch(/2 of 5/);
+
+    scrollToEnd();
+    await flushPromises();
+    expect(wrapper.text()).toMatch(/4 of 5/);
+
+    scrollToEnd();
+    await flushPromises();
+    expect(wrapper.text()).toMatch(/5 of 5/);
+    // "There is no more" and "there may be more" must be distinguishable.
+    expect(wrapper.text().toLowerCase()).toMatch(/end of the list|all 5|no more/);
+    wrapper.unmount();
+  });
+
+  it('offers a focusable control so the list has an end for keyboard and screen readers', async () => {
+    stubPagedFetch(6);
+    const wrapper = mountView();
+    await flushPromises();
+    const control = wrapper.find('[data-testid="load-more"]');
+    expect(control.exists(), 'an infinite list with no focusable end strands keyboard users').toBe(true);
+    const before = requestedUrls.length;
+    await control.trigger('click');
+    await flushPromises();
+    expect(requestedUrls.length - before).toBe(1);
+    wrapper.unmount();
+  });
+
+  it('announces arrivals politely without moving focus', async () => {
+    stubPagedFetch(6);
+    const wrapper = mountView();
+    await flushPromises();
+    const region = wrapper.find('[data-testid="listing-progress-announcement"]');
+    expect(region.exists()).toBe(true);
+    expect(region.attributes('aria-live')).toBe('polite');
+    const focused = document.activeElement;
+    scrollToEnd();
+    await flushPromises();
+    expect(region.text()).toMatch(/2 more|4 of 6/);
+    expect(document.activeElement, 'an arriving page moved focus').toBe(focused);
+    wrapper.unmount();
+  });
+
+  it('returns to the first page when a filter changes', async () => {
+    stubPagedFetch(6);
+    const wrapper = mountView();
+    await flushPromises();
+    scrollToEnd();
+    await flushPromises();
+    expect(wrapper.text()).toContain('Row 2 AB');
+
+    const search = wrapper.find('input[type="search"], input#markets-search');
+    expect(search.exists(), 'no search input to change').toBe(true);
+    await search.setValue('anything');
+    await flushPromises();
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    await flushPromises();
+    // A new filter is a new result set: the reader starts at the top of it, and the request
+    // that fetches it carries no cursor from the old one.
+    const listingRequests = requestedUrls.filter((url) => url.includes('/api/v1/instruments?'));
+    expect(listingRequests.at(-1) ?? '').not.toContain('cursor=');
+    wrapper.unmount();
+  });
+
+  it('keeps the rows already read when a page fails, and retries', async () => {
+    stubPagedFetch(6);
+    const wrapper = mountView();
+    await flushPromises();
+    const rowsBefore = wrapper.text();
+
+    const failing = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      requestedUrls.push(url);
+      if (url.includes('/api/v1/instruments?')) return { ok: false, json: async () => ({}) };
+      return { ok: true, json: async () => ({ items: [] }) };
+    });
+    vi.stubGlobal('fetch', failing);
+    scrollToEnd();
+    await flushPromises();
+
+    // The list is never silently truncated.
+    expect(wrapper.text()).toContain('Row 0 AB');
+    expect(rowsBefore.includes('Row 0 AB')).toBe(true);
+    expect(wrapper.text().toLowerCase()).toMatch(/unable to load|try again|retry/);
+    wrapper.unmount();
+  });
+
+  it('updates a row on a later page in place, without moving it', async () => {
+    stubPagedFetch(6);
+    const wrapper = mountView();
+    await flushPromises();
+    scrollToEnd();
+    await flushPromises();
+    const orderBefore = wrapper.findAll('tbody tr').map((row) => row.text());
+    const before = requestedUrls.length;
+
+    const source = QuietEventSource.instances.at(-1)!;
+    source.deliver(
+      'daily_bar.changed.v1',
+      JSON.stringify({
+        entity_type: 'daily_bar',
+        entity_id: 'bar-1',
+        instrument_id: '11111111-1111-4111-8111-000000000002',
+      }),
+      '7001',
+    );
+    await flushPromises();
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    await flushPromises();
+
+    // One refresh, and it re-reads the rows the reader has — not the first page again.
+    const refreshes = requestedUrls.slice(before).filter((url) => url.includes('/api/v1/instruments?'));
+    expect(refreshes.length).toBe(1);
+    expect(refreshes[0]).not.toContain('cursor=');
+    // The rows keep their order and their number: content must not move under a reader.
+    const orderAfter = wrapper.findAll('tbody tr').map((row) => row.text());
+    expect(orderAfter.length).toBe(orderBefore.length);
+    wrapper.unmount();
+  });
+
+  it('corrects the stated total when a live change alters what matches', async () => {
+    stubPagedFetch(6);
+    const wrapper = mountView();
+    await flushPromises();
+    expect(wrapper.text()).toMatch(/2 of 6/);
+
+    // The universe shrinks underneath the reader: two instruments no longer match.
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      requestedUrls.push(url);
+      if (url.includes('/api/v1/instruments?')) {
+        return {
+          ok: true,
+          json: async () => ({
+            items: [wireRow({ id: '11111111-1111-4111-8111-000000000000', ticker: 'ROW0', name: 'Row 0 AB' })],
+            next_cursor: null,
+            total: 4,
+          }),
+        };
+      }
+      return { ok: true, json: async () => ({ items: [] }) };
+    }));
+
+    const source = QuietEventSource.instances.at(-1)!;
+    source.deliver(
+      'daily_bar.changed.v1',
+      JSON.stringify({
+        entity_type: 'daily_bar',
+        entity_id: 'bar-2',
+        instrument_id: '11111111-1111-4111-8111-000000000000',
+      }),
+      '7002',
+    );
+    await flushPromises();
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    await flushPromises();
+
+    // The total tells the truth about the result set; the rows the reader has stay put.
+    expect(wrapper.text()).toMatch(/of 4/);
+    expect(wrapper.text()).toContain('Row 0 AB');
+    wrapper.unmount();
+  });
+
+  it('issues one page request at a time however fast the reader scrolls', async () => {
+    stubPagedFetch(20);
+    const wrapper = mountView();
+    await flushPromises();
+    const before = requestedUrls.length;
+    scrollToEnd();
+    scrollToEnd();
+    scrollToEnd();
+    scrollToEnd();
+    await flushPromises();
+    expect(requestedUrls.length - before, 'four intersections issued more than one request').toBe(1);
+    wrapper.unmount();
+  });
+
+});
+
 describe('MarketsView under an event storm', () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     requestedUrls = [];
     window.localStorage.clear();
+    window.history.replaceState({}, '', '/markets');
     QuietEventSource.instances = [];
     vi.stubGlobal('EventSource', QuietEventSource);
     stubFetch();
@@ -247,12 +527,15 @@ describe('MarketsView under an event storm', () => {
     // The refresh keeps the view the person set up — same filters, same ordering — and asks
     // only for the rows on screen rather than starting the listing over.
     const parameters = (url: string) => new URLSearchParams(url.split('?')[1] ?? '');
-    const before20 = parameters(listingBefore ?? '');
+    const beforeParameters = parameters(listingBefore ?? '');
     const after = parameters(issued[0]);
-    for (const key of ['q', 'sort', 'order']) {
-      expect(after.get(key), `the refresh changed ${key}`).toBe(before20.get(key));
+    // Every filter the reader had set is still set, unchanged. The refresh may add a default
+    // the first request left implicit; what it may not do is alter the person's view.
+    for (const [key, value] of beforeParameters.entries()) {
+      if (key === 'limit') continue;
+      expect(after.get(key), `the refresh changed ${key}`).toBe(value);
     }
-    expect(after.get('cursor')).toBe(before20.get('cursor'));
+    expect(after.get('cursor')).toBe(beforeParameters.get('cursor'));
     expect(Number(after.get('limit'))).toBe(wrapper.findAll('tbody tr').length);
 
     // An instrument that is not on screen costs nothing, and the same event twice is one

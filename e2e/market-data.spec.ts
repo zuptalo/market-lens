@@ -3,6 +3,11 @@ import { expect, test } from '@playwright/test';
 const runID = '22000000-0000-4000-8000-000000000001';
 
 test.beforeEach(async ({ page }) => {
+  await page.route('**/api/v1/instruments/sectors', (route) => route.fulfill({ json: { items: [
+    { code: 'industrials', name: 'Industrials', instrument_count: 1 },
+    { code: 'unclassified', name: 'Unclassified', instrument_count: 0 },
+  ] } }));
+  await page.route('**/api/v1/feature-runs*', (route) => route.fulfill({ json: { items: [] } }));
   await page.route('**/api/v1/account', (route) => route.fulfill({ json: {
     id: '10000000-0000-4000-8000-000000000001', email: 'owner@example.com', display_name: 'Owner',
     role: 'owner', status: 'active', email_verified_at: '2026-08-30T08:00:00Z',
@@ -57,8 +62,8 @@ test('shows partial import, refreshes live without polling, reconnects, and pres
     }] } });
   });
 
-  await page.goto('/markets');
-  await expect(page.getByRole('heading', { name: 'Market data' })).toBeVisible();
+  await page.goto('/operations');
+  await expect(page.getByRole('heading', { name: 'Data pipeline' })).toBeVisible();
   await expect(page.getByTestId('connection-state')).toContainText('connected', { ignoreCase: true });
   await expect(page.getByTestId('run-status')).toContainText('partial', { ignoreCase: true });
   await expect(page.getByText('Rejected 1')).toBeVisible();
@@ -105,7 +110,7 @@ test('shows failed import accessibly in every theme and does not overflow at 320
     counts: { processed: 0, accepted: 0, rejected: 0, flagged: 0 },
     error_summary: 'Market-data provider request timed out.',
   }] } }));
-  await page.goto('/markets');
+  await page.goto('/operations');
   for (let index = 0; index < 3; index += 1) {
     await expect(page.getByTestId('run-status')).toContainText('failed', { ignoreCase: true });
     await expect(page.getByText('Market-data provider request timed out.')).toBeVisible();
@@ -120,7 +125,7 @@ test('searches, inspects, and returns with instrument state across responsive in
   const listingRow = {
     id: instrumentID, isin: 'SE0000000100', ticker: 'ALFA', name: 'Alpha AB',
     exchange: { mic: 'XSTO', name: 'Nasdaq Stockholm' },
-    currency: 'SEK', country: 'SE', sector: 'Industrials', industry: 'Machinery',
+    currency: 'SEK', country: 'SE', sector: 'industrials', sector_name: 'Industrials', industry: 'Machinery',
     instrument_type: 'common_stock', status: 'active', purchasability_status: 'unverified',
     latest_session: '2026-08-28', latest_close: '101.25', change_absolute: '1.25',
     change_percent: 0.0125, return_20: null, return_90: null, volatility: null,

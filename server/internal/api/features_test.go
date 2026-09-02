@@ -83,6 +83,12 @@ func (s *featureReaderStub) Read(_ context.Context, request features.ReadRequest
 	return set, nil
 }
 
+// ListRuns keeps the stub satisfying the reader interface; the operational tests use
+// featureRunReaderStub, which answers with runs.
+func (s *featureReaderStub) ListRuns(context.Context, int) ([]features.Run, error) {
+	return nil, nil
+}
+
 func (s *featureReaderStub) ListDefinitions(_ context.Context, name string, includeSuperseded bool) ([]features.Definition, error) {
 	s.listName, s.listAll = name, includeSuperseded
 	var out []features.Definition
@@ -398,5 +404,124 @@ func TestAnUncomputableFeatureIsNullInTheBodyNeverZero(t *testing.T) {
 		if value["absenceReason"] != "insufficient_history" {
 			t.Errorf("%v: absenceReason = %v", value["name"], value["absenceReason"])
 		}
+	}
+}
+
+// featureRunReaderStub answers the way the repository would for an operational screen.
+type featureRunReaderStub struct {
+	featureReaderStub
+	requestedLimit int
+	runs           []features.Run
+	err            error
+}
+
+func (s *featureRunReaderStub) ListRuns(_ context.Context, limit int) ([]features.Run, error) {
+	s.requestedLimit = limit
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.runs, nil
+}
+
+func seededFeatureRuns() []features.Run {
+	started := time.Date(2026, 9, 1, 3, 0, 0, 0, time.UTC)
+	finished := started.Add(4 * time.Minute)
+	trigger := features.UUID("ffffffff-0013-4000-8000-00000000a002")
+	name := "rsi_14"
+	return []features.Run{
+		{ID: "eeeeeeee-0014-4000-8000-000000000003", Kind: features.RunKindDefinition,
+			Status: features.RunStatusFailed, StartedAt: started, FinishedAt: &finished,
+			InstrumentCount: 13, ValueCount: 0, FailedCount: 13, DefinitionName: &name, AppVersion: "0.10.1"},
+		{ID: "eeeeeeee-0014-4000-8000-000000000002", Kind: features.RunKindIncremental,
+			Status: features.RunStatusPartial, StartedAt: started, FinishedAt: &finished,
+			InstrumentCount: 13, ValueCount: 7502, FailedCount: 1, TriggerRunID: &trigger, AppVersion: "0.10.1"},
+	}
+}
+
+// Feature 014 US1: the operational screen reports the engine's runs, which have had no
+// interface at all since the engine shipped.
+func TestFeatureRunsEndpointReportsRecentRuns(t *testing.T) {
+	stub := &featureRunReaderStub{runs: seededFeatureRuns()}
+	router := NewRouter(authenticatedDependencies(Dependencies{
+		Features: stub, Instruments: &instrumentReaderStub{err: instruments.ErrNotFound},
+	}))
+	response := performRequest(router, "/api/v1/feature-runs")
+	if response.Code != http.StatusOK {
+		t.Fatalf("status %d %s", response.Code, response.Body.String())
+	}
+	if stub.requestedLimit != 10 {
+		t.Errorf("the endpoint asked for %d runs by default, expected 10", stub.requestedLimit)
+	}
+	body := decodeBody(t, response)
+	items, _ := body["items"].([]any)
+	if len(items) != 2 {
+		t.Fatalf("items = %v", body["items"])
+	}
+	first, _ := items[0].(map[string]any)
+	for _, key := range []string{"id", "kind", "status", "started_at", "finished_at",
+		"instrument_count", "value_count", "failed_count"} {
+		if _, ok := first[key]; !ok {
+			t.Errorf("a run lacks %s: %v", key, first)
+		}
+	}
+	if first["kind"] != "definition" || first["status"] != "failed" || first["definition_name"] != "rsi_14" {
+		t.Errorf("the definition run reads %v", first)
+	}
+	if first["failed_count"] != float64(13) {
+		t.Errorf("failed_count = %v, expected 13", first["failed_count"])
+	}
+	second, _ := items[1].(map[string]any)
+	if second["trigger_run_id"] != "ffffffff-0013-4000-8000-00000000a002" {
+		t.Errorf("the incremental run lost the import it followed: %v", second)
+	}
+
+	t.Run("the limit is honoured and bounded", func(t *testing.T) {
+		router := NewRouter(authenticatedDependencies(Dependencies{
+			Features: stub, Instruments: &instrumentReaderStub{err: instruments.ErrNotFound},
+		}))
+		if response := performRequest(router, "/api/v1/feature-runs?limit=3"); response.Code != http.StatusOK ||
+			stub.requestedLimit != 3 {
+			t.Errorf("limit=3 gave status %d and asked for %d", response.Code, stub.requestedLimit)
+		}
+		for _, raw := range []string{"0", "51", "-1", "many"} {
+			if response := performRequest(router, "/api/v1/feature-runs?limit="+raw); response.Code != http.StatusBadRequest {
+				t.Errorf("limit=%s gave status %d, expected 400", raw, response.Code)
+			}
+		}
+	})
+}
+
+// The operational screen is shared, not private, but it sits behind the authenticated boundary
+// like everything else, and neither a revoked session nor a deactivated member may read it.
+func TestFeatureRunsEndpointRequiresAnActiveSession(t *testing.T) {
+	const path = "/api/v1/feature-runs"
+	t.Run("no cookie", func(t *testing.T) {
+		stub := &featureRunReaderStub{runs: seededFeatureRuns()}
+		response := performRequest(NewRouter(Dependencies{Features: stub}), path)
+		if response.Code != http.StatusUnauthorized {
+			t.Errorf("anonymous: %d %s", response.Code, response.Body.String())
+		}
+		if stub.requestedLimit != 0 {
+			t.Errorf("the reader was consulted for an anonymous request")
+		}
+	})
+	for name, err := range map[string]error{
+		"revoked session":    auth.ErrAuthenticationRequired,
+		"deactivated member": auth.ErrMemberLocked,
+	} {
+		t.Run(name, func(t *testing.T) {
+			stub := &featureRunReaderStub{runs: seededFeatureRuns()}
+			deps := Dependencies{Features: stub}
+			deps.Authenticator = sessionAuthenticatorFunc(func(context.Context, string) (auth.Principal, error) {
+				return auth.Principal{}, err
+			})
+			response := performRequest(NewRouter(deps), path)
+			if response.Code != http.StatusUnauthorized {
+				t.Errorf("%s: %d %s", name, response.Code, response.Body.String())
+			}
+			if stub.requestedLimit != 0 {
+				t.Errorf("%s: the reader was consulted anyway", name)
+			}
+		})
 	}
 }

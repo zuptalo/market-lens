@@ -194,3 +194,29 @@ func scanInstrument(row instrumentScanner) (Instrument, error) {
 func (r *Repository) begin(ctx context.Context) (pgx.Tx, error) {
 	return r.pool.Begin(ctx)
 }
+
+// Sectors is the classification vocabulary in display order, with how many instruments hold
+// each value. The filter is rendered from this rather than from a list in the client, so a
+// choice it offers can never fail to exist in the data (feature 014, FR-021).
+func (r *Repository) Sectors(ctx context.Context) ([]Sector, error) {
+	rows, err := r.pool.Query(ctx, `SELECT s.code, s.name, count(i.id)
+		FROM sectors s LEFT JOIN instruments i ON i.sector = s.code
+		GROUP BY s.code, s.name, s.display_order
+		ORDER BY s.display_order`)
+	if err != nil {
+		return nil, fmt.Errorf("list sectors: %w", err)
+	}
+	defer rows.Close()
+	sectors := make([]Sector, 0, 12)
+	for rows.Next() {
+		var sector Sector
+		if err := rows.Scan(&sector.Code, &sector.Name, &sector.InstrumentCount); err != nil {
+			return nil, fmt.Errorf("scan sector: %w", err)
+		}
+		sectors = append(sectors, sector)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list sectors: %w", err)
+	}
+	return sectors, nil
+}

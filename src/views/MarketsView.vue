@@ -3,14 +3,15 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import Button from 'primevue/button';
 import Checkbox from 'primevue/checkbox';
 import Drawer from 'primevue/drawer';
-import MarketDataStatus from '@/components/finance/MarketDataStatus.vue';
 import InstrumentFilters from '@/components/finance/InstrumentFilters.vue';
 import InstrumentTable from '@/components/finance/InstrumentTable.vue';
+import ListingProgress from '@/components/finance/ListingProgress.vue';
 import { useCompactViewport } from '@/composables/useCompactViewport';
 import {
   MarketDataLive,
   fetchInstrumentListing,
   fetchRecentImports,
+  fetchSectors,
   listingQueryString,
   type LiveEvent,
   type LiveEventPayload,
@@ -22,6 +23,7 @@ import type {
   ConnectionState,
   ImportRunSummary,
   InstrumentListingPage,
+  SectorOption,
   ListingQuery,
   ListingSort,
 } from '@/types/marketData';
@@ -50,7 +52,7 @@ const status = ref(initial.get('status') ?? '');
 const sort = ref<ListingSort>((initial.get('sort') as ListingSort) ?? 'name');
 const order = ref<'asc' | 'desc'>(initial.get('order') === 'desc' ? 'desc' : 'asc');
 
-const listing = ref<InstrumentListingPage>({ items: [], nextCursor: null });
+const listing = ref<InstrumentListingPage>({ items: [], nextCursor: null, total: null });
 const instrumentLoading = ref(true);
 const instrumentError = ref('');
 const loadingMore = ref(false);
@@ -58,6 +60,22 @@ const filtersOpen = ref(false);
 const columnsOpen = ref(false);
 
 const runs = ref<ImportRunSummary[]>([]);
+/** A failed page is stated without discarding what the reader has already read. */
+const pageError = ref('');
+/** The sector vocabulary, served rather than hardcoded (feature 014, FR-021). */
+const sectors = ref<SectorOption[]>([]);
+/** How many rows the last page brought, so the announcement can say. */
+const lastArrival = ref(0);
+const listingEnd = ref<HTMLElement | null>(null);
+/**
+ * Whether the end of the loaded rows is in view. Kept as state rather than acted on inside the
+ * observer callback because the sentinel is usually already visible when the first page is
+ * still in flight: the observer fires once, finds no cursor to follow, and never fires again
+ * because nothing about the intersection changed. Watching the pair instead means "in view and
+ * there is more" triggers a load whichever of the two becomes true last.
+ */
+const endInView = ref(false);
+let sentinel: IntersectionObserver | undefined;
 const loading = ref(true);
 const error = ref('');
 const connectionState = ref<ConnectionState>(navigator.onLine ? 'reconnecting' : 'offline');
@@ -120,17 +138,30 @@ async function load(): Promise<void> {
   }
 }
 
+/**
+ * The next page, whether a scroll or the control asked for it.
+ *
+ * Single-flight on purpose: fast scrolling fires the sentinel repeatedly, and one request at a
+ * time keeps the pages in order and the request count proportional to the reader rather than
+ * to their scrolling speed.
+ */
 async function loadMore(): Promise<void> {
   if (!listing.value.nextCursor || loadingMore.value) return;
   loadingMore.value = true;
+  pageError.value = '';
   try {
     const page = await fetchInstrumentListing(currentQuery(listing.value.nextCursor), fetch);
+    lastArrival.value = page.items.length;
     listing.value = {
       items: [...listing.value.items, ...page.items],
       nextCursor: page.nextCursor,
+      // A later page reports no total; the one from the first page still stands.
+      total: page.total ?? listing.value.total,
     };
   } catch {
-    instrumentError.value = 'Unable to load more instruments.';
+    // The rows already read stay exactly where they are. A list that silently truncates on a
+    // failed page is worse than one that says it could not continue.
+    pageError.value = 'Unable to load more instruments. Try again.';
   } finally {
     loadingMore.value = false;
   }
@@ -162,6 +193,14 @@ function open(id: string): void {
 
 watch([query, mic, country, sector, status, sort, order], () => { void load(); });
 
+// In view, and there is more to read: fetch it. Single-flight inside loadMore keeps this to
+// one request per page however often the pair changes.
+watch([endInView, () => listing.value.nextCursor, loadingMore], () => {
+  if (endInView.value && listing.value.nextCursor && !loadingMore.value && !pageError.value) {
+    void loadMore();
+  }
+});
+
 async function refresh(): Promise<void> {
   statusController?.abort();
   statusController = new AbortController();
@@ -175,6 +214,21 @@ async function refresh(): Promise<void> {
     loading.value = false;
   }
 }
+
+/**
+ * How current the data is, in one line. Derived from the most recent import the view already
+ * reads, so the badge costs no extra request.
+ */
+const freshnessSummary = computed(() => {
+  if (error.value) return 'Market-data status unavailable.';
+  if (loading.value && runs.value.length === 0) return 'Checking market-data status…';
+  const latest = runs.value[0];
+  if (!latest) return 'No import has run yet.';
+  const when = latest.finishedAt ?? latest.startedAt;
+  const stamp = new Date(when).toLocaleString();
+  if (latest.status === 'succeeded') return `Data as of ${stamp}.`;
+  return `Last import ${latest.status}, ${stamp}.`;
+});
 
 function browserEventSource(url: string, lastEventId: string): LiveEventSource {
   const endpoint = lastEventId ? `${url}?last_event_id=${encodeURIComponent(lastEventId)}` : url;
@@ -218,9 +272,14 @@ const listingRefresh = createCoalescer(async (instrumentIds) => {
       { ...currentQuery(), limit: listing.value.items.length }, fetch,
     );
     const updated = new Map(page.items.map((row) => [row.id, row]));
+    // A loaded row is updated where it stands. It is never moved or removed by an event:
+    // content shifting under a reader is disorienting with a mouse and disabling with a
+    // screen reader, where the reading position is a point in a layout (research R-003).
+    // The refresh is cursor-less, so it also brings back a corrected total for free.
     listing.value = {
       ...listing.value,
       items: listing.value.items.map((row) => updated.get(row.id) ?? row),
+      total: page.total ?? listing.value.total,
     };
   } catch {
     // A failed refresh leaves the rows as they were rather than blanking them; the connection
@@ -254,8 +313,38 @@ const live = new MarketDataLive({
 const online = () => live.setOnline(true);
 const offline = () => live.setOnline(false);
 
+/**
+ * Watch for the end of the loaded rows coming into view and fetch the next page before the
+ * reader reaches empty space. A root margin of one viewport buys that head start; momentum
+ * scrolling on a phone will otherwise outrun the request (research R-002).
+ *
+ * The observer is taken from the window when a test has put one there, because the DOM the
+ * unit tests run in has no IntersectionObserver of its own.
+ */
+function watchListingEnd(): void {
+  const injected = (window as unknown as {
+    __listingObserver?: { trigger: () => void; observe?: (element: Element) => void };
+  }).__listingObserver;
+  if (injected) {
+    injected.observe?.(listingEnd.value as Element);
+    return;
+  }
+  if (typeof IntersectionObserver === 'undefined' || !listingEnd.value) return;
+  sentinel = new IntersectionObserver((entries) => {
+    endInView.value = entries.some((entry) => entry.isIntersecting);
+  }, { rootMargin: '100% 0px' });
+  sentinel.observe(listingEnd.value);
+}
+
 onMounted(() => {
   void load();
+  void fetchSectors(fetch).then((served) => { sectors.value = served; }).catch(() => {
+    // A filter with no choices is better than one offering values the data cannot match.
+    sectors.value = [];
+  });
+  // Tests drive the sentinel directly; production observes the element.
+  (window as unknown as { __listingLoadMore?: () => void }).__listingLoadMore = () => { void loadMore(); };
+  watchListingEnd();
   void refresh();
   live.setOnline(navigator.onLine);
   live.start();
@@ -268,6 +357,8 @@ onBeforeUnmount(() => {
   statusController?.abort();
   listingRefresh.cancel();
   statusRefresh.cancel();
+  sentinel?.disconnect();
+  delete (window as unknown as { __listingLoadMore?: () => void }).__listingLoadMore;
   live.stop();
   window.removeEventListener('online', online);
   window.removeEventListener('offline', offline);
@@ -280,6 +371,17 @@ onBeforeUnmount(() => {
       <p class="eyebrow">Data foundation</p>
       <h1>Market data</h1>
       <p>Browse the curated Nordic universe. Every price is stated in its own listing currency; nothing is converted or compared across currencies.</p>
+      <!--
+        One line about how current the data is, and a way to the detail. The full operational
+        report lives on its own screen: stacked under the instrument table it served neither
+        reader, since researching meant scrolling past it and checking an import meant
+        scrolling the whole universe to reach it.
+      -->
+      <p class="data-freshness">
+        <span :class="['data-freshness__dot', `data-freshness__dot--${connectionState}`]" aria-hidden="true" />
+        <span>{{ freshnessSummary }}</span>
+        <a href="/operations">Operations</a>
+      </p>
     </header>
 
     <section class="instrument-browser" aria-labelledby="instrument-browser-heading">
@@ -316,6 +418,7 @@ onBeforeUnmount(() => {
         v-model:mic="mic"
         v-model:country="country"
         v-model:sector="sector"
+        :sectors="sectors"
         v-model:status="status"
         v-model:sort="sort"
         v-model:order="order"
@@ -364,14 +467,18 @@ onBeforeUnmount(() => {
         />
       </p>
 
-      <Button
-        v-if="listing.nextCursor"
+      <ListingProgress
+        v-if="!instrumentLoading && !instrumentError && listing.items.length > 0"
+        :loaded="listing.items.length"
+        :total="listing.total"
+        :has-more="Boolean(listing.nextCursor)"
         :loading="loadingMore"
-        severity="secondary"
-        label="Load more"
-        data-testid="load-more"
-        @click="loadMore()"
+        :error="pageError"
+        :last-arrival="lastArrival"
+        @more="loadMore()"
       />
+      <!-- What the observer watches: the end of the loaded rows. -->
+      <div ref="listingEnd" class="listing-sentinel" aria-hidden="true" />
     </section>
 
     <Drawer v-model:visible="filtersOpen" header="Filters" position="bottom" class="filters-drawer">
@@ -381,6 +488,7 @@ onBeforeUnmount(() => {
         v-model:mic="mic"
         v-model:country="country"
         v-model:sector="sector"
+        :sectors="sectors"
         v-model:status="status"
         v-model:sort="sort"
         v-model:order="order"
@@ -404,12 +512,37 @@ onBeforeUnmount(() => {
       </ul>
       <p class="column-note">Remembered on this device.</p>
     </Drawer>
-
-    <MarketDataStatus :runs="runs" :connection-state="connectionState" :loading="loading" :error="error" />
   </div>
 </template>
 
 <style scoped>
+/* One pixel of nothing, watched by the observer, so a reader never meets blank space. */
+.listing-sentinel {
+  height: 1px;
+}
+
+.data-freshness {
+  align-items: center;
+  color: var(--p-text-muted-color);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.875rem;
+  gap: 0.5rem;
+  margin: 0.5rem 0 0;
+}
+
+.data-freshness__dot {
+  border-radius: 50%;
+  flex: none;
+  height: 0.5rem;
+  width: 0.5rem;
+  background: var(--p-primary-color);
+}
+
+.data-freshness__dot--reconnecting { background: var(--p-orange-400, orange); }
+.data-freshness__dot--stale { background: var(--p-orange-400, orange); }
+.data-freshness__dot--offline { background: var(--p-surface-400, grey); }
+
 .browser-actions {
   display: flex;
   gap: 0.5rem;

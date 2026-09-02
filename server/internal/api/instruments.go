@@ -14,9 +14,38 @@ import (
 
 type InstrumentReader interface {
 	Listing(context.Context, instruments.ListingFilter) (instruments.ListingPage, error)
+	Sectors(context.Context) ([]instruments.Sector, error)
 	History(context.Context, instruments.UUID, instruments.HistoryFilter) (instruments.HistoryWindow, error)
 	Inspect(context.Context, instruments.UUID) (instruments.Inspection, error)
 	Prices(context.Context, instruments.UUID, instruments.PriceFilter) (instruments.PricePage, error)
+}
+
+// sectorResponse is one choice the sector filter may offer. The count travels with it so a
+// client can explain an empty result before making the request.
+type sectorResponse struct {
+	Code            string `json:"code"`
+	Name            string `json:"name"`
+	InstrumentCount int64  `json:"instrument_count"`
+}
+
+// listSectorsHandler serves the classification vocabulary. The filter is rendered from this
+// rather than from a constant in the client, where it had drifted into offering two names for
+// one idea and one that could never match anything (feature 014, FR-021).
+func listSectorsHandler(reader InstrumentReader) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sectors, err := reader.Sectors(r.Context())
+		if err != nil {
+			httpx.Error(w, http.StatusInternalServerError, "The sector request failed.")
+			return
+		}
+		items := make([]sectorResponse, 0, len(sectors))
+		for _, sector := range sectors {
+			items = append(items, sectorResponse{
+				Code: sector.Code, Name: sector.Name, InstrumentCount: sector.InstrumentCount,
+			})
+		}
+		httpx.JSON(w, http.StatusOK, map[string]any{"items": items})
+	}
 }
 
 type exchangeResponse struct {
@@ -133,7 +162,11 @@ func listInstrumentsHandler(reader InstrumentReader) http.HandlerFunc {
 		for _, item := range page.Items {
 			items = append(items, listingRowDTO(item))
 		}
-		httpx.JSON(w, http.StatusOK, map[string]any{"items": items, "next_cursor": nullableString(page.NextCursor)})
+		// total is null on a page the repository did not count, which means "unchanged" rather
+		// than "zero" — the client keeps the number it was given with the first page.
+		httpx.JSON(w, http.StatusOK, map[string]any{
+			"items": items, "next_cursor": nullableString(page.NextCursor), "total": page.Total,
+		})
 	}
 }
 

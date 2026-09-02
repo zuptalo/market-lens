@@ -234,8 +234,10 @@ func TestFeatureEngineMigrationsUpgradeVersionSixteen(t *testing.T) {
 	if definitions != len(featureEngineVersionOneDefinitions) {
 		t.Errorf("%d current definitions after upgrade, want %d", definitions, len(featureEngineVersionOneDefinitions))
 	}
-	if latest != 19 {
-		t.Errorf("schema is at version %d after upgrade, want 19", latest)
+	// The upgrade runs every migration, so this tracks the head of the ordered set. It exists
+	// to catch a migration that failed to apply, not to pin a number.
+	if latest != 20 {
+		t.Errorf("schema is at version %d after upgrade, want 20", latest)
 	}
 }
 

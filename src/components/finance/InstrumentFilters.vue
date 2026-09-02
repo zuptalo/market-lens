@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { computed } from 'vue';
+import type { SectorOption } from '@/types/marketData';
 import InputText from 'primevue/inputtext';
 import Select from 'primevue/select';
 
@@ -17,19 +19,21 @@ import Select from 'primevue/select';
 
 const EXCHANGES = ['XSTO', 'XCSE', 'XHEL', 'XOSL'];
 const COUNTRIES = ['SE', 'DK', 'FI', 'NO'];
-const SECTORS = [
-  'Communication Services', 'Consumer Discretionary', 'Consumer Staples', 'Energy',
-  'Financials', 'Health Care', 'Industrials', 'Information Technology', 'Materials',
-  'Real Estate', 'Technology', 'Utilities',
-];
-
 function options(values: string[], allLabel: string) {
   return [{ label: allLabel, value: '' }, ...values.map((value) => ({ label: value, value }))];
 }
 
 const exchangeOptions = options(EXCHANGES, 'All exchanges');
 const countryOptions = options(COUNTRIES, 'All countries');
-const sectorOptions = options(SECTORS, 'All sectors');
+/**
+ * The sector choices come from the server's vocabulary, not from a list in this component.
+ * A constant here can only ever agree with the data by coincidence, and this one did not:
+ * it offered two names for one idea, one of which could never match anything.
+ */
+const sectorOptions = computed(() => [
+  { label: 'All sectors', value: '' },
+  ...props.sectors.map((sector) => ({ label: sector.name, value: sector.code })),
+]);
 const statusOptions = [
   { label: 'All statuses', value: '' },
   { label: 'Active', value: 'active' },
@@ -56,7 +60,7 @@ const orderOptions = [
   { label: 'Descending', value: 'desc' },
 ];
 
-defineProps<{
+const props = withDefaults(defineProps<{
   query: string;
   mic: string;
   country: string;
@@ -64,7 +68,9 @@ defineProps<{
   status: string;
   sort: string;
   order: string;
-}>();
+  /** The classification vocabulary, served rather than hardcoded (feature 014, FR-021). */
+  sectors?: SectorOption[];
+}>(), { sectors: () => [] });
 
 defineEmits<{
   (event: 'update:query', value: string): void;

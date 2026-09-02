@@ -19,6 +19,27 @@ export interface ImportRunSummary {
   errorSummary?: string | null;
 }
 
+/**
+ * One run of the feature engine, as the operational screen reads it.
+ *
+ * `failedCount` is the field that matters most there. A partial run leaves the previous values
+ * standing, which is correct and completely invisible on the market screens: the statistics
+ * look current because they are the last ones that computed.
+ */
+export interface FeatureRunSummary {
+  id: string;
+  kind: 'full' | 'incremental' | 'definition';
+  status: 'running' | 'succeeded' | 'partial' | 'failed';
+  startedAt: string;
+  finishedAt: string | null;
+  instrumentCount: number;
+  valueCount: number;
+  failedCount: number;
+  triggerRunId: string | null;
+  definitionName: string | null;
+  appVersion: string | null;
+}
+
 export interface ExchangeIdentity {
   mic: string;
   name: string;
@@ -100,7 +121,8 @@ export interface InstrumentListingRow {
   name: string;
   isin: string;
   exchange: { mic: string; name: string };
-  sector: string | null;
+  sector: string;
+  sectorName: string;
   industry: string | null;
   country: string;
   currency: string;
@@ -139,9 +161,22 @@ export interface ListingQuery {
   limit?: number;
 }
 
+/** One choice the sector filter may offer, as the server defines it. */
+export interface SectorOption {
+  code: string;
+  name: string;
+  instrumentCount: number;
+}
+
 export interface InstrumentListingPage {
   items: InstrumentListingRow[];
   nextCursor: string | null;
+  /**
+   * How many instruments match the filter, ignoring the page size. Present on the first page
+   * of a result set and null afterwards, where it means "unchanged" rather than "zero" — the
+   * server counts only for a cursor-less request (research R-001).
+   */
+  total: number | null;
 }
 
 export type SeriesBasis = 'raw' | 'provider_adjusted';

@@ -3,6 +3,7 @@ import { createRouter, createWebHistory, type RouterHistory } from 'vue-router';
 import DashboardView from '@/views/DashboardView.vue';
 import MarketsView from '@/views/MarketsView.vue';
 import InstrumentMarketDataView from '@/views/InstrumentMarketDataView.vue';
+import OperationsView from '@/views/OperationsView.vue';
 import LoginView from '@/views/LoginView.vue';
 import OwnerSetupView from '@/views/OwnerSetupView.vue';
 import AcceptInvitationView from '@/views/AcceptInvitationView.vue';
@@ -24,6 +25,7 @@ export function createMarketLensRouter(history: RouterHistory, auth: RouteAuthSt
       { path: '/', name: 'dashboard', component: DashboardView },
       { path: '/markets', name: 'markets', component: MarketsView },
       { path: '/markets/:instrumentId', name: 'instrument-market-data', component: InstrumentMarketDataView },
+      { path: '/operations', name: 'operations', component: OperationsView },
       { path: '/account', name: 'account-settings', component: AccountSettingsView },
     ],
   });

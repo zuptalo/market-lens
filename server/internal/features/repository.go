@@ -287,6 +287,47 @@ func (r *Repository) Run(ctx context.Context, id UUID) (Run, error) {
 	return run, nil
 }
 
+// ListRuns returns the most recent runs, newest first, each with the count of instruments
+// that failed in it. The failed count is what an operational screen needs to say that some
+// values are stale: a partial run leaves the previous values standing, which is correct and
+// invisible unless somebody reports it.
+func (r *Repository) ListRuns(ctx context.Context, limit int) ([]Run, error) {
+	if err := r.ready(); err != nil {
+		return nil, err
+	}
+	if limit < 1 || limit > 50 {
+		return nil, fmt.Errorf("feature run limit must be between 1 and 50")
+	}
+	rows, err := r.pool.Query(ctx, `SELECT r.id::text, r.kind, r.status, r.universe_id::text,
+		r.definition_name, r.trigger_run_id::text, r.started_at, r.finished_at,
+		r.instrument_count, r.value_count, r.app_version,
+		(SELECT count(*) FROM feature_run_items i WHERE i.run_id = r.id AND i.status = 'failed')
+		FROM feature_runs r ORDER BY r.started_at DESC, r.id DESC LIMIT $1`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list feature runs: %w", err)
+	}
+	defer rows.Close()
+	runs := make([]Run, 0, limit)
+	for rows.Next() {
+		var run Run
+		var trigger *string
+		if err := rows.Scan((*string)(&run.ID), (*string)(&run.Kind), (*string)(&run.Status),
+			(*string)(&run.UniverseID), &run.DefinitionName, &trigger, &run.StartedAt, &run.FinishedAt,
+			&run.InstrumentCount, &run.ValueCount, &run.AppVersion, &run.FailedCount); err != nil {
+			return nil, fmt.Errorf("scan feature run: %w", err)
+		}
+		if trigger != nil {
+			triggerID := UUID(*trigger)
+			run.TriggerRunID = &triggerID
+		}
+		runs = append(runs, run)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list feature runs: %w", err)
+	}
+	return runs, nil
+}
+
 // WriteItem records an instrument's outcome outside any scope — a failure that never
 // reached a transaction, or an instrument that was skipped.
 func (r *Repository) WriteItem(ctx context.Context, item RunItem) error {

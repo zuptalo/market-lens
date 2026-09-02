@@ -1,12 +1,14 @@
 import type {
   ConnectionState,
   DailyBarSummary,
+  FeatureRunSummary,
   ImportRunSummary,
   InstrumentDetail,
   InstrumentListingPage,
   InstrumentListingRow,
   InstrumentSummary,
   ListingQuery,
+  SectorOption,
   HistoryWindow,
 } from '@/types/marketData';
 
@@ -77,6 +79,7 @@ interface ListingRowWire {
   currency: string;
   country: string;
   sector: string;
+  sector_name: string;
   industry: string;
   instrument_type: 'common_stock';
   status: 'active' | 'inactive';
@@ -99,7 +102,8 @@ function listingRowFromWire(row: ListingRowWire): InstrumentListingRow {
     name: row.name,
     isin: row.isin,
     exchange: { mic: row.exchange.mic, name: row.exchange.name },
-    sector: row.sector || null,
+    sector: row.sector,
+    sectorName: row.sector_name,
     industry: row.industry || null,
     country: row.country,
     currency: row.currency,
@@ -135,6 +139,19 @@ export function listingQueryString(query: ListingQuery): string {
   return params.toString();
 }
 
+/** The classification vocabulary the sector filter is rendered from. */
+export async function fetchSectors(fetcher: Fetcher = fetch, signal?: AbortSignal): Promise<SectorOption[]> {
+  const response = await fetcher('/api/v1/instruments/sectors', { signal });
+  if (!response.ok) throw new Error('Unable to load sectors.');
+  const body = await response.json() as {
+    items?: { code: string; name: string; instrument_count: number }[];
+  };
+  if (!Array.isArray(body.items)) throw new Error('Unable to load sectors.');
+  return body.items.map((sector) => ({
+    code: sector.code, name: sector.name, instrumentCount: sector.instrument_count,
+  }));
+}
+
 export async function fetchInstrumentListing(
   query: ListingQuery = {},
   fetcher: Fetcher = fetch,
@@ -142,9 +159,19 @@ export async function fetchInstrumentListing(
 ): Promise<InstrumentListingPage> {
   const response = await fetcher(`/api/v1/instruments?${listingQueryString(query)}`, { signal });
   if (!response.ok) throw new Error('Unable to load instruments.');
-  const body = await response.json() as { items?: ListingRowWire[]; next_cursor?: string | null };
+  const body = await response.json() as {
+    items?: ListingRowWire[];
+    next_cursor?: string | null;
+    total?: number | null;
+  };
   if (!Array.isArray(body.items)) throw new Error('Unable to load instruments.');
-  return { items: body.items.map(listingRowFromWire), nextCursor: body.next_cursor ?? null };
+  return {
+    items: body.items.map(listingRowFromWire),
+    nextCursor: body.next_cursor ?? null,
+    // `?? null` and never `?? 0`: a page that carries no total says "unchanged", and reading
+    // that as zero would tell the reader the result set had emptied underneath them.
+    total: body.total ?? null,
+  };
 }
 
 interface HistoryWindowWire {
@@ -275,6 +302,41 @@ interface ImportRunWire {
   counts: ImportRunSummary['counts'];
   error_summary?: string | null;
   error?: { summary?: string } | null;
+}
+
+interface FeatureRunWire {
+  id: string;
+  kind: FeatureRunSummary['kind'];
+  status: FeatureRunSummary['status'];
+  started_at: string;
+  finished_at: string | null;
+  instrument_count: number;
+  value_count: number;
+  failed_count: number;
+  trigger_run_id: string | null;
+  definition_name: string | null;
+  app_version: string | null;
+}
+
+/** The engine's recent runs, newest first, for the operational screen. */
+export async function fetchFeatureRuns(fetcher: Fetcher = fetch, signal?: AbortSignal): Promise<FeatureRunSummary[]> {
+  const response = await fetcher('/api/v1/feature-runs?limit=10', { signal });
+  if (!response.ok) throw new Error('Unable to load recent feature runs.');
+  const body = await response.json() as { items?: FeatureRunWire[] };
+  if (!Array.isArray(body.items)) throw new Error('Unable to load recent feature runs.');
+  return body.items.map((run) => ({
+    id: run.id,
+    kind: run.kind,
+    status: run.status,
+    startedAt: run.started_at,
+    finishedAt: run.finished_at ?? null,
+    instrumentCount: run.instrument_count,
+    valueCount: run.value_count,
+    failedCount: run.failed_count,
+    triggerRunId: run.trigger_run_id ?? null,
+    definitionName: run.definition_name ?? null,
+    appVersion: run.app_version ?? null,
+  }));
 }
 
 export async function fetchRecentImports(fetcher: Fetcher = fetch, signal?: AbortSignal): Promise<ImportRunSummary[]> {

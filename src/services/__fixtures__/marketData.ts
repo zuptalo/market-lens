@@ -54,7 +54,8 @@ export function buildListingRow(
     name: 'Interrupted History AB',
     isin: 'SE0000000200',
     exchange: { mic: 'XSTO', name: 'Nasdaq Stockholm' },
-    sector: 'Technology',
+    sector: 'information_technology',
+    sectorName: 'Information Technology',
     industry: 'Software',
     country: 'SE',
     currency: 'SEK',
@@ -178,4 +179,22 @@ export function buildContinuousHistoryWindow(): HistoryWindow {
     actions: [],
     findings: [],
   });
+}
+
+/** One engine run as the operational screen receives it. */
+export function buildFeatureRun(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'eeeeeeee-0014-4000-8000-000000000001',
+    kind: 'full' as const,
+    status: 'succeeded' as const,
+    startedAt: '2026-09-01T23:08:45Z',
+    finishedAt: '2026-09-01T23:12:54Z',
+    instrumentCount: 100,
+    valueCount: 5830104,
+    failedCount: 0,
+    triggerRunId: null,
+    definitionName: null,
+    appVersion: '0.9.0',
+    ...overrides,
+  };
 }

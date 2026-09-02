@@ -230,10 +230,22 @@ type Freshness struct {
 	SessionsBehind *int
 }
 
+// Sector is one value of the classification vocabulary, with how many instruments hold it —
+// enough for a client to explain an empty result before it makes the request.
+type Sector struct {
+	Code            string
+	Name            string
+	InstrumentCount int64
+}
+
 // ListingRow is one instrument as the universe list shows it.
 type ListingRow struct {
 	Instrument
 	Exchange Exchange
+
+	// SectorName is what a reader sees; Instrument.Sector carries the code the filter uses.
+	// Neither is ever empty: "unclassified" is a value in the vocabulary, not an absence.
+	SectorName string
 
 	LatestSession  SessionDate
 	LatestClose    *Decimal
@@ -297,6 +309,12 @@ type ListingFilter struct {
 type ListingPage struct {
 	Items      []ListingRow
 	NextCursor string
+	// Total is how many instruments match the filter, ignoring the page limit — what a reader
+	// scrolling a list needs in order to tell "ten of ten" from "ten of three hundred". It is
+	// counted only for a cursor-less request: counting it per page would make every page
+	// materialise the whole filtered set and lose the early termination keyset paging exists
+	// for (research R-001). Absent on a later page means "unchanged", never "zero".
+	Total *int64
 }
 
 // SeriesBasis records whether the displayed closes are the provider's raw observations or

@@ -45,7 +45,8 @@ function listingRow(overrides: Record<string, unknown> = {}) {
     exchange: { mic: 'XSTO', name: 'Nasdaq Stockholm' },
     currency: 'SEK',
     country: 'SE',
-    sector: 'Technology',
+    sector: 'information_technology',
+    sector_name: 'Information Technology',
     industry: 'Software',
     instrument_type: 'common_stock',
     status: 'active',
@@ -73,7 +74,8 @@ function shortRow() {
     exchange: { mic: 'XCSE', name: 'Nasdaq Copenhagen' },
     currency: 'DKK',
     country: 'DK',
-    sector: 'Health Care',
+    sector: 'health_care',
+    sector_name: 'Health Care',
     return_20: null,
     return_90: null,
     volatility: null,
@@ -129,8 +131,15 @@ async function stubApi(page: Page): Promise<void> {
         `${item.name} ${item.ticker} ${item.isin}`.toLowerCase().includes(query.toLowerCase()));
     }
     if (url.searchParams.get('mic') === 'NONE') items = [];
-    return route.fulfill({ json: { items, next_cursor: null } });
+    return route.fulfill({ json: { items, next_cursor: null, total: items.length } });
   });
+
+  await page.route('**/api/v1/instruments/sectors', (route) => route.fulfill({ json: { items: [
+    { code: 'health_care', name: 'Health Care', instrument_count: 1 },
+    { code: 'information_technology', name: 'Information Technology', instrument_count: 1 },
+    { code: 'industrials', name: 'Industrials', instrument_count: 40 },
+    { code: 'unclassified', name: 'Unclassified', instrument_count: 0 },
+  ] } }));
 
   await page.route('**/api/v1/instruments/*/history*', (route) =>
     route.fulfill({ json: historyWindow() }));
@@ -305,6 +314,13 @@ test('applies a live change without losing the chosen range or overlays', async 
 
 test('renders the chart and stays interactive on the longest history', async ({ page }) => {
   // SC-003: a full stored history must render and respond to zoom and pan without stalling.
+  await page.route('**/api/v1/instruments/sectors', (route) => route.fulfill({ json: { items: [
+    { code: 'health_care', name: 'Health Care', instrument_count: 1 },
+    { code: 'information_technology', name: 'Information Technology', instrument_count: 1 },
+    { code: 'industrials', name: 'Industrials', instrument_count: 40 },
+    { code: 'unclassified', name: 'Unclassified', instrument_count: 0 },
+  ] } }));
+
   await page.route('**/api/v1/instruments/*/history*', (route) => {
     const window_ = historyWindow();
     const long = Array.from({ length: 2500 }, (_, index) => {
@@ -435,4 +451,125 @@ test('a stacked card scrolls nothing sideways and clips no value', async ({ page
   const pageOverflow = await page.evaluate(() =>
     document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(pageOverflow).toBeLessThanOrEqual(1);
+});
+
+/**
+ * Feature 014 US2: the universe reads as one continuous list. A page of ten out of forty, so
+ * scrolling has somewhere to go and the stated total has something to be right about.
+ */
+const CONTINUOUS_TOTAL = 40;
+const CONTINUOUS_PAGE = 10;
+
+function continuousRow(index: number) {
+  return {
+    id: `55555555-5555-4555-8555-${String(index).padStart(12, '0')}`,
+    isin: `SE90${String(index).padStart(8, '0')}`,
+    ticker: `SCROLL${String(index).padStart(2, '0')}`,
+    name: `Scroll ${String(index).padStart(2, '0')} AB`,
+    exchange: { mic: 'XSTO', name: 'Nasdaq Stockholm' },
+    currency: 'SEK', country: 'SE', sector: 'industrials', sector_name: 'Industrials', industry: 'Machinery',
+    instrument_type: 'common_stock', status: 'active', purchasability_status: 'unverified',
+    latest_session: '2026-06-30', latest_close: '100.00', change_absolute: '0.50',
+    change_percent: 0.005, return_20: null, return_90: null, volatility: null,
+    stored_sessions: 300, freshness: { state: 'current', sessions_behind: 0 },
+  };
+}
+
+async function stubContinuousListing(
+  page: import('@playwright/test').Page,
+  total: number = CONTINUOUS_TOTAL,
+): Promise<string[]> {
+  const requests: string[] = [];
+  await page.route('**/api/v1/instruments?*', (route) => {
+    const url = new URL(route.request().url());
+    requests.push(url.search);
+    const start = Number(url.searchParams.get('cursor') ?? '0');
+    const limit = Math.min(Number(url.searchParams.get('limit') ?? String(CONTINUOUS_PAGE)), CONTINUOUS_PAGE);
+    const items = [];
+    for (let index = start; index < Math.min(start + limit, total); index += 1) {
+      items.push(continuousRow(index));
+    }
+    const next = start + limit < total ? String(start + limit) : null;
+    return route.fulfill({
+      json: { items, next_cursor: next, total: start === 0 ? total : null },
+    });
+  });
+  return requests;
+}
+
+test('reads as one continuous list, stating where the reader is and where it ends', async ({ page }) => {
+  await stubContinuousListing(page);
+  await page.goto('/markets');
+
+  // The first page arrives, and the reader is told where they are in the whole result set.
+  // How many rows are loaded by now depends on how much of the list the viewport can see,
+  // which is the point of loading ahead — so the assertion is on the total, not the position.
+  await expect(page.getByTestId('listing-progress')).toContainText(`of ${CONTINUOUS_TOTAL}`);
+  await expect(page.getByText('Scroll 00 AB')).toBeVisible();
+
+  // Scroll rather than click: the next rows must arrive on their own.
+  const seen = new Set<string>();
+  for (let round = 0; round < 6; round += 1) {
+    for (const name of await page.locator('tbody tr, [data-label="Instrument"]').allTextContents()) {
+      if (name.trim()) seen.add(name.trim());
+    }
+    await page.mouse.wheel(0, 4000);
+    await page.waitForTimeout(400);
+  }
+
+  await expect(page.getByTestId('listing-progress'))
+    .toContainText(`${CONTINUOUS_TOTAL} of ${CONTINUOUS_TOTAL}`, { timeout: 10_000 });
+  await expect(page.getByTestId('listing-progress')).toContainText('End of the list');
+
+  // Every instrument arrived exactly once: no row repeated, none skipped.
+  const rendered = await page.getByText(/^Scroll \d\d AB$/).allTextContents();
+  expect(new Set(rendered).size).toBe(rendered.length);
+  expect(rendered.length).toBe(CONTINUOUS_TOTAL);
+});
+
+test('the next page is reachable without scrolling, for keyboard and screen readers', async ({ page }) => {
+  // A universe far larger than the viewport: automatic loading stops once the end of the rows
+  // is more than a viewport away, which is when a reader who does not scroll needs the control.
+  await stubContinuousListing(page, 400);
+  await page.goto('/markets');
+  await expect(page.getByTestId('listing-progress')).toContainText('of 400');
+
+  // The control stays rendered while the observer is also loading pages. It is not a fallback
+  // for browsers without an observer — it is the path for a reader who does not scroll, and
+  // hiding it once scrolling works would strand exactly those readers.
+  const control = page.getByTestId('load-more');
+  await expect(control).toBeVisible();
+  await control.focus();
+  await expect(control).toBeFocused();
+  await expect(control).toHaveAccessibleName(/load more|try again/i);
+
+  // Activating it advances the list, and focus stays where the reader put it.
+  const before = await page.getByTestId('listing-progress').textContent();
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('listing-progress')).not.toHaveText(before ?? '');
+  await expect(control).toBeFocused();
+
+  // The position is announced politely, so a screen reader hears where the list has got to
+  // rather than silently growing.
+  const announcement = page.getByTestId('listing-progress-announcement');
+  await expect(announcement).toHaveAttribute('aria-live', 'polite');
+  await expect(announcement).toContainText(/of 400/);
+});
+
+// US3: the filter narrows the list to exactly its members, and the stated total agrees.
+test('filtering by a sector narrows the list and the total agrees', async ({ page }) => {
+  await page.goto('/markets');
+  await expect(page.getByTestId('listing-progress')).toContainText('of 2');
+
+  // The filters are inline on a wide screen and behind a drawer on a narrow one.
+  const trigger = page.getByTestId('open-filters');
+  if (await trigger.isVisible()) await trigger.click();
+  await page.locator('#markets-sector').first().click();
+  await page.getByRole('option', { name: 'Health Care' }).click();
+
+  await expect.poll(() => listingRequests.at(-1) ?? '').toContain('sector=health_care');
+  // One instrument is classified health_care in the stub; the count states it, and the
+  // vocabulary offers no choice the data cannot match.
+  await expect(page.getByTestId('listing-progress')).toContainText('of 1');
+  await expect(page.getByText('Barely Listed A/S')).toBeVisible();
 });

@@ -55,11 +55,17 @@ a { color: inherit; }
   justify-content: space-between;
   gap: 1rem;
   padding: 0 2rem;
+  flex-wrap: wrap;
   border-bottom: 1px solid color-mix(in srgb, currentColor 12%, transparent);
   background: color-mix(in srgb, canvas 92%, transparent);
 }
 .brand { display: inline-flex; align-items: center; gap: .75rem; font-weight: 700; text-decoration: none; }
-.primary-nav { display: flex; align-items: center; gap: .25rem; }
+/*
+ * The header wraps rather than overflowing. Four destinations plus the actions fit one row on
+ * a wide screen and do not at 768px — and how much room the labels need depends on the font
+ * the reader's system renders them in, which is not something to leave to luck.
+ */
+.primary-nav { display: flex; align-items: center; gap: .25rem; flex-wrap: wrap; min-width: 0; }
 .primary-nav a { padding: .65rem .85rem; border-radius: .65rem; text-decoration: none; color: color-mix(in srgb, currentColor 72%, transparent); }
 .primary-nav a:hover, .primary-nav a:focus-visible, .primary-nav a.router-link-active { background: color-mix(in srgb, #0f766e 12%, transparent); color: inherit; }
 .app-actions { display: flex; align-items: center; justify-content: flex-end; gap: .5rem; }
@@ -211,7 +217,12 @@ a { color: inherit; }
 .current-session { display: inline-flex; margin-left: .5rem; padding: .2rem .45rem; border-radius: 999px; background: color-mix(in srgb, #0f766e 15%, transparent); font-size: .72rem; font-weight: 750; }
 @media (max-width: 40rem) {
   .app-header { height: auto; min-height: 4.5rem; flex-wrap: wrap; padding: .75rem 1rem; }
-  .primary-nav { order: 3; width: 100%; overflow-x: auto; }
+  /*
+   * Wrap rather than scroll. A scrolling nav hides destinations off the edge — with four
+   * links the last one was simply not there at 360px — and a person cannot choose what they
+   * cannot see. Wrapping costs a row of height and shows every destination.
+   */
+  .primary-nav { order: 3; width: 100%; flex-wrap: wrap; }
   .app-actions { width: 100%; justify-content: space-between; }
   .app-content { padding: 2rem 1rem; }
   .status-heading, .run-summary { align-items: flex-start; flex-direction: column; }
