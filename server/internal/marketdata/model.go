@@ -166,13 +166,17 @@ type ImportCounts struct {
 	Accepted  int64
 	Rejected  int64
 	Flagged   int64
+	// Revised counts sessions this run replaced because the source had changed its answer
+	// since they were first observed. Distinct from Accepted, which counts everything stored:
+	// only a correction means every value derived from that session moved underneath.
+	Revised int64
 }
 
 func (c ImportCounts) Valid() bool {
-	if c.Processed < 0 || c.Accepted < 0 || c.Rejected < 0 || c.Flagged < 0 {
+	if c.Processed < 0 || c.Accepted < 0 || c.Rejected < 0 || c.Flagged < 0 || c.Revised < 0 {
 		return false
 	}
-	return c.Accepted+c.Rejected <= c.Processed && c.Flagged <= c.Processed
+	return c.Accepted+c.Rejected <= c.Processed && c.Flagged <= c.Processed && c.Revised <= c.Processed
 }
 
 type SafeError struct {

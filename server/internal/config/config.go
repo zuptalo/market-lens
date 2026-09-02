@@ -13,12 +13,16 @@ type MarketDataConfig struct {
 	Provider        string
 	APIToken        string
 	ScheduleEnabled bool
-	DailyHour       int
-	DailyMinute     int
-	DailyLocation   *time.Location
-	RequestTimeout  time.Duration
-	MaxRetries      int
-	Workers         int
+	// ReobserveSessions is how many recent trading sessions the routine daily pass re-asks the
+	// source about, so a close restated after the fact is noticed. Sessions, not calendar days:
+	// the exchanges keep different holiday calendars.
+	ReobserveSessions int
+	DailyHour         int
+	DailyMinute       int
+	DailyLocation     *time.Location
+	RequestTimeout    time.Duration
+	MaxRetries        int
+	Workers           int
 }
 
 type Config struct {
@@ -94,6 +98,14 @@ func loadMarketData() (MarketDataConfig, error) {
 	if err != nil {
 		return MarketDataConfig{}, err
 	}
+	// One session is the behaviour before feature 016. Sixty is about three months, past which
+	// an operator wanting history should run a backfill and decide its scope deliberately.
+	// Refused rather than clamped: somebody who sets 500 believing they have covered a quarter
+	// must find out, not quietly get three months.
+	reobserveSessions, err := boundedInt("MARKET_DATA_REOBSERVE_SESSIONS", 5, 1, 60)
+	if err != nil {
+		return MarketDataConfig{}, err
+	}
 
 	provider := valueOrDefault("MARKET_DATA_PROVIDER", "eodhd")
 	if provider == "" {
@@ -101,15 +113,16 @@ func loadMarketData() (MarketDataConfig, error) {
 	}
 
 	return MarketDataConfig{
-		Provider:        provider,
-		APIToken:        strings.TrimSpace(os.Getenv("EODHD_API_TOKEN")),
-		ScheduleEnabled: scheduleEnabled,
-		DailyHour:       dailyTime.Hour(),
-		DailyMinute:     dailyTime.Minute(),
-		DailyLocation:   dailyLocation,
-		RequestTimeout:  requestTimeout,
-		MaxRetries:      maxRetries,
-		Workers:         workers,
+		Provider:          provider,
+		APIToken:          strings.TrimSpace(os.Getenv("EODHD_API_TOKEN")),
+		ScheduleEnabled:   scheduleEnabled,
+		ReobserveSessions: reobserveSessions,
+		DailyHour:         dailyTime.Hour(),
+		DailyMinute:       dailyTime.Minute(),
+		DailyLocation:     dailyLocation,
+		RequestTimeout:    requestTimeout,
+		MaxRetries:        maxRetries,
+		Workers:           workers,
 	}, nil
 }
 

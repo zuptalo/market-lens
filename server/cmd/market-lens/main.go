@@ -1134,6 +1134,7 @@ func run() error {
 			Location: cfg.MarketData.DailyLocation, Provider: cfg.MarketData.Provider,
 			Universe: "nordic-liquid-v1", AppVersion: version,
 			MaxRetries: cfg.MarketData.MaxRetries, Workers: cfg.MarketData.Workers,
+			ReobserveSessions: cfg.MarketData.ReobserveSessions,
 		}, repository, service)
 		if err != nil {
 			return err

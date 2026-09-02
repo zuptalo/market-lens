@@ -27,6 +27,9 @@ type importCountsResponse struct {
 	Accepted  int64 `json:"accepted"`
 	Rejected  int64 `json:"rejected"`
 	Flagged   int64 `json:"flagged"`
+	// Revised counts sessions this run replaced because the source had changed its answer.
+	// Zero is the ordinary case and must not be presented as though a correction occurred.
+	Revised int64 `json:"revised"`
 }
 
 type safeErrorResponse struct {
@@ -217,7 +220,7 @@ func importItemDTO(item marketdata.ImportItem) importItemResponse {
 }
 
 func countsDTO(counts marketdata.ImportCounts) importCountsResponse {
-	return importCountsResponse{counts.Processed, counts.Accepted, counts.Rejected, counts.Flagged}
+	return importCountsResponse{counts.Processed, counts.Accepted, counts.Rejected, counts.Flagged, counts.Revised}
 }
 
 func errorDTO(safe *marketdata.SafeError) *safeErrorResponse {

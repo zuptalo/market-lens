@@ -34,7 +34,7 @@ test.beforeEach(async ({ page }) => {
     status: 'failed',
     started_at: '2026-09-01T20:00:00Z',
     finished_at: '2026-09-01T20:01:00Z',
-    counts: { processed: 100, accepted: 0, rejected: 0, flagged: 0 },
+    counts: { processed: 100, accepted: 0, rejected: 0, flagged: 0, revised: 2 },
     error_summary: 'Market-data provider request timed out.',
   }] } }));
   await page.route('**/api/v1/feature-runs*', (route) => route.fulfill({ json: { items: [{
@@ -64,6 +64,10 @@ for (const viewport of VIEWPORTS) {
     // The import half, with its sanitized reason and no provider internals.
     await expect(page.getByTestId('run-status')).toContainText('failed', { ignoreCase: true });
     await expect(page.getByText('Market-data provider request timed out.')).toBeVisible();
+
+    // A run that corrected sessions it had already stored says so. That is the case worth
+    // noticing: every feature and every signal derived from those sessions moved underneath.
+    await expect(page.getByText(/Corrected/)).toBeVisible();
 
     // The engine half, which had no interface at all before this feature.
     await expect(page.getByTestId('feature-run-list')).toBeVisible();
@@ -98,6 +102,26 @@ test('a deployment where the engine has never run says so', async ({ page }) => 
   await page.setViewportSize({ width: 320, height: 800 });
   await page.goto('/operations');
   await expect(page.getByText(/feature engine has not run/i)).toBeVisible();
+  expect(await page.evaluate(() =>
+    document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
+});
+
+test('a run that corrected nothing does not imply it did', async ({ page }) => {
+  await page.route('**/api/v1/market-data/imports?*', (route) => route.fulfill({ json: { items: [{
+    id: importRunID,
+    kind: 'daily_update',
+    provider: 'fixture',
+    status: 'succeeded',
+    started_at: '2026-09-01T20:00:00Z',
+    finished_at: '2026-09-01T20:01:00Z',
+    counts: { processed: 100, accepted: 100, rejected: 0, flagged: 0, revised: 0 },
+  }] } }));
+  await page.setViewportSize({ width: 320, height: 800 });
+  await page.goto('/operations');
+  // Zero is shown the way the other zero counts are: an ordinary night must not be
+  // indistinguishable from a screen that cannot report corrections at all.
+  await expect(page.getByText(/Corrected/)).toBeVisible();
+  await expect(page.getByText(/Corrected\s*[1-9]/)).toHaveCount(0);
   expect(await page.evaluate(() =>
     document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
 });

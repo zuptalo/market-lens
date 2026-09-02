@@ -52,6 +52,15 @@ async function copyRetry(runID: string): Promise<void> {
           <li>Accepted <strong>{{ run.counts.accepted }}</strong></li>
           <li>Rejected <strong>{{ run.counts.rejected }}</strong></li>
           <li>Flagged <strong>{{ run.counts.flagged }}</strong></li>
+          <!--
+            A run that corrected a session it had already stored is the one worth noticing: every
+            feature and every signal derived from that session moved underneath. Stated as text
+            with its own label, never by colour, and shown as zero on the ordinary night rather
+            than hidden — an absent count and "nothing was corrected" are different claims.
+          -->
+          <li v-if="run.counts.revised !== undefined">
+            Corrected <strong>{{ run.counts.revised }}</strong>
+          </li>
         </ul>
         <p v-if="run.errorSummary" class="run-error">{{ run.errorSummary }}</p>
         <div v-if="run.status === 'partial' || run.status === 'failed' || run.status === 'cancelled'" class="retry-row">

@@ -196,7 +196,7 @@ func TestImportServiceBoundsWorkersAndCancelsOutstandingScopes(t *testing.T) {
 
 	t.Run("cancellation", func(t *testing.T) {
 		pool := migratedPool(t)
-		provider := &concurrencyProvider{waitForCancellation: true}
+		provider := &concurrencyProvider{waitForCancellation: true, entered: make(chan struct{})}
 		service := marketdata.NewImportService(marketdata.NewRepository(pool), provider)
 		request := importRequest(t,
 			target(t, stockholmInstrument, "ONE.ST"),
@@ -204,7 +204,12 @@ func TestImportServiceBoundsWorkersAndCancelsOutstandingScopes(t *testing.T) {
 		)
 		request.Workers = 1
 		ctx, cancel := context.WithCancel(context.Background())
-		time.AfterFunc(50*time.Millisecond, cancel)
+		// Cancel once the import is demonstrably in flight, rather than after a guess at how
+		// long that takes.
+		go func() {
+			<-provider.entered
+			cancel()
+		}()
 		run, err := service.Import(ctx, request)
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("error = %v, want context cancellation", err)
@@ -263,6 +268,13 @@ type concurrencyProvider struct {
 	waitForCancellation bool
 	active              atomic.Int32
 	maximum             atomic.Int32
+	// entered is closed the first time the provider is called, which is the moment the import
+	// is genuinely in flight. A cancellation test that instead waits a fixed number of
+	// milliseconds is racing a database round trip: under a loaded machine the cancel can land
+	// before the run row exists, and the test then fails reporting an empty status — a failure
+	// about the test's own timing rather than about cancellation.
+	entered     chan struct{}
+	enteredOnce sync.Once
 }
 
 func (p *concurrencyProvider) Name() string { return "fixture" }
@@ -272,6 +284,9 @@ func (p *concurrencyProvider) Resolve(context.Context, marketdata.ResolveRequest
 }
 
 func (p *concurrencyProvider) Daily(ctx context.Context, request marketdata.DailyRequest) (marketdata.DailyPage, error) {
+	if p.entered != nil {
+		p.enteredOnce.Do(func() { close(p.entered) })
+	}
 	active := p.active.Add(1)
 	defer p.active.Add(-1)
 	for {

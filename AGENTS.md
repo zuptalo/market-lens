@@ -106,6 +106,16 @@ rather than a mixture of two runs; and cross-sectional factors mean one instrume
 every other instrument's rank for that session, so an incremental pass rescores the whole universe
 over the affected sessions.
 
+In planning now: feature 016, rolling re-observation of recent sessions. Specification and plan
+are at `specs/016-rolling-reobservation/plan.md`; implementation must start with
+`TestARestatedCloseIsCorrectedByTheNextRoutinePass` observed red. The nightly pass asks the source
+about exactly one session, so the correction path feature 002 specified and 013 and 015 extended
+has never run in normal operation. Two measured properties make the fix small and are worth
+knowing before touching this code: a source range costs one request per instrument whatever its
+width, and an unchanged re-observation performs no write — which is what keeps a quiet night from
+triggering a recomputation cascade, because the incremental feature scope is derived from the
+bar's `import_run_id`.
+
 Two constraints that outlive any single feature:
 
 - `AUTH_SECRET` is self-provisioned and database-resident, while `EXTERNAL_CREDENTIAL_KEY`
