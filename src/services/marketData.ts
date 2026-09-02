@@ -8,6 +8,7 @@ import type {
   InstrumentListingRow,
   InstrumentSummary,
   ListingQuery,
+  SectorOption,
   HistoryWindow,
 } from '@/types/marketData';
 
@@ -78,6 +79,7 @@ interface ListingRowWire {
   currency: string;
   country: string;
   sector: string;
+  sector_name: string;
   industry: string;
   instrument_type: 'common_stock';
   status: 'active' | 'inactive';
@@ -100,7 +102,8 @@ function listingRowFromWire(row: ListingRowWire): InstrumentListingRow {
     name: row.name,
     isin: row.isin,
     exchange: { mic: row.exchange.mic, name: row.exchange.name },
-    sector: row.sector || null,
+    sector: row.sector,
+    sectorName: row.sector_name,
     industry: row.industry || null,
     country: row.country,
     currency: row.currency,
@@ -134,6 +137,19 @@ export function listingQueryString(query: ListingQuery): string {
   if (query.cursor) params.set('cursor', query.cursor);
   if (query.limit !== undefined) params.set('limit', String(query.limit));
   return params.toString();
+}
+
+/** The classification vocabulary the sector filter is rendered from. */
+export async function fetchSectors(fetcher: Fetcher = fetch, signal?: AbortSignal): Promise<SectorOption[]> {
+  const response = await fetcher('/api/v1/instruments/sectors', { signal });
+  if (!response.ok) throw new Error('Unable to load sectors.');
+  const body = await response.json() as {
+    items?: { code: string; name: string; instrument_count: number }[];
+  };
+  if (!Array.isArray(body.items)) throw new Error('Unable to load sectors.');
+  return body.items.map((sector) => ({
+    code: sector.code, name: sector.name, instrumentCount: sector.instrument_count,
+  }));
 }
 
 export async function fetchInstrumentListing(

@@ -9,6 +9,10 @@ const VIEWPORTS = [
 ];
 
 test.beforeEach(async ({ page }) => {
+  await page.route('**/api/v1/instruments/sectors', (route) => route.fulfill({ json: { items: [
+    { code: 'industrials', name: 'Industrials', instrument_count: 1 },
+    { code: 'unclassified', name: 'Unclassified', instrument_count: 0 },
+  ] } }));
   await page.route('**/api/v1/account', (route) => route.fulfill({ json: {
     id: '10000000-0000-4000-8000-000000000001', email: 'owner@example.com', display_name: 'Owner',
     role: 'owner', status: 'active', email_verified_at: '2026-08-30T08:00:00Z',

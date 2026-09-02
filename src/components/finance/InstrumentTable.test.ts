@@ -111,3 +111,36 @@ describe('InstrumentTable', () => {
     expect(labelled.map((cell) => cell.attributes('data-label'))).toContain('Close');
   });
 });
+
+// Feature 014 US3: "unclassified" is a value the reader sees, not an empty cell that reads as
+// broken data — which is what every row showed before the column was populated.
+describe('InstrumentTable sector', () => {
+  it('states that an instrument is unclassified rather than leaving the cell blank', () => {
+    const wrapper = mount(InstrumentTable, {
+      global: { plugins: [PrimeVue] },
+      props: {
+        rows: [buildListingRow({ sector: 'unclassified', sectorName: 'Unclassified' })],
+        loading: false,
+        sort: 'name',
+        order: 'asc',
+        visibleColumns: ['sector'],
+      },
+    });
+    expect(wrapper.text()).toContain('Unclassified');
+  });
+
+  it('shows the sector name a person reads, not the code the filter uses', () => {
+    const wrapper = mount(InstrumentTable, {
+      global: { plugins: [PrimeVue] },
+      props: {
+        rows: [buildListingRow({ sector: 'health_care', sectorName: 'Health Care' })],
+        loading: false,
+        sort: 'name',
+        order: 'asc',
+        visibleColumns: ['sector'],
+      },
+    });
+    expect(wrapper.text()).toContain('Health Care');
+    expect(wrapper.text()).not.toContain('health_care');
+  });
+});

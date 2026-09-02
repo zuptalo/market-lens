@@ -3,6 +3,10 @@ import { expect, test } from '@playwright/test';
 const runID = '22000000-0000-4000-8000-000000000001';
 
 test.beforeEach(async ({ page }) => {
+  await page.route('**/api/v1/instruments/sectors', (route) => route.fulfill({ json: { items: [
+    { code: 'industrials', name: 'Industrials', instrument_count: 1 },
+    { code: 'unclassified', name: 'Unclassified', instrument_count: 0 },
+  ] } }));
   await page.route('**/api/v1/feature-runs*', (route) => route.fulfill({ json: { items: [] } }));
   await page.route('**/api/v1/account', (route) => route.fulfill({ json: {
     id: '10000000-0000-4000-8000-000000000001', email: 'owner@example.com', display_name: 'Owner',
@@ -121,7 +125,7 @@ test('searches, inspects, and returns with instrument state across responsive in
   const listingRow = {
     id: instrumentID, isin: 'SE0000000100', ticker: 'ALFA', name: 'Alpha AB',
     exchange: { mic: 'XSTO', name: 'Nasdaq Stockholm' },
-    currency: 'SEK', country: 'SE', sector: 'Industrials', industry: 'Machinery',
+    currency: 'SEK', country: 'SE', sector: 'industrials', sector_name: 'Industrials', industry: 'Machinery',
     instrument_type: 'common_stock', status: 'active', purchasability_status: 'unverified',
     latest_session: '2026-08-28', latest_close: '101.25', change_absolute: '1.25',
     change_percent: 0.0125, return_20: null, return_90: null, volatility: null,

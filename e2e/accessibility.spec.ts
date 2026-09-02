@@ -14,6 +14,10 @@ const owner = {
 };
 
 test.beforeEach(async ({ page }) => {
+  await page.route('**/api/v1/instruments/sectors', (route) => route.fulfill({ json: { items: [
+    { code: 'industrials', name: 'Industrials', instrument_count: 1 },
+    { code: 'unclassified', name: 'Unclassified', instrument_count: 0 },
+  ] } }));
   await page.addInitScript(() => {
     class QuietEventSource extends EventTarget {
       static readonly CLOSED = 2;
@@ -367,7 +371,8 @@ async function mockAccount(page: Page, authenticated: boolean): Promise<void> {
   await page.route('**/api/v1/instruments?*', (route) => route.fulfill({ json: { items: [{
     id: '11111111-1111-4111-8111-111111111111', isin: 'SE0000000200', ticker: 'GAPPY',
     name: 'Interrupted History AB', exchange: { mic: 'XSTO', name: 'Nasdaq Stockholm' },
-    currency: 'SEK', country: 'SE', sector: 'Technology', industry: 'Software',
+    currency: 'SEK', country: 'SE', sector: 'information_technology',
+    sector_name: 'Information Technology', industry: 'Software',
     instrument_type: 'common_stock', status: 'active', purchasability_status: 'unverified',
     latest_session: '2026-06-02', latest_close: '109.50', change_absolute: '1.00',
     change_percent: 0.0092, return_20: '0.041200000000', return_90: null, volatility: '0.187500000000',
@@ -377,7 +382,8 @@ async function mockAccount(page: Page, authenticated: boolean): Promise<void> {
     instrument: {
       id: '11111111-1111-4111-8111-111111111111', isin: 'SE0000000200', ticker: 'GAPPY',
       name: 'Interrupted History AB', exchange: { mic: 'XSTO', name: 'Nasdaq Stockholm' },
-      currency: 'SEK', country: 'SE', sector: 'Technology', industry: 'Software',
+      currency: 'SEK', country: 'SE', sector: 'information_technology',
+    sector_name: 'Information Technology', industry: 'Software',
       instrument_type: 'common_stock', status: 'active', purchasability_status: 'unverified',
       latest_session: '2026-06-02', latest_close: '109.50', change_absolute: '1.00',
       change_percent: 0.0092, return_20: '0.041200000000', return_90: null, volatility: '0.187500000000',

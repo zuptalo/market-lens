@@ -101,6 +101,11 @@ type instrumentReaderStub struct {
 	err           error
 	search        instruments.SearchFilter
 	pricesFilter  instruments.PriceFilter
+	sectors       []instruments.Sector
+}
+
+func (s *instrumentReaderStub) Sectors(context.Context) ([]instruments.Sector, error) {
+	return s.sectors, nil
 }
 
 func (s *instrumentReaderStub) Listing(_ context.Context, filter instruments.ListingFilter) (instruments.ListingPage, error) {
@@ -391,5 +396,99 @@ func TestListingEndpointReportsTheTotalOnTheFirstPageOnly(t *testing.T) {
 	}
 	if laterBody["total"] != nil {
 		t.Errorf("a later page reported total %v, expected null", laterBody["total"])
+	}
+}
+
+// US3: the filter's choices come from the data. The endpoint sits under /instruments, where
+// Go's router must prefer the literal segment over the {id} wildcard — otherwise "sectors" is
+// read as an instrument identifier and answered with a validation error.
+func TestSectorVocabularyEndpointOffersOnlyValuesThatExist(t *testing.T) {
+	reader := &instrumentReaderStub{sectors: []instruments.Sector{
+		{Code: "health_care", Name: "Health Care", InstrumentCount: 12},
+		{Code: "unclassified", Name: "Unclassified", InstrumentCount: 0},
+	}}
+	router := NewRouter(authenticatedDependencies(Dependencies{Instruments: reader}))
+
+	response := performRequest(router, "/api/v1/instruments/sectors")
+	if response.Code != http.StatusOK {
+		t.Fatalf("status %d %s — the literal path must win over the identifier wildcard",
+			response.Code, response.Body.String())
+	}
+	var body struct {
+		Items []struct {
+			Code            string `json:"code"`
+			Name            string `json:"name"`
+			InstrumentCount int64  `json:"instrument_count"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v — %s", err, response.Body.String())
+	}
+	if len(body.Items) != 2 {
+		t.Fatalf("items = %v", body.Items)
+	}
+	if body.Items[0].Code != "health_care" || body.Items[0].Name != "Health Care" ||
+		body.Items[0].InstrumentCount != 12 {
+		t.Errorf("first vocabulary entry = %+v", body.Items[0])
+	}
+	if body.Items[1].Code != "unclassified" {
+		t.Errorf("unclassified is not last: %+v", body.Items)
+	}
+}
+
+func TestTheSectorsPathIsNotReadAsAnInstrumentIdentifier(t *testing.T) {
+	reader := &instrumentReaderStub{
+		err:     instruments.ErrNotFound,
+		sectors: []instruments.Sector{{Code: "energy", Name: "Energy", InstrumentCount: 8}},
+	}
+	router := NewRouter(authenticatedDependencies(Dependencies{Instruments: reader}))
+	response := performRequest(router, "/api/v1/instruments/sectors")
+	if response.Code == http.StatusBadRequest || response.Code == http.StatusNotFound {
+		t.Fatalf("the vocabulary path reached the identifier handler: %d %s",
+			response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "energy") {
+		t.Errorf("the vocabulary was not served: %s", response.Body.String())
+	}
+}
+
+// SC-008, the standing guard: no filter may offer a choice that can only ever return nothing.
+// This is the condition the sector filter was in — twelve choices against a column that was
+// null in every row — and the reason the vocabulary is served rather than hardcoded.
+func TestNoFilterOffersOnlyEmptyChoices(t *testing.T) {
+	reader := &instrumentReaderStub{sectors: []instruments.Sector{
+		{Code: "industrials", Name: "Industrials", InstrumentCount: 28},
+		{Code: "health_care", Name: "Health Care", InstrumentCount: 12},
+		{Code: "unclassified", Name: "Unclassified", InstrumentCount: 0},
+	}}
+	router := NewRouter(authenticatedDependencies(Dependencies{Instruments: reader}))
+	response := performRequest(router, "/api/v1/instruments/sectors")
+
+	var body struct {
+		Items []struct {
+			Code            string `json:"code"`
+			InstrumentCount int64  `json:"instrument_count"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Items) == 0 {
+		t.Fatal("the vocabulary is empty")
+	}
+	populated := 0
+	for _, item := range body.Items {
+		if item.InstrumentCount > 0 {
+			populated++
+			continue
+		}
+		// An empty member is only acceptable when it is the stated "no classification"
+		// answer; anything else is a promise the data cannot keep.
+		if item.Code != "unclassified" {
+			t.Errorf("%q is offered but no instrument holds it", item.Code)
+		}
+	}
+	if populated == 0 {
+		t.Error("every choice the filter offers returns nothing")
 	}
 }

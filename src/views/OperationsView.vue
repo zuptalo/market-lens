@@ -3,8 +3,14 @@ import { onBeforeUnmount, onMounted, ref } from 'vue';
 import Message from 'primevue/message';
 import MarketDataStatus from '@/components/finance/MarketDataStatus.vue';
 import FeatureRunList from '@/components/finance/FeatureRunList.vue';
-import { fetchFeatureRuns, fetchRecentImports } from '@/services/marketData';
-import type { FeatureRunSummary, ImportRunSummary } from '@/types/marketData';
+import {
+  MarketDataLive,
+  fetchFeatureRuns,
+  fetchRecentImports,
+  type LiveEventSource,
+} from '@/services/marketData';
+import { createCoalescer } from '@/services/coalesce';
+import type { ConnectionState, FeatureRunSummary, ImportRunSummary } from '@/types/marketData';
 
 /**
  * Operational state: did the data arrive, and was it turned into the numbers the market
@@ -19,6 +25,7 @@ const runs = ref<FeatureRunSummary[]>([]);
 const loading = ref(true);
 const importError = ref('');
 const runError = ref('');
+const connectionState = ref<ConnectionState>(navigator.onLine ? 'reconnecting' : 'offline');
 
 let controller: AbortController | undefined;
 
@@ -49,8 +56,43 @@ async function load(): Promise<void> {
   loading.value = false;
 }
 
-onMounted(() => { void load(); });
-onBeforeUnmount(() => controller?.abort());
+/**
+ * The screen this report moved from was live, and moving it must not make it stale. An import
+ * that finishes while somebody is watching updates here, coalesced because a running import
+ * emits one event per instrument.
+ */
+const refresh = createCoalescer(async () => { await load(); });
+
+function browserEventSource(url: string, lastEventId: string): LiveEventSource {
+  const endpoint = lastEventId ? `${url}?last_event_id=${encodeURIComponent(lastEventId)}` : url;
+  return new EventSource(endpoint, { withCredentials: true }) as unknown as LiveEventSource;
+}
+
+const live = new MarketDataLive({
+  sourceFactory: browserEventSource,
+  onRefresh: (entityType) => { refresh.add(entityType); },
+  onState: (state) => { connectionState.value = state; },
+  reconnectDelayMs: 1_000,
+  staleAfterMs: 10_000,
+});
+const online = () => live.setOnline(true);
+const offline = () => live.setOnline(false);
+
+onMounted(() => {
+  void load();
+  live.setOnline(navigator.onLine);
+  live.start();
+  window.addEventListener('online', online);
+  window.addEventListener('offline', offline);
+});
+
+onBeforeUnmount(() => {
+  controller?.abort();
+  refresh.cancel();
+  live.stop();
+  window.removeEventListener('online', online);
+  window.removeEventListener('offline', offline);
+});
 </script>
 
 <template>
@@ -75,7 +117,7 @@ onBeforeUnmount(() => controller?.abort());
 
     <MarketDataStatus
       :runs="imports"
-      connection-state="connected"
+      :connection-state="connectionState"
       :loading="loading"
       :error="importError"
     />

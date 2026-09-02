@@ -101,6 +101,34 @@ GROUP BY sector_source, sector_reviewed_on ORDER BY 2 DESC;
 
 ---
 
+## Recorded evidence
+
+*(2026-09-02, implementation.)* Two things the code taught us that the plan had wrong, both
+fixed rather than worked around:
+
+- The intersection sentinel is already in view when the first page is still in flight, so the
+  observer fires once, finds no cursor to follow, and never fires again — nothing about the
+  intersection changed. Watching "end in view" and "there is more" as a pair fixes it whichever
+  becomes true last.
+- PrimeVue's `loading` prop disables a button, and a disabled element loses focus. Activating
+  "Load more" by keyboard therefore dropped the reader's place, which is exactly what arriving
+  rows must never do. The control announces itself busy instead.
+
+Two regressions the suite caught before they shipped:
+
+- A fourth navigation link pushed "Account" off a 360-pixel screen, because the narrow-width
+  navigation scrolled horizontally. It wraps now: a scrolling navigation hides destinations,
+  and a person cannot choose what they cannot see.
+- Moving the import report to its own screen left it static — the screen it came from
+  subscribed to live events and the new one did not. `OperationsView` now subscribes to the
+  same stream, coalesced, so an import that finishes while somebody watches still updates.
+
+Classification note: two instruments are classified by the ISINs migration `0014` corrected
+(BW LPG and Rockwool), not by the ones the original seed carried. Keying the assignment on the
+seed's ISINs alone would have left them unclassified.
+
+---
+
 ## When something is wrong
 
 | Symptom | Where to look |

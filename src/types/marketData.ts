@@ -121,7 +121,8 @@ export interface InstrumentListingRow {
   name: string;
   isin: string;
   exchange: { mic: string; name: string };
-  sector: string | null;
+  sector: string;
+  sectorName: string;
   industry: string | null;
   country: string;
   currency: string;
@@ -158,6 +159,13 @@ export interface ListingQuery {
   order?: 'asc' | 'desc';
   cursor?: string;
   limit?: number;
+}
+
+/** One choice the sector filter may offer, as the server defines it. */
+export interface SectorOption {
+  code: string;
+  name: string;
+  instrumentCount: number;
 }
 
 export interface InstrumentListingPage {

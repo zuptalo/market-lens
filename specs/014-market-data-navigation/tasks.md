@@ -31,7 +31,7 @@ neighbours and may run in parallel.
 
 - [x] T002 [P] Extend `newExplorationFixture` in `server/internal/instruments/exploration_fixture_test.go` with a helper that seeds enough instruments to exceed one page under a stated filter, so that paging, totals and scrolling can be tested against a known number rather than against however many the Nordic seed happens to contain
 - [x] T003 [P] Add a Vitest helper in `src/services/__fixtures__/marketData.ts` that builds a listing response with a `total` and a `next_cursor`, and one that builds a page without a total, so component tests can express "first page" and "later page" without hand-writing envelopes
-- [ ] T004 [P] Add a Playwright helper in `e2e/support/` that stubs a multi-page listing — a stated total, cursors that chain, and a last page with `next_cursor: null` — so every viewport scenario drives the same data
+- [x] T004 [P] Add a Playwright helper in `e2e/support/` that stubs a multi-page listing — a stated total, cursors that chain, and a last page with `next_cursor: null` — so every viewport scenario drives the same data
 
 **Checkpoint**: Fixtures exist; no behaviour has changed.
 
@@ -109,7 +109,7 @@ with the stated position advancing and the stated total matching a direct count.
 - [x] T042 [US2] Reset to the first page on any filter, search or sort change, discarding loaded rows and the cached listing state; green T028
 - [x] T043 [US2] **Not built** — a full page load discards it; R-004 amended and FR-017 narrowed. Was: add the query-keyed listing cache to `src/services/marketData.ts` and restore it on mount, with `scrollBehavior` in `src/router/index.ts` restoring the offset (R-004); green T033
 - [x] T044 [US2] Remove the "Load more" button's page-at-a-time role from `src/views/MarketsView.vue`, keeping the control as the keyboard path defined in T038
-- [ ] T045 [US2] Run the Playwright scenarios at all three viewports and the 320-pixel floor; green T034, T035
+- [x] T045 [US2] Run the Playwright scenarios at all three viewports and the 320-pixel floor; green T034, T035
 
 **Checkpoint**: The universe reads as one list, states its size, and strands nobody.
 
@@ -125,26 +125,26 @@ filtering by any offered sector returns exactly the instruments classified in it
 
 ### Failing tests for User Story 3 (MANDATORY) ⚠️
 
-- [ ] T046 [P] [US3] Write `TestSectorClassificationMigrationClassifiesTheCuratedUniverse` in `server/internal/db/sector_classification_migration_test.go`: after migrating a clean database, `sectors` holds the vocabulary including `unclassified`, every instrument in the curated universe carries a code from it, and every row carries a source and a review date. Record the red: the table does not exist
-- [ ] T047 [P] [US3] Write `TestAnInstrumentCannotExistWithoutAClassificationState` in the same file: inserting an instrument without a sector takes the default rather than storing null, and a sector outside the vocabulary is refused. Record the red — this is the constraint that makes today's failure unrepeatable
-- [ ] T048 [P] [US3] Write `TestUpgradeFromTheCurrentSchemaClassifiesEveryInstrument` in the same file: applying migrations through 0019 first, then the new one, leaves no instrument unclassified and requires no manual step. Record the red
-- [ ] T049 [P] [US3] Write `TestListingReportsTheSectorCodeAndItsDisplayName` in `server/internal/instruments/listing_test.go`: every row carries a non-empty code and the name to display, `unclassified` included. Record the red
-- [ ] T050 [P] [US3] Write `TestFilteringBySectorReturnsExactlyThatSector` in the same file: filtering by a code returns exactly its members and the reported total agrees; an unknown code is a client error, not an empty result. Record the red
-- [ ] T051 [P] [US3] Write `TestSectorVocabularyEndpointOffersOnlyValuesThatExist` in `server/internal/api/instruments_test.go`: the endpoint returns the vocabulary in display order with per-sector instrument counts. Record the red
-- [ ] T052 [P] [US3] Write `TestTheSectorsPathIsNotReadAsAnInstrumentIdentifier` in the same file: `GET /api/v1/instruments/sectors` reaches the vocabulary rather than the instrument handler's identifier validation — the literal segment must win over `{id}`. Record the red or the immediate green
-- [ ] T053 [P] [US3] Write `TestTheSectorFilterOffersOnlyServedValues` in `src/components/finance/InstrumentFilters.test.ts`: the options come from the served vocabulary, and no option exists that the server did not send. Record the red: the list is a constant in the component today, and it offers both "Information Technology" and "Technology" (R-006)
-- [ ] T054 [P] [US3] Write `TestAnUnclassifiedInstrumentSaysSo` in `src/components/finance/InstrumentTable.test.ts`: an instrument classified `unclassified` renders that word, never an empty cell. Record the red
-- [ ] T055 [P] [US3] Extend `e2e/instrument-exploration.spec.ts`: filtering by a sector narrows the list and the stated total agrees, at all three viewports. Record the red
+- [x] T046 [P] [US3] Write `TestSectorClassificationMigrationClassifiesTheCuratedUniverse` in `server/internal/db/sector_classification_migration_test.go`: after migrating a clean database, `sectors` holds the vocabulary including `unclassified`, every instrument in the curated universe carries a code from it, and every row carries a source and a review date. Record the red: the table does not exist
+- [x] T047 [P] [US3] Write `TestAnInstrumentCannotExistWithoutAClassificationState` in the same file: inserting an instrument without a sector takes the default rather than storing null, and a sector outside the vocabulary is refused. Record the red — this is the constraint that makes today's failure unrepeatable
+- [x] T048 [P] [US3] Write `TestUpgradeFromTheCurrentSchemaClassifiesEveryInstrument` in the same file: applying migrations through 0019 first, then the new one, leaves no instrument unclassified and requires no manual step. Record the red
+- [x] T049 [P] [US3] Write `TestListingReportsTheSectorCodeAndItsDisplayName` in `server/internal/instruments/listing_test.go`: every row carries a non-empty code and the name to display, `unclassified` included. Record the red
+- [x] T050 [P] [US3] Write `TestFilteringBySectorReturnsExactlyThatSector` in the same file: filtering by a code returns exactly its members and the reported total agrees; an unknown code is a client error, not an empty result. Record the red
+- [x] T051 [P] [US3] Write `TestSectorVocabularyEndpointOffersOnlyValuesThatExist` in `server/internal/api/instruments_test.go`: the endpoint returns the vocabulary in display order with per-sector instrument counts. Record the red
+- [x] T052 [P] [US3] Write `TestTheSectorsPathIsNotReadAsAnInstrumentIdentifier` in the same file: `GET /api/v1/instruments/sectors` reaches the vocabulary rather than the instrument handler's identifier validation — the literal segment must win over `{id}`. Record the red or the immediate green
+- [x] T053 [P] [US3] Write `TestTheSectorFilterOffersOnlyServedValues` in `src/components/finance/InstrumentFilters.test.ts`: the options come from the served vocabulary, and no option exists that the server did not send. Record the red: the list is a constant in the component today, and it offers both "Information Technology" and "Technology" (R-006)
+- [x] T054 [P] [US3] Write `TestAnUnclassifiedInstrumentSaysSo` in `src/components/finance/InstrumentTable.test.ts`: an instrument classified `unclassified` renders that word, never an empty cell. Record the red
+- [x] T055 [P] [US3] Extend `e2e/instrument-exploration.spec.ts`: filtering by a sector narrows the list and the stated total agrees, at all three viewports. Record the red
 
 ### Implementation for User Story 3
 
-- [ ] T056 [US3] Compile the classification set: for each instrument in the curated universe, its sector from the eleven-name vocabulary based on the company's primary business, with the source recorded as the project's own review and a review date. Record any company whose classification is genuinely ambiguous as `unclassified` rather than guessing
-- [ ] T057 [US3] Write `server/internal/db/migrations/0020_sector_classification.sql`: create `sectors` with `code`, `name`, `display_order` and a non-blank check; seed the vocabulary with `unclassified` ordered last; add `sector_source` and `sector_reviewed_on` to `instruments`; classify the curated universe by provider symbol; then set `instruments.sector` NOT NULL with a foreign key and a default of `unclassified`; green T046–T048
-- [ ] T058 [US3] Join the vocabulary in `server/internal/instruments/listing.go` so a row carries both code and display name, update `sortColumns` to sort by the display name rather than the code, and validate the sector filter against the vocabulary; green T049, T050
-- [ ] T059 [US3] Add `Sectors(ctx)` to `server/internal/instruments/repository.go` returning the vocabulary with per-sector instrument counts, add `listSectorsHandler` to `server/internal/api/instruments.go`, and register `GET /api/v1/instruments/sectors` before the `{id}` route; green T051, T052
-- [ ] T060 [US3] Serve the vocabulary to the client through `src/services/marketData.ts`, and **delete** the `SECTORS` constant from `src/components/finance/InstrumentFilters.vue`, rendering the filter from the response; green T053
-- [ ] T061 [US3] Render the display name in `src/components/finance/InstrumentTable.vue`, with `unclassified` shown as a stated value rather than a blank; green T054
-- [ ] T062 [US3] Run the Playwright sector scenario at all three viewports; green T055
+- [x] T056 [US3] Compile the classification set: for each instrument in the curated universe, its sector from the eleven-name vocabulary based on the company's primary business, with the source recorded as the project's own review and a review date. Record any company whose classification is genuinely ambiguous as `unclassified` rather than guessing
+- [x] T057 [US3] Write `server/internal/db/migrations/0020_sector_classification.sql`: create `sectors` with `code`, `name`, `display_order` and a non-blank check; seed the vocabulary with `unclassified` ordered last; add `sector_source` and `sector_reviewed_on` to `instruments`; classify the curated universe by provider symbol; then set `instruments.sector` NOT NULL with a foreign key and a default of `unclassified`; green T046–T048
+- [x] T058 [US3] Join the vocabulary in `server/internal/instruments/listing.go` so a row carries both code and display name, update `sortColumns` to sort by the display name rather than the code, and validate the sector filter against the vocabulary; green T049, T050
+- [x] T059 [US3] Add `Sectors(ctx)` to `server/internal/instruments/repository.go` returning the vocabulary with per-sector instrument counts, add `listSectorsHandler` to `server/internal/api/instruments.go`, and register `GET /api/v1/instruments/sectors` before the `{id}` route; green T051, T052
+- [x] T060 [US3] Serve the vocabulary to the client through `src/services/marketData.ts`, and **delete** the `SECTORS` constant from `src/components/finance/InstrumentFilters.vue`, rendering the filter from the response; green T053
+- [x] T061 [US3] Render the display name in `src/components/finance/InstrumentTable.vue`, with `unclassified` shown as a stated value rather than a blank; green T054
+- [x] T062 [US3] Run the Playwright sector scenario at all three viewports; green T055
 
 **Checkpoint**: No filter in the interface can return nothing for every choice.
 
@@ -152,12 +152,12 @@ filtering by any offered sector returns exactly the instruments classified in it
 
 ## Phase 6: Polish & cross-cutting concerns
 
-- [ ] T063 [P] Write `TestNoFilterOffersOnlyEmptyChoices` in `server/internal/api/instruments_test.go`: for every value the sector vocabulary offers, either instruments hold it or it is `unclassified` — the standing guard behind FR-020 and SC-008
-- [ ] T064 [P] Write `TestTheListingContractMatchesItsSpecification` coverage for the three new operations by running the registered contract suite from T001; green when all three are implemented
-- [ ] T065 [P] Confirm `src/components/library-usage.test.ts` still passes with the new components: no raw controls, no restyling of control chrome
+- [x] T063 [P] Write `TestNoFilterOffersOnlyEmptyChoices` in `server/internal/api/instruments_test.go`: for every value the sector vocabulary offers, either instruments hold it or it is `unclassified` — the standing guard behind FR-020 and SC-008
+- [x] T064 [P] Write `TestTheListingContractMatchesItsSpecification` coverage for the three new operations by running the registered contract suite from T001; green when all three are implemented
+- [x] T065 [P] Confirm `src/components/library-usage.test.ts` still passes with the new components: no raw controls, no restyling of control chrome
 - [ ] T066 Run `make verify` and fix anything it reports without weakening a test
 - [ ] T067 Run `npm run test:e2e` across `mobile-chromium`, `tablet-chromium` and `desktop-chromium`
-- [ ] T068 Run `docker build -t market-lens:local .` and `docker compose config`
+- [x] T068 Run `docker build -t market-lens:local .` and `docker compose config`
 - [ ] T069 Ship as one PR from `014-market-data-navigation` (`feat(markets): …`), wait for Keel to roll it, and confirm on production that every instrument states a sector, that the operational screen shows the engine's runs, and that the listing states a total matching a direct count
 - [ ] T070 [P] Record the production result in `specs/014-market-data-navigation/quickstart.md` under *Recorded evidence* with the date and app version, and update `specs/013-feature-engine/quickstart.md` if the engine's runs are now reachable from a screen rather than only from SQL
 - [ ] T071 [P] Update `specs/014-market-data-navigation/spec.md` status to `shipped`, the 014 row in `specs/README.md`, `ROADMAP.md`, and the SPECKIT block in `AGENTS.md`

@@ -86,15 +86,15 @@ func newExplorationFixture(t *testing.T) *explorationFixture {
 	}
 
 	fixture.long = fixture.addInstrument(t, fixture.stockholm, "SE0000000100", "LONG",
-		"Long History AB", "SEK", "SE", "Industrials", "Machinery")
+		"Long History AB", "SEK", "SE", "industrials", "Machinery")
 	fixture.gappy = fixture.addInstrument(t, fixture.stockholm, "SE0000000200", "GAPPY",
-		"Interrupted History AB", "SEK", "SE", "Technology", "Software")
+		"Interrupted History AB", "SEK", "SE", "information_technology", "Software")
 	fixture.short = fixture.addInstrument(t, fixture.copenhagen, "DK0000000300", "SHORT",
-		"Barely Listed A/S", "DKK", "DK", "Health Care", "Biotechnology")
+		"Barely Listed A/S", "DKK", "DK", "health_care", "Biotechnology")
 	fixture.empty = fixture.addInstrument(t, fixture.copenhagen, "DK0000000400", "EMPTY",
-		"No History A/S", "DKK", "DK", "Financials", "Banks")
+		"No History A/S", "DKK", "DK", "financials", "Banks")
 	fixture.stale = fixture.addInstrument(t, fixture.oslo, "NO0000000500", "STALE",
-		"Behind The Rest ASA", "NOK", "NO", "Energy", "Oil and Gas")
+		"Behind The Rest ASA", "NOK", "NO", "energy", "Oil and Gas")
 
 	fixture.addBars(t, fixture.long, fixture.stockholm, "SEK", fixtureLongSessions, 0, nil)
 	fixture.addBars(t, fixture.gappy, fixture.stockholm, "SEK", fixtureGappySessions, 0, fixtureGapOffsets)
@@ -380,7 +380,7 @@ func (f *explorationFixture) addSector(t *testing.T, prefix string, count int) [
 	for index := 0; index < count; index++ {
 		ids = append(ids, f.addInstrument(t, f.stockholm,
 			fmt.Sprintf("SE90%08d", index), fmt.Sprintf("%s%03d", prefix, index),
-			fmt.Sprintf("%s Holdings %03d AB", prefix, index), "SEK", "SE", "Industrials", "Machinery"))
+			fmt.Sprintf("%s Holdings %03d AB", prefix, index), "SEK", "SE", "industrials", "Machinery"))
 	}
 	return ids
 }

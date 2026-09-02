@@ -147,6 +147,9 @@ func NewRouter(deps Dependencies) http.Handler {
 	}
 	if deps.Instruments != nil {
 		protected.HandleFunc("GET /api/v1/instruments", listInstrumentsHandler(deps.Instruments))
+		// Registered before the identifier route so the literal segment wins; Go's ServeMux
+		// prefers the more specific pattern, and a test holds that guarantee in place.
+		protected.HandleFunc("GET /api/v1/instruments/sectors", listSectorsHandler(deps.Instruments))
 		protected.HandleFunc("GET /api/v1/instruments/{id}", getInstrumentHandler(deps.Instruments))
 		protected.HandleFunc("GET /api/v1/instruments/{id}/prices", listInstrumentPricesHandler(deps.Instruments))
 		protected.HandleFunc("GET /api/v1/instruments/{id}/history", getInstrumentHistoryHandler(deps.Instruments))

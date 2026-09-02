@@ -126,7 +126,7 @@ function freshnessLabel(row: InstrumentListingRow): string {
     </Column>
 
     <Column v-if="shows('sector')" field="sector" header="Sector" :sortable="true" :pt="{ bodyCell: { 'data-label': 'Sector' } }">
-      <template #body="{ data }">{{ data.sector ?? ABSENT }}</template>
+      <template #body="{ data }">{{ data.sectorName || ABSENT }}</template>
     </Column>
 
     <Column v-if="shows('country')" field="country" header="Country" :sortable="true" :pt="{ bodyCell: { 'data-label': 'Country' } }">

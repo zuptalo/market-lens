@@ -45,7 +45,8 @@ function listingRow(overrides: Record<string, unknown> = {}) {
     exchange: { mic: 'XSTO', name: 'Nasdaq Stockholm' },
     currency: 'SEK',
     country: 'SE',
-    sector: 'Technology',
+    sector: 'information_technology',
+    sector_name: 'Information Technology',
     industry: 'Software',
     instrument_type: 'common_stock',
     status: 'active',
@@ -73,7 +74,8 @@ function shortRow() {
     exchange: { mic: 'XCSE', name: 'Nasdaq Copenhagen' },
     currency: 'DKK',
     country: 'DK',
-    sector: 'Health Care',
+    sector: 'health_care',
+    sector_name: 'Health Care',
     return_20: null,
     return_90: null,
     volatility: null,
@@ -131,6 +133,13 @@ async function stubApi(page: Page): Promise<void> {
     if (url.searchParams.get('mic') === 'NONE') items = [];
     return route.fulfill({ json: { items, next_cursor: null, total: items.length } });
   });
+
+  await page.route('**/api/v1/instruments/sectors', (route) => route.fulfill({ json: { items: [
+    { code: 'health_care', name: 'Health Care', instrument_count: 1 },
+    { code: 'information_technology', name: 'Information Technology', instrument_count: 1 },
+    { code: 'industrials', name: 'Industrials', instrument_count: 40 },
+    { code: 'unclassified', name: 'Unclassified', instrument_count: 0 },
+  ] } }));
 
   await page.route('**/api/v1/instruments/*/history*', (route) =>
     route.fulfill({ json: historyWindow() }));
@@ -305,6 +314,13 @@ test('applies a live change without losing the chosen range or overlays', async 
 
 test('renders the chart and stays interactive on the longest history', async ({ page }) => {
   // SC-003: a full stored history must render and respond to zoom and pan without stalling.
+  await page.route('**/api/v1/instruments/sectors', (route) => route.fulfill({ json: { items: [
+    { code: 'health_care', name: 'Health Care', instrument_count: 1 },
+    { code: 'information_technology', name: 'Information Technology', instrument_count: 1 },
+    { code: 'industrials', name: 'Industrials', instrument_count: 40 },
+    { code: 'unclassified', name: 'Unclassified', instrument_count: 0 },
+  ] } }));
+
   await page.route('**/api/v1/instruments/*/history*', (route) => {
     const window_ = historyWindow();
     const long = Array.from({ length: 2500 }, (_, index) => {
@@ -451,7 +467,7 @@ function continuousRow(index: number) {
     ticker: `SCROLL${String(index).padStart(2, '0')}`,
     name: `Scroll ${String(index).padStart(2, '0')} AB`,
     exchange: { mic: 'XSTO', name: 'Nasdaq Stockholm' },
-    currency: 'SEK', country: 'SE', sector: 'Industrials', industry: 'Machinery',
+    currency: 'SEK', country: 'SE', sector: 'industrials', sector_name: 'Industrials', industry: 'Machinery',
     instrument_type: 'common_stock', status: 'active', purchasability_status: 'unverified',
     latest_session: '2026-06-30', latest_close: '100.00', change_absolute: '0.50',
     change_percent: 0.005, return_20: null, return_90: null, volatility: null,
@@ -538,4 +554,22 @@ test('the next page is reachable without scrolling, for keyboard and screen read
   const announcement = page.getByTestId('listing-progress-announcement');
   await expect(announcement).toHaveAttribute('aria-live', 'polite');
   await expect(announcement).toContainText(/of 400/);
+});
+
+// US3: the filter narrows the list to exactly its members, and the stated total agrees.
+test('filtering by a sector narrows the list and the total agrees', async ({ page }) => {
+  await page.goto('/markets');
+  await expect(page.getByTestId('listing-progress')).toContainText('of 2');
+
+  // The filters are inline on a wide screen and behind a drawer on a narrow one.
+  const trigger = page.getByTestId('open-filters');
+  if (await trigger.isVisible()) await trigger.click();
+  await page.locator('#markets-sector').first().click();
+  await page.getByRole('option', { name: 'Health Care' }).click();
+
+  await expect.poll(() => listingRequests.at(-1) ?? '').toContain('sector=health_care');
+  // One instrument is classified health_care in the stub; the count states it, and the
+  // vocabulary offers no choice the data cannot match.
+  await expect(page.getByTestId('listing-progress')).toContainText('of 1');
+  await expect(page.getByText('Barely Listed A/S')).toBeVisible();
 });

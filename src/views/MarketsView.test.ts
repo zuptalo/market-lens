@@ -117,6 +117,7 @@ describe('MarketsView', () => {
   beforeEach(() => {
     requestedUrls = [];
     window.localStorage.clear();
+    window.history.replaceState({}, '', '/markets');
     vi.stubGlobal('EventSource', QuietEventSource);
     stubFetch();
   });
@@ -224,6 +225,7 @@ describe('MarketsView as a continuous list', () => {
   beforeEach(() => {
     requestedUrls = [];
     window.localStorage.clear();
+    window.history.replaceState({}, '', '/markets');
     vi.stubGlobal('EventSource', QuietEventSource);
     installObserver();
   });
@@ -435,6 +437,7 @@ describe('MarketsView under an event storm', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     requestedUrls = [];
     window.localStorage.clear();
+    window.history.replaceState({}, '', '/markets');
     QuietEventSource.instances = [];
     vi.stubGlobal('EventSource', QuietEventSource);
     stubFetch();
@@ -524,12 +527,15 @@ describe('MarketsView under an event storm', () => {
     // The refresh keeps the view the person set up — same filters, same ordering — and asks
     // only for the rows on screen rather than starting the listing over.
     const parameters = (url: string) => new URLSearchParams(url.split('?')[1] ?? '');
-    const before20 = parameters(listingBefore ?? '');
+    const beforeParameters = parameters(listingBefore ?? '');
     const after = parameters(issued[0]);
-    for (const key of ['q', 'sort', 'order']) {
-      expect(after.get(key), `the refresh changed ${key}`).toBe(before20.get(key));
+    // Every filter the reader had set is still set, unchanged. The refresh may add a default
+    // the first request left implicit; what it may not do is alter the person's view.
+    for (const [key, value] of beforeParameters.entries()) {
+      if (key === 'limit') continue;
+      expect(after.get(key), `the refresh changed ${key}`).toBe(value);
     }
-    expect(after.get('cursor')).toBe(before20.get('cursor'));
+    expect(after.get('cursor')).toBe(beforeParameters.get('cursor'));
     expect(Number(after.get('limit'))).toBe(wrapper.findAll('tbody tr').length);
 
     // An instrument that is not on screen costs nothing, and the same event twice is one

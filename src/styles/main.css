@@ -211,7 +211,12 @@ a { color: inherit; }
 .current-session { display: inline-flex; margin-left: .5rem; padding: .2rem .45rem; border-radius: 999px; background: color-mix(in srgb, #0f766e 15%, transparent); font-size: .72rem; font-weight: 750; }
 @media (max-width: 40rem) {
   .app-header { height: auto; min-height: 4.5rem; flex-wrap: wrap; padding: .75rem 1rem; }
-  .primary-nav { order: 3; width: 100%; overflow-x: auto; }
+  /*
+   * Wrap rather than scroll. A scrolling nav hides destinations off the edge — with four
+   * links the last one was simply not there at 360px — and a person cannot choose what they
+   * cannot see. Wrapping costs a row of height and shows every destination.
+   */
+  .primary-nav { order: 3; width: 100%; flex-wrap: wrap; }
   .app-actions { width: 100%; justify-content: space-between; }
   .app-content { padding: 2rem 1rem; }
   .status-heading, .run-summary { align-items: flex-start; flex-direction: column; }

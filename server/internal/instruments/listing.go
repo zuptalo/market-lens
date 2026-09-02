@@ -34,7 +34,7 @@ var listingSorts = map[ListingSort]sortExpression{
 	SortName:          {"i.name", "text"},
 	SortTicker:        {"i.ticker", "text"},
 	SortExchange:      {"e.mic", "text"},
-	SortSector:        {"coalesce(i.sector, '')", "text"},
+	SortSector:        {"sec.name", "text"},
 	SortCountry:       {"i.country", "text"},
 	SortLatestClose:   {"s.latest_close", "numeric"},
 	SortChangePercent: {"s.change_percent", "float8"},
@@ -198,6 +198,15 @@ func (r *Repository) Listing(ctx context.Context, filter ListingFilter) (Listing
 		conditions = append(conditions, "i.currency = "+add(filter.Currency))
 	}
 	if filter.Sector != "" {
+		// A code outside the vocabulary is a client error, not an empty result: an answer of
+		// "no instruments" would look like a fact about the universe rather than a typo.
+		known, err := r.sectorExists(ctx, filter.Sector)
+		if err != nil {
+			return ListingPage{}, err
+		}
+		if !known {
+			return ListingPage{}, fmt.Errorf("%w: unknown sector %q", ErrInvalidQuery, filter.Sector)
+		}
 		conditions = append(conditions, "i.sector = "+add(filter.Sector))
 	}
 	switch filter.Status {
@@ -246,7 +255,7 @@ func (r *Repository) Listing(ctx context.Context, filter ListingFilter) (Listing
 	%s
 ), %s
 SELECT i.id::text, i.exchange_id::text, i.isin, i.ticker, i.name, i.currency, i.country,
-       i.instrument_type, coalesce(i.sector, ''), coalesce(i.industry, ''), i.active,
+       i.instrument_type, i.sector, sec.name, coalesce(i.industry, ''), i.active,
        i.purchasability_status, i.created_at, i.updated_at,
        e.mic, e.name, e.country, e.currency, e.timezone, e.active,
        s.latest_session::text, s.latest_close::text, s.previous_close::text,
@@ -256,6 +265,7 @@ SELECT i.id::text, i.exchange_id::text, i.isin, i.ticker, i.name, i.currency, i.
        (%s)::text AS sort_value
 FROM instruments i
 JOIN exchanges e ON e.id = i.exchange_id
+JOIN sectors sec ON sec.code = i.sector
 JOIN s ON s.instrument_id = i.id
 %s %s
 %s
@@ -273,6 +283,7 @@ LIMIT %s`, where, listingStatisticsCTE, sort.sql, where, keyset, ordering, limit
 		countConditions := strings.Replace(where, "WHERE ", "AND ", 1)
 		countStatement := fmt.Sprintf(`SELECT count(*) FROM instruments i
 			JOIN exchanges e ON e.id = i.exchange_id
+			JOIN sectors sec ON sec.code = i.sector
 			WHERE $1::date IS NOT NULL %s`, countConditions)
 		var counted int64
 		if err := r.pool.QueryRow(ctx, countStatement, arguments[:len(arguments)-1]...).Scan(&counted); err != nil {
@@ -322,7 +333,7 @@ func scanListingRow(rows pgx.Rows) (ListingRow, *string, error) {
 	var sessionsBehind *int
 
 	if err := rows.Scan(&id, &exchangeID, &row.ISIN, &row.Ticker, &row.Name, &row.Currency,
-		&row.Country, &row.Type, &row.Sector, &row.Industry, &row.Active,
+		&row.Country, &row.Type, &row.Sector, &row.SectorName, &row.Industry, &row.Active,
 		&row.PurchasabilityStatus, &row.CreatedAt, &row.UpdatedAt,
 		&mic, &exchangeName, &exchangeCountry, &exchangeCurrency, &timezone, &exchangeActive,
 		&latestSession, &latestClose, &previousClose, &changeAbsolute,
@@ -364,4 +375,13 @@ func decimalPointer(value *string) *Decimal {
 	}
 	decimal := Decimal(*value)
 	return &decimal
+}
+
+// sectorExists reports whether a code is in the classification vocabulary.
+func (r *Repository) sectorExists(ctx context.Context, code string) (bool, error) {
+	var exists bool
+	if err := r.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM sectors WHERE code = $1)`, code).Scan(&exists); err != nil {
+		return false, fmt.Errorf("check sector: %w", err)
+	}
+	return exists, nil
 }

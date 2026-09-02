@@ -271,12 +271,12 @@ func TestListingFiltersBySectorExchangeAndSearch(t *testing.T) {
 
 	// Assert the property rather than a row count: the seeded Nordic universe shares these
 	// sectors and exchanges, and a count would make this test a hostage to the seed.
-	bySector := listingFor(t, fixture, instruments.ListingFilter{Sector: "Technology", Limit: 200})
+	bySector := listingFor(t, fixture, instruments.ListingFilter{Sector: "information_technology", Limit: 200})
 	if _, ok := bySector["GAPPY"]; !ok {
 		t.Error("filtering by sector did not return the fixture's Technology instrument")
 	}
 	for ticker, row := range bySector {
-		if row.Sector != "Technology" {
+		if row.Sector != "information_technology" {
 			t.Errorf("filtering by sector returned %s, whose sector is %q", ticker, row.Sector)
 		}
 	}
@@ -573,5 +573,97 @@ func TestTheTotalMatchesWhatTheFilterActuallyReturns(t *testing.T) {
 				t.Errorf("the listing reported %d matching rows and returned %d", *first.Total, walked)
 			}
 		})
+	}
+}
+
+// US3: a row carries the code the filter uses and the name a person reads, and "unclassified"
+// is a stated value rather than a blank.
+func TestListingReportsTheSectorCodeAndItsDisplayName(t *testing.T) {
+	fixture := newExplorationFixture(t)
+	rows := listingFor(t, fixture, instruments.ListingFilter{})
+
+	long := rows["LONG"]
+	if long.Sector != "industrials" || long.SectorName != "Industrials" {
+		t.Errorf("LONG reads sector %q named %q, expected the code and its display name",
+			long.Sector, long.SectorName)
+	}
+	for ticker, row := range rows {
+		if row.Sector == "" {
+			t.Errorf("%s carries an empty sector; unclassified is a value, not a blank", ticker)
+		}
+		if row.SectorName == "" {
+			t.Errorf("%s carries a sector with no display name", ticker)
+		}
+	}
+}
+
+// Filtering by a code returns exactly its members, and a code outside the vocabulary is a
+// client error rather than an empty result that looks like an answer.
+func TestFilteringBySectorReturnsExactlyThatSector(t *testing.T) {
+	fixture := newExplorationFixture(t)
+	repository := instruments.NewRepository(fixture.pool)
+
+	page, err := repository.Listing(fixture.ctx, instruments.ListingFilter{
+		Sector: "health_care", Limit: 200, Sort: instruments.SortName, AsOf: fixtureAsOf,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) == 0 {
+		t.Fatal("no instrument is classified health_care; the filter would look broken")
+	}
+	for _, row := range page.Items {
+		if row.Sector != "health_care" {
+			t.Errorf("%s is classified %q but came back under health_care", row.Ticker, row.Sector)
+		}
+	}
+	if page.Total == nil || int(*page.Total) != len(page.Items) {
+		t.Errorf("the stated total %v disagrees with the %d rows returned", page.Total, len(page.Items))
+	}
+
+	if _, err := repository.Listing(fixture.ctx, instruments.ListingFilter{
+		Sector: "not_a_sector", Limit: 10, Sort: instruments.SortName, AsOf: fixtureAsOf,
+	}); err == nil {
+		t.Error("a sector outside the vocabulary was accepted and answered with an empty page")
+	}
+}
+
+// The vocabulary is what the filter offers, so it comes from the data rather than from a
+// constant in the client — where it had drifted into offering both "Information Technology"
+// and "Technology" (research R-006).
+func TestTheSectorVocabularyComesFromTheData(t *testing.T) {
+	fixture := newExplorationFixture(t)
+	sectors, err := instruments.NewRepository(fixture.pool).Sectors(fixture.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sectors) < 12 {
+		t.Fatalf("the vocabulary holds %d values, expected eleven sectors plus unclassified", len(sectors))
+	}
+	seen := map[string]bool{}
+	var unclassifiedLast bool
+	for index, sector := range sectors {
+		if sector.Code == "" || sector.Name == "" {
+			t.Errorf("a vocabulary entry is incomplete: %+v", sector)
+		}
+		if seen[sector.Name] {
+			t.Errorf("%q appears twice in the vocabulary", sector.Name)
+		}
+		seen[sector.Name] = true
+		unclassifiedLast = sector.Code == "unclassified" && index == len(sectors)-1
+	}
+	if !unclassifiedLast {
+		t.Error("unclassified is not last; it is a stated answer, not a preferred one")
+	}
+	var counted int64
+	for _, sector := range sectors {
+		counted += sector.InstrumentCount
+	}
+	var total int64
+	if err := fixture.pool.QueryRow(fixture.ctx, `SELECT count(*) FROM instruments`).Scan(&total); err != nil {
+		t.Fatal(err)
+	}
+	if counted != total {
+		t.Errorf("the vocabulary accounts for %d instruments, the universe holds %d", counted, total)
 	}
 }

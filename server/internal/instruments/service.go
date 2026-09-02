@@ -18,17 +18,20 @@ var (
 )
 
 type SyncListing struct {
-	MIC                  string
-	ExchangeName         string
-	ExchangeCountry      string
-	ExchangeCurrency     string
-	ExchangeTimezone     string
-	ISIN                 string
-	Ticker               string
-	Name                 string
-	Currency             string
-	Country              string
-	Type                 InstrumentType
+	MIC              string
+	ExchangeName     string
+	ExchangeCountry  string
+	ExchangeCurrency string
+	ExchangeTimezone string
+	ISIN             string
+	Ticker           string
+	Name             string
+	Currency         string
+	Country          string
+	Type             InstrumentType
+	// Sector is accepted from a caller but never stored: classification is curated reference
+	// data (feature 014, FR-022). The field remains so the shape of a provider listing is not
+	// silently redefined by this decision.
 	Sector               string
 	Industry             string
 	PurchasabilityStatus PurchasabilityStatus
@@ -317,21 +320,27 @@ func upsertListing(ctx context.Context, tx pgx.Tx, provider string, exchangeID U
 		} else if errors.Is(err, pgx.ErrNoRows) {
 			instrumentID, err = NewUUID()
 			if err == nil {
+				// Sector is deliberately absent: classification is curated reference data,
+				// maintained by migration, and a provider sync may not introduce or change it
+				// (feature 014, FR-022). A new instrument takes the column's default,
+				// `unclassified`, until a migration classifies it.
 				_, err = tx.Exec(ctx, `INSERT INTO instruments
-					(id, exchange_id, isin, ticker, name, currency, country, instrument_type, sector, industry, active, purchasability_status)
-					VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NULLIF($9,''),NULLIF($10,''),true,$11)`, instrumentID.String(),
+					(id, exchange_id, isin, ticker, name, currency, country, instrument_type, industry, active, purchasability_status)
+					VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NULLIF($9,''),true,$10)`, instrumentID.String(),
 					exchangeID.String(), listing.ISIN, listing.Ticker, listing.Name, listing.Currency, listing.Country,
-					listing.Type, listing.Sector, listing.Industry, listing.PurchasabilityStatus)
+					listing.Type, listing.Industry, listing.PurchasabilityStatus)
 			}
 		}
 	}
 	if err != nil {
 		return "", err
 	}
+	// Sector is not updated here for the same reason it is not inserted above: a curated
+	// classification must not be overwritten by whatever a provider happens to say.
 	if _, err := tx.Exec(ctx, `UPDATE instruments SET ticker=$2, name=$3, currency=$4, country=$5,
-		instrument_type=$6, sector=NULLIF($7,''), industry=NULLIF($8,''), active=true,
-		purchasability_status=$9, updated_at=now() WHERE id=$1`, instrumentID.String(), listing.Ticker,
-		listing.Name, listing.Currency, listing.Country, listing.Type, listing.Sector, listing.Industry,
+		instrument_type=$6, industry=NULLIF($7,''), active=true,
+		purchasability_status=$8, updated_at=now() WHERE id=$1`, instrumentID.String(), listing.Ticker,
+		listing.Name, listing.Currency, listing.Country, listing.Type, listing.Industry,
 		listing.PurchasabilityStatus); err != nil {
 		return "", err
 	}
@@ -392,6 +401,11 @@ func inactivateMissing(ctx context.Context, tx pgx.Tx, universeID UUID, provider
 	_, err = tx.Exec(ctx, `UPDATE provider_instruments SET active=false, updated_at=now()
 		WHERE provider=$1 AND instrument_id::text = ANY($2)`, provider, missing)
 	return err
+}
+
+// Sectors answers the classification vocabulary the sector filter is built from.
+func (s *QueryService) Sectors(ctx context.Context) ([]Sector, error) {
+	return s.repository.Sectors(ctx)
 }
 
 // Listing answers the universe list. It defaults and bounds everything the caller may leave

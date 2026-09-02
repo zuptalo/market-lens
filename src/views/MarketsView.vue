@@ -11,6 +11,7 @@ import {
   MarketDataLive,
   fetchInstrumentListing,
   fetchRecentImports,
+  fetchSectors,
   listingQueryString,
   type LiveEvent,
   type LiveEventPayload,
@@ -22,6 +23,7 @@ import type {
   ConnectionState,
   ImportRunSummary,
   InstrumentListingPage,
+  SectorOption,
   ListingQuery,
   ListingSort,
 } from '@/types/marketData';
@@ -60,6 +62,8 @@ const columnsOpen = ref(false);
 const runs = ref<ImportRunSummary[]>([]);
 /** A failed page is stated without discarding what the reader has already read. */
 const pageError = ref('');
+/** The sector vocabulary, served rather than hardcoded (feature 014, FR-021). */
+const sectors = ref<SectorOption[]>([]);
 /** How many rows the last page brought, so the announcement can say. */
 const lastArrival = ref(0);
 const listingEnd = ref<HTMLElement | null>(null);
@@ -334,6 +338,10 @@ function watchListingEnd(): void {
 
 onMounted(() => {
   void load();
+  void fetchSectors(fetch).then((served) => { sectors.value = served; }).catch(() => {
+    // A filter with no choices is better than one offering values the data cannot match.
+    sectors.value = [];
+  });
   // Tests drive the sentinel directly; production observes the element.
   (window as unknown as { __listingLoadMore?: () => void }).__listingLoadMore = () => { void loadMore(); };
   watchListingEnd();
@@ -410,6 +418,7 @@ onBeforeUnmount(() => {
         v-model:mic="mic"
         v-model:country="country"
         v-model:sector="sector"
+        :sectors="sectors"
         v-model:status="status"
         v-model:sort="sort"
         v-model:order="order"
@@ -479,6 +488,7 @@ onBeforeUnmount(() => {
         v-model:mic="mic"
         v-model:country="country"
         v-model:sector="sector"
+        :sectors="sectors"
         v-model:status="status"
         v-model:sort="sort"
         v-model:order="order"
