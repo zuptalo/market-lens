@@ -5,15 +5,18 @@ import ChartRangeControls from '@/components/finance/ChartRangeControls.vue';
 import ChartAnnotations from '@/components/finance/ChartAnnotations.vue';
 import PriceChart from '@/components/finance/PriceChart.vue';
 import MarketDataStatus from '@/components/finance/MarketDataStatus.vue';
+import SignalCard from '@/components/finance/SignalCard.vue';
+import ContributionList from '@/components/finance/ContributionList.vue';
 import {
   MarketDataLive,
   fetchInstrumentHistory,
+  fetchInstrumentSignal,
   type LiveEvent,
   type LiveEventPayload,
   type LiveEventSource,
 } from '@/services/marketData';
 import { createCoalescer } from '@/services/coalesce';
-import type { ConnectionState, HistoryWindow } from '@/types/marketData';
+import type { ConnectionState, HistoryWindow, Signal } from '@/types/marketData';
 
 /**
  * One instrument's stored history.
@@ -37,6 +40,7 @@ const sessions = ref(250);
 const overlays = ref<number[]>([20]);
 const chart = ref<InstanceType<typeof PriceChart>>();
 const connectionState = ref<ConnectionState>(navigator.onLine ? 'reconnecting' : 'offline');
+const signal_ = ref<Signal | null>(null);
 
 let controller: AbortController | undefined;
 
@@ -50,6 +54,13 @@ async function load(): Promise<void> {
     window_.value = await fetchInstrumentHistory(
       instrumentId, { sessions: sessions.value }, fetch, request.signal,
     );
+    // The signal is read separately and its failure is swallowed: the history is what this
+    // screen is for, and an unavailable strategy layer must not take the chart down with it.
+    try {
+      signal_.value = await fetchInstrumentSignal(instrumentId, {}, fetch, request.signal);
+    } catch {
+      signal_.value = null;
+    }
   } catch (cause) {
     if (request.signal.aborted) return;
     if (cause instanceof DOMException && cause.name === 'AbortError') return;
@@ -197,6 +208,15 @@ onBeforeUnmount(() => {
           <div><dt>Status</dt><dd>{{ identity.status }}</dd></div>
         </dl>
       </header>
+
+      <section class="signal-panel" aria-labelledby="signal-heading">
+        <h2 id="signal-heading">Strategy view</h2>
+        <SignalCard :signal="signal_" />
+        <ContributionList
+          v-if="signal_ && signal_.contributions.length > 0"
+          :contributions="signal_.contributions"
+        />
+      </section>
 
       <section class="chart-panel" aria-labelledby="chart-heading">
         <h2 id="chart-heading">Stored daily history</h2>
@@ -356,6 +376,17 @@ onBeforeUnmount(() => {
 
 .chart-panel {
   margin-block: 1.5rem;
+}
+
+.signal-panel {
+  margin-block: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.signal-panel h2 {
+  margin: 0;
 }
 
 /*

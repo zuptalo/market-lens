@@ -1,0 +1,308 @@
+openapi: 3.1.0
+info:
+  title: Market Lens Strategies and Signals API
+  version: 1.0.0
+  description: >
+    Reading what a versioned strategy said about an instrument as of a session, and reading the
+    universe in a strategy's order. Every operation is shared reference data behind the
+    authenticated boundary established by feature 004. Nothing here is private to a user, and
+    nothing here writes — computation is triggered by an owner through the command line or by a
+    completed feature run, never over HTTP.
+servers:
+  - url: /api/v1
+x-market-lens-access-boundary:
+  authenticated:
+    - /instruments/{id}/signal
+    - /signals
+    - /strategies
+    - /strategy-runs
+  rule: >
+    Every operation requires an active session and is refused to a deactivated account. An
+    instrument identifier that does not exist and one the caller may not read produce identical
+    responses.
+x-market-lens-events:
+  - type: signals.changed.v1
+    scope: shared
+    entity: instrument
+    description: >
+      Published in the same transaction as the signals it describes, when a strategy run commits
+      an instrument's signals. Carries the instrument, the session range and the run, never the
+      signals themselves.
+
+paths:
+  /instruments/{id}/signal:
+    get:
+      summary: What a strategy said about one instrument
+      description: >
+        The signal for one instrument as of a session, with the contributions that produced it.
+        Defaults to the current strategy version and the instrument's latest stored session.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: as_of
+          in: query
+          description: Session date. Defaults to the instrument's latest stored session.
+          schema: { type: string, format: date }
+        - name: strategy
+          in: query
+          description: >
+            Strategy name; the current version is used. Omit for the only published strategy.
+          schema: { type: string }
+        - name: version
+          in: query
+          description: A specific version, including a superseded one.
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: The signal, scored or absent
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Signal" }
+        "400":
+          description: Malformed identifier, date or version
+        "401":
+          description: No active session
+        "404":
+          description: No such instrument, no such strategy version, or no stored history
+
+  /signals:
+    get:
+      summary: The universe in a strategy's order
+      description: >
+        Every instrument's signal for one session, scored instruments first in descending score.
+        Instruments the strategy could not score follow, each with its reason, so an absence is
+        never presented as a low score.
+      parameters:
+        - name: as_of
+          in: query
+          schema: { type: string, format: date }
+        - name: strategy
+          in: query
+          schema: { type: string }
+        - name: version
+          in: query
+          schema: { type: integer, minimum: 1 }
+        - name: cursor
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        "200":
+          description: One page of the ranking
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor, total, strategy, session_date, scored, unscored]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/RankedSignal" }
+                  next_cursor: { type: [string, "null"] }
+                  total:
+                    type: [integer, "null"]
+                    description: Instruments in the ranking. Present on a cursor-less request.
+                  strategy: { $ref: "#/components/schemas/StrategyRef" }
+                  session_date: { type: string, format: date }
+                  scored:
+                    type: integer
+                    description: How many instruments the strategy scored.
+                  unscored:
+                    type: integer
+                    description: How many it could not, which the interface must state separately.
+        "401":
+          description: No active session
+
+  /strategies:
+    get:
+      summary: Published strategies and their versions
+      description: >
+        Every version, current and superseded, with what it is trying to express and the caveat
+        that it exists to validate the platform rather than to claim optimality.
+      parameters:
+        - name: include_superseded
+          in: query
+          schema: { type: boolean, default: true }
+      responses:
+        "200":
+          description: The strategies
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Strategy" }
+        "401":
+          description: No active session
+
+  /strategy-runs:
+    get:
+      summary: Recent strategy computations
+      description: >
+        For the operational screen, alongside import runs and feature runs. Read-only: a run is
+        triggered by an owner at the command line or by a completed feature computation.
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 50, default: 10 }
+      responses:
+        "200":
+          description: Recent runs
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/StrategyRun" }
+        "401":
+          description: No active session
+
+components:
+  schemas:
+    StrategyRef:
+      type: object
+      required: [name, version, title, caveat, superseded]
+      properties:
+        name: { type: string }
+        version: { type: integer }
+        title: { type: string }
+        caveat:
+          type: string
+          description: >
+            Why this strategy exists. Carried on every response that shows a signal so no surface
+            can display one without it.
+        superseded: { type: boolean }
+
+    Strategy:
+      allOf:
+        - $ref: "#/components/schemas/StrategyRef"
+        - type: object
+          required: [intent, factors, action_bands, published_at]
+          properties:
+            intent: { type: string }
+            factors:
+              type: array
+              items:
+                type: object
+                required: [name, feature, mode, weight]
+                properties:
+                  name: { type: string }
+                  feature:
+                    type: string
+                    description: The published feature definition this factor reads.
+                  mode: { type: string, enum: [cross_sectional, absolute] }
+                  weight: { type: string, description: Decimal string. }
+            action_bands:
+              type: array
+              items:
+                type: object
+                required: [lower, upper, action]
+                properties:
+                  lower: { type: string }
+                  upper: { type: string }
+                  action: { $ref: "#/components/schemas/Action" }
+            published_at: { type: string, format: date-time }
+            superseded_at: { type: [string, "null"], format: date-time }
+
+    Action:
+      type: string
+      enum: [BUY, HOLD, REDUCE, SELL, WATCH]
+      description: >
+        A stated view, never an instruction. HOLD means the strategy has a view and that view is
+        hold; it never stands in for missing data, which is reported as an absence instead.
+
+    Contribution:
+      type: object
+      required: [factor, feature, feature_session, factor_score, weight, contribution]
+      properties:
+        factor: { type: string }
+        feature: { type: string }
+        feature_value:
+          type: [string, "null"]
+          description: The decimal the strategy read, or null when the feature was unavailable.
+        feature_session:
+          type: [string, "null"]
+          format: date
+          description: The session that value is as of — never later than the signal's session.
+        factor_score:
+          type: [string, "null"]
+          description: The feature value normalised to [-1, +1]. Null when unavailable.
+        weight: { type: string }
+        contribution:
+          type: [string, "null"]
+          description: weight × factor_score. Null when the factor was unavailable.
+        unavailable_reason:
+          type: [string, "null"]
+          description: Why this factor contributed nothing, when it did not.
+
+    Signal:
+      type: object
+      required:
+        [instrument_id, session_date, strategy, score, action, confidence, absence_reason,
+         contributions, computed_at]
+      properties:
+        instrument_id: { type: string, format: uuid }
+        session_date: { type: string, format: date }
+        strategy: { $ref: "#/components/schemas/StrategyRef" }
+        score:
+          type: [string, "null"]
+          description: Decimal string in [-1, +1]. Null exactly when absence_reason is set.
+        action:
+          oneOf:
+            - { $ref: "#/components/schemas/Action" }
+            - { type: "null" }
+        confidence:
+          type: [string, "null"]
+          description: >
+            Decimal string in [0, 1]. Agreement among the available factors, scaled by how much
+            of the strategy's weight was available. Not a probability that the view is correct.
+        absence_reason:
+          type: [string, "null"]
+          enum: [insufficient_history, feature_unavailable, composite_undefined, liquidity_excluded, null]
+        contributions:
+          type: array
+          items: { $ref: "#/components/schemas/Contribution" }
+        divisor:
+          type: [string, "null"]
+          description: >
+            Sum of the available factors' weights. The contributions divided by this equal the
+            score exactly; it is returned so a reader can check the arithmetic.
+        computed_at: { type: string, format: date-time }
+
+    RankedSignal:
+      allOf:
+        - $ref: "#/components/schemas/Signal"
+        - type: object
+          required: [ticker, name, rank]
+          properties:
+            ticker: { type: string }
+            name: { type: string }
+            rank:
+              type: [integer, "null"]
+              description: Position among scored instruments. Null for an unscored one.
+
+    StrategyRun:
+      type: object
+      required: [id, kind, status, started_at, finished_at, instrument_count, signal_count, failed_count]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [full, incremental, strategy] }
+        status: { type: string, enum: [running, succeeded, partial, failed] }
+        strategy: { $ref: "#/components/schemas/StrategyRef" }
+        started_at: { type: string, format: date-time }
+        finished_at: { type: [string, "null"], format: date-time }
+        instrument_count: { type: integer }
+        signal_count: { type: integer }
+        failed_count: { type: integer }
+        trigger_feature_run_id: { type: [string, "null"], format: uuid }
+        app_version: { type: [string, "null"] }

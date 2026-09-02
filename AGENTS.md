@@ -94,7 +94,17 @@ is NOT NULL against a vocabulary containing `unclassified`, so an instrument can
 universe with no classification state — which is exactly how the column sat empty for a hundred
 instruments without anyone noticing.
 
-Next is Milestone 4, deterministic strategies and signals, which is not yet specified.
+Feature 015 (`server/internal/strategies`, `specs/015-strategies-and-signals/`) shipped after
+that: versioned strategies that read the engine's values and record an explained view. A strategy
+emits a signal, never an order — no risk engine, sizing, portfolio, backtest or execution, each of
+which is its own later milestone. Four rules it leaves behind: a signal is a view or a stated
+absence and never a neutral HOLD standing in for missing data, which the table's own check
+constraint enforces; contributions are snapped to the stored precision before the score is derived
+from them, so the explanation reconciles with the score by construction; a computation runs a
+validation pass before it writes anything, so a failed instrument keeps a whole earlier series
+rather than a mixture of two runs; and cross-sectional factors mean one instrument's change moves
+every other instrument's rank for that session, so an incremental pass rescores the whole universe
+over the affected sessions.
 
 Two constraints that outlive any single feature:
 

@@ -9,6 +9,7 @@ vi.mock('vue-router', () => ({
 
 import InstrumentMarketDataView from './InstrumentMarketDataView.vue';
 import { __reset } from '@/components/finance/__mocks__/lightweight-charts';
+import { buildAbsentSignalWire, buildSignalWire } from '@/services/__fixtures__/marketData';
 
 const INSTRUMENT_ID = '11111111-1111-4111-8111-111111111111';
 
@@ -67,8 +68,19 @@ function stubFetch(body: unknown = historyWire(), ok = true) {
   vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
     const url = String(input);
     if (url.includes('/history')) return { ok, json: async () => body };
+    // The screen also asks for the instrument's signal. This deployment has none, which is an
+    // ordinary answer rather than a failure, so the read returns 404 and the page carries on.
+    if (url.includes('/signal')) return { ok: false, status: 404, json: async () => ({}) };
     return { ok: true, json: async () => ({ items: [], next_cursor: null }) };
   }));
+}
+
+/**
+ * How many times the history was fetched. The view makes more than one request per load, and
+ * the claims below are about reloading the history, not about the total request count.
+ */
+function historyCalls(): number {
+  return vi.mocked(fetch).mock.calls.filter((call) => String(call[0]).includes('/history')).length;
 }
 
 function mountView() {
@@ -202,7 +214,7 @@ describe('InstrumentMarketDataView live updates', () => {
     QuietEventSource.instances = [];
     const wrapper = mountView();
     await flushPromises();
-    const callsBefore = vi.mocked(fetch).mock.calls.length;
+    const callsBefore = historyCalls();
 
     QuietEventSource.instances.at(-1)!.deliver(
       'daily_bar.changed.v1',
@@ -214,7 +226,7 @@ describe('InstrumentMarketDataView live updates', () => {
 
     // Refetching for an instrument nobody is looking at wastes a request and can only
     // disturb the view.
-    expect(vi.mocked(fetch).mock.calls.length).toBe(callsBefore);
+    expect(historyCalls()).toBe(callsBefore);
     expect(wrapper.text()).toContain('Interrupted History AB');
   });
 
@@ -222,7 +234,7 @@ describe('InstrumentMarketDataView live updates', () => {
     QuietEventSource.instances = [];
     mountView();
     await flushPromises();
-    const callsBefore = vi.mocked(fetch).mock.calls.length;
+    const callsBefore = historyCalls();
 
     const source = QuietEventSource.instances.at(-1)!;
     const payload = JSON.stringify({ entity_id: 'bar-1', instrument_id: INSTRUMENT_ID });
@@ -232,7 +244,7 @@ describe('InstrumentMarketDataView live updates', () => {
     await vi.advanceTimersByTimeAsync(500);
     await flushPromises();
 
-    expect(vi.mocked(fetch).mock.calls.length).toBe(callsBefore + 1);
+    expect(historyCalls()).toBe(callsBefore + 1);
   });
 
   afterEach(() => vi.useRealTimers());
@@ -299,5 +311,54 @@ describe('InstrumentMarketDataView under an event storm', () => {
 
     expect(vi.mocked(fetch).mock.calls.length - before).toBe(0);
     wrapper.unmount();
+  });
+});
+
+describe('InstrumentMarketDataView strategy view', () => {
+  beforeEach(() => {
+    vi.stubGlobal('EventSource', QuietEventSource);
+  });
+
+  function stubWithSignal(signal: unknown) {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes('/history')) return { ok: true, json: async () => historyWire() };
+      if (url.includes('/signal')) return { ok: true, status: 200, json: async () => signal };
+      return { ok: true, json: async () => ({ items: [], next_cursor: null }) };
+    }));
+  }
+
+  it('shows the strategy view and the reasons behind it', async () => {
+    stubWithSignal(buildSignalWire());
+    const wrapper = mountView();
+    await flushPromises();
+    const panel = wrapper.find('[aria-labelledby="signal-heading"]').text();
+    expect(panel).toContain('WATCH');
+    expect(panel).toContain('0.41');
+    expect(panel).toContain('momentum_90');
+    expect(panel).toContain('return_90');
+    expect(panel.toLowerCase()).toContain('raises');
+    expect(panel.toLowerCase()).toContain('not advice');
+  });
+
+  it('states an absence rather than a neutral view', async () => {
+    stubWithSignal(buildAbsentSignalWire());
+    const wrapper = mountView();
+    await flushPromises();
+    const panel = wrapper.find('[aria-labelledby="signal-heading"]').text();
+    expect(panel).not.toContain('HOLD');
+    expect(panel.toLowerCase()).toContain('no view');
+    expect(panel.toLowerCase()).toContain('history');
+  });
+
+  // The history is what this screen is for. A strategy layer that has not run, or has failed,
+  // must not take the chart down with it.
+  it('still draws the history when no signal exists', async () => {
+    stubFetch();
+    const wrapper = mountView();
+    await flushPromises();
+    expect(wrapper.text()).toContain('Interrupted History AB');
+    expect(wrapper.find('[aria-labelledby="signal-heading"]').text().toLowerCase())
+      .toContain('no strategy has recorded');
   });
 });
