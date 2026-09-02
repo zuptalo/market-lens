@@ -255,6 +255,16 @@ describe('InstrumentMarketDataView live updates', () => {
     // The status component renders one of connected / reconnecting / stale / offline.
     expect(wrapper.text()).toMatch(/connected|reconnecting|stale|offline/i);
   });
+
+  // Feature 014 moved the import report to /operations and left the panel behind here with an
+  // empty list, so every instrument screen stated that no import had ever run — on a page
+  // drawing a chart from those very imports. A screen may not make a claim it does not read.
+  it('makes no claim about imports, which are reported on the operations screen', async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    expect(wrapper.text()).not.toContain('No market-data imports have run yet');
+    expect(wrapper.text()).not.toContain('Recent imports');
+  });
 });
 
 describe('InstrumentMarketDataView under an event storm', () => {

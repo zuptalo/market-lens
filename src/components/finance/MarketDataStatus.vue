@@ -2,6 +2,7 @@
 import { ref } from 'vue';
 import Button from 'primevue/button';
 import QualityBadge from './QualityBadge.vue';
+import LiveConnectionBadge from './LiveConnectionBadge.vue';
 import type { ConnectionState, ImportRunSummary } from '@/types/marketData';
 
 withDefaults(defineProps<{
@@ -30,11 +31,7 @@ async function copyRetry(runID: string): Promise<void> {
         <p class="eyebrow">Operations</p>
         <h2>Recent imports</h2>
       </div>
-      <span
-        data-testid="connection-state"
-        class="connection-state"
-        :class="`connection-${connectionState}`"
-      >Live updates: {{ connectionState }}</span>
+      <LiveConnectionBadge :connection-state="connectionState" />
     </div>
 
     <p v-if="loading" role="status">Loading market-data status…</p>

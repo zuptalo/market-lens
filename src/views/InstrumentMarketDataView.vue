@@ -4,7 +4,7 @@ import { useRoute } from 'vue-router';
 import ChartRangeControls from '@/components/finance/ChartRangeControls.vue';
 import ChartAnnotations from '@/components/finance/ChartAnnotations.vue';
 import PriceChart from '@/components/finance/PriceChart.vue';
-import MarketDataStatus from '@/components/finance/MarketDataStatus.vue';
+import LiveConnectionBadge from '@/components/finance/LiveConnectionBadge.vue';
 import SignalCard from '@/components/finance/SignalCard.vue';
 import ContributionList from '@/components/finance/ContributionList.vue';
 import {
@@ -194,7 +194,10 @@ onBeforeUnmount(() => {
 
     <template v-else-if="window_ && identity">
       <header class="identity">
-        <h1>{{ identity.name }}</h1>
+        <div class="identity__heading">
+          <h1>{{ identity.name }}</h1>
+          <LiveConnectionBadge :connection-state="connectionState" />
+        </div>
         <p class="identity-line">
           <strong>{{ identity.ticker }}</strong> · {{ identity.exchange.mic }}
           <span>({{ identity.exchange.name }})</span>
@@ -297,13 +300,6 @@ onBeforeUnmount(() => {
         </p>
       </section>
 
-      <MarketDataStatus
-        :runs="[]"
-        :connection-state="connectionState"
-        :loading="false"
-        error=""
-      />
-
       <ChartAnnotations
         :actions="window_.actions"
         :findings="openFindings"
@@ -378,6 +374,17 @@ onBeforeUnmount(() => {
 
 .chart-panel {
   margin-block: 1.5rem;
+}
+
+.identity__heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.identity__heading h1 {
+  margin: 0;
 }
 
 .signal-panel {
