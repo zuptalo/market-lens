@@ -211,11 +211,13 @@ onBeforeUnmount(() => {
 
       <section class="signal-panel" aria-labelledby="signal-heading">
         <h2 id="signal-heading">Strategy view</h2>
-        <SignalCard :signal="signal_" />
-        <ContributionList
-          v-if="signal_ && signal_.contributions.length > 0"
-          :contributions="signal_.contributions"
-        />
+        <div class="signal-panel__body">
+          <SignalCard :signal="signal_" />
+          <ContributionList
+            v-if="signal_ && signal_.contributions.length > 0"
+            :contributions="signal_.contributions"
+          />
+        </div>
       </section>
 
       <section class="chart-panel" aria-labelledby="chart-heading">
@@ -380,6 +382,9 @@ onBeforeUnmount(() => {
 
 .signal-panel {
   margin-block: 1.5rem;
+}
+
+.signal-panel__body {
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -406,6 +411,7 @@ onBeforeUnmount(() => {
     grid-template-areas:
       'back back'
       'identity identity'
+      'signal signal'
       'chart context';
     gap: 0 2rem;
     align-items: start;
@@ -414,5 +420,20 @@ onBeforeUnmount(() => {
   .back-link { grid-area: back; }
   .identity { grid-area: identity; }
   .chart-panel { grid-area: chart; }
+
+  /*
+    The strategy view spans both columns. Auto-placed it landed in the narrow annotation
+    column, where "raises the score by 0.238" wrapped onto five lines — the contribution table
+    is the one thing on this screen that must stay readable as a sentence, because it is the
+    reason the score is not an oracle.
+  */
+  .signal-panel { grid-area: signal; }
+
+  .signal-panel__body {
+    display: grid;
+    grid-template-columns: minmax(18rem, 1fr) minmax(0, 2fr);
+    gap: 2rem;
+    align-items: start;
+  }
 }
 </style>
