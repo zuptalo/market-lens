@@ -94,7 +94,13 @@ is NOT NULL against a vocabulary containing `unclassified`, so an instrument can
 universe with no classification state — which is exactly how the column sat empty for a hundred
 instruments without anyone noticing.
 
-Next is Milestone 4, deterministic strategies and signals, which is not yet specified.
+In planning now: feature 015, deterministic strategies and signals (Milestone 4). Specification
+and plan are at `specs/015-strategies-and-signals/plan.md`; implementation has not begun and must
+start with `TestTheSameStrategyVersionScoresAnInstrumentIdentically` observed red. A strategy
+emits a signal, never an order — no risk engine, sizing, portfolio, backtest or execution, each
+of which is its own later milestone. Two rules it adds: a signal's factor contributions must
+reconcile with its score exactly, because a score with no reasons is an oracle; and an
+unscorable instrument records a stated absence rather than a neutral HOLD.
 
 Two constraints that outlive any single feature:
 
