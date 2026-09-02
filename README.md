@@ -44,6 +44,25 @@ make backend
 make frontend
 ```
 
+### Configuration
+
+Copy `.env.example` to `.env` at the repository root and fill it in. That one file is read by
+`docker compose`, by `make start`, by `make backend` and by `make cli` — Compose will only read
+an environment file from the repository root, so everything else reads it from there too rather
+than keeping a second copy somewhere the other half of the tooling cannot see.
+
+Owner commands run against the local database with the same environment the server gets:
+
+```sh
+make cli ARGS="features compute --universe nordic-liquid-v1"
+make cli ARGS="signals compute --universe nordic-liquid-v1"
+```
+
+A feature computation triggers the signal pass on success, so the first command usually does
+both. Until they have run, `/signals` and the strategy panel on an instrument correctly show
+that no strategy has recorded a view — signals are computed from stored features, and there is
+nothing to rank before the engine has run.
+
 ## Docker Compose
 
 Run the production-shaped single application image and PostgreSQL:
@@ -53,9 +72,14 @@ docker compose up --build
 ```
 
 Open <http://localhost:8080>. Set a unique `POSTGRES_PASSWORD` and an
-`EXTERNAL_CREDENTIAL_KEY` (`openssl rand -base64 32`) in a local `.env` before starting
-Compose, and keep `EXTERNAL_CREDENTIAL_KEY_VERSION=1` until an explicit credential-key
+`EXTERNAL_CREDENTIAL_KEY` (`openssl rand -base64 32`) in the repository-root `.env` before
+starting Compose, and keep `EXTERNAL_CREDENTIAL_KEY_VERSION=1` until an explicit credential-key
 rotation. Never commit that file.
+
+Losing `EXTERNAL_CREDENTIAL_KEY` does not lose the installation, but it does make every stored
+provider credential permanently unreadable: generate a new one, delete the rows in
+`external_service_credentials`, and enter the EODHD token and SMTP settings again through the
+setup wizard. Nothing else is encrypted with it.
 
 `AUTH_SECRET` is optional: leave it empty and the application provisions its own signing key
 on first start and stores it in the database.
