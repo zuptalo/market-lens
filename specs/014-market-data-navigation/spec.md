@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-02
 
-**Status**: planned
+**Status**: shipped
 <!-- Market Lens spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: User description: "Market Data view structure, sector data, and continuous listing

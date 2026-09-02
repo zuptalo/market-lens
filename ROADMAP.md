@@ -68,6 +68,12 @@ returns and volatility measure became version 1 of the engine's `return_20`, `re
 engine's values and no displayed number moved. The derived query that computed them a second
 time is deleted.
 
+Feature 014 followed it: operational reporting — including the engine's own runs, which had no
+interface at all — moved off the Market Data screen; the instrument listing loads as a person
+scrolls and states how large the result set is; and sector became curated reference data
+carried by migration, because the deployment's market-data plan excludes the fundamentals that
+would otherwise supply it.
+
 **The next product feature is Milestone 4, deterministic strategies and signals.** Strategies
 depend on the engine, backtesting on strategies, and portfolio and paper trading on those.
 
