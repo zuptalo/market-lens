@@ -123,6 +123,26 @@ Two regressions the suite caught before they shipped:
   subscribed to live events and the new one did not. `OperationsView` now subscribes to the
   same stream, coalesced, so an import that finishes while somebody watches still updates.
 
+*(2026-09-02, production, v0.11.0.)* Migration `0020` applied on the rolling deployment with no
+manual step. The schema is at version 20, the vocabulary holds twelve values, and of the 100
+curated instruments **none carries a null sector and none is unclassified** — every one has a
+classification and a recorded source:
+
+| Sector | Instruments |
+|---|---|
+| Industrials | 29 |
+| Financials | 20 |
+| Health Care | 10 |
+| Materials | 9 |
+| Energy | 8 |
+| Information Technology | 7 |
+| Consumer Staples | 6 |
+| Communication Services | 5 |
+| Consumer Discretionary | 3 |
+| Utilities | 2 |
+| Real Estate | 1 |
+| Unclassified | 0 |
+
 Classification note: two instruments are classified by the ISINs migration `0014` corrected
 (BW LPG and Rockwool), not by the ones the original seed carried. Keying the assignment on the
 seed's ISINs alone would have left them unclassified.

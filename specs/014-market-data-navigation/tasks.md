@@ -159,7 +159,7 @@ filtering by any offered sector returns exactly the instruments classified in it
 - [x] T067 Run `npm run test:e2e` across `mobile-chromium`, `tablet-chromium` and `desktop-chromium`
 - [x] T068 Run `docker build -t market-lens:local .` and `docker compose config`
 - [x] T069 Ship as one PR from `014-market-data-navigation` (`feat(markets): …`), wait for Keel to roll it, and confirm on production that every instrument states a sector, that the operational screen shows the engine's runs, and that the listing states a total matching a direct count
-- [ ] T070 [P] Record the production result in `specs/014-market-data-navigation/quickstart.md` under *Recorded evidence* with the date and app version, and update `specs/013-feature-engine/quickstart.md` if the engine's runs are now reachable from a screen rather than only from SQL
+- [x] T070 [P] Record the production result in `specs/014-market-data-navigation/quickstart.md` under *Recorded evidence* with the date and app version, and update `specs/013-feature-engine/quickstart.md` if the engine's runs are now reachable from a screen rather than only from SQL
 - [x] T071 [P] Update `specs/014-market-data-navigation/spec.md` status to `shipped`, the 014 row in `specs/README.md`, `ROADMAP.md`, and the SPECKIT block in `AGENTS.md`
 
 ---
