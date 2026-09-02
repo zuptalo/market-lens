@@ -140,8 +140,8 @@ recomputation.
 - **FR-002**: The window MUST be counted in stored trading sessions for the instrument's own
   exchange, not in calendar days, so that differing holiday calendars do not make the window
   reach different distances into different exchanges' history.
-- **FR-003**: The window MUST span five trading sessions, ending with the session that most
-  recently closed.
+- **FR-003**: The window MUST span five trading sessions by default, ending with the session
+  that most recently closed.
 - **FR-004**: When an instrument has fewer stored sessions than the window spans, the window MUST
   begin at that instrument's first stored session.
 - **FR-005**: A re-observed session whose source values are unchanged MUST NOT be written,
@@ -159,9 +159,13 @@ recomputation.
 - **FR-010**: The count of corrected sessions MUST never exceed the count of sessions processed.
 - **FR-011**: The operational screen MUST state how many sessions a run corrected, and MUST NOT
   imply a correction occurred when none did.
-- **FR-012**: The window size MUST be a stated, reviewable value rather than an incidental
-  constant scattered through the code, so that changing it is a decision somebody makes rather
-  than a detail somebody edits.
+- **FR-012**: The window size MUST be a single stated value that a deployment can change without
+  a code change, defaulting to five sessions. Nothing about the source request cost depends on
+  the width, so the value exists to be adjusted by evidence — the count of corrected sessions per
+  run — rather than to be guessed once and buried.
+- **FR-015**: A configured window MUST be validated: a value below one session or above a stated
+  ceiling MUST be refused at startup with a message naming the setting, rather than silently
+  clamped or accepted into a nightly pass that re-asks for years.
 - **FR-013**: A run following an extended outage MUST NOT widen its window to cover the missed
   period; recovering missed history remains an explicit operator action.
 - **FR-014**: Re-observation MUST NOT increase the number of source requests a routine pass
@@ -240,7 +244,8 @@ N/A.
 - **SC-001**: A close restated by the source within the last five trading sessions is reflected
   in the stored history after the next routine pass, with no operator action.
 - **SC-002**: A routine pass with the widened window makes the same number of source requests as
-  a single-session pass, so the change consumes no additional source quota.
+  a single-session pass, at any configured width, so the change consumes no additional source
+  quota and the window can be adjusted without a cost calculation.
 - **SC-003**: A routine pass in which nothing was restated writes no bar, archives no revision,
   and triggers no feature or strategy computation.
 - **SC-004**: When a session is restated, every stored feature value derived from it and every
@@ -258,8 +263,10 @@ N/A.
 
 - **Five sessions is a starting value, not a derived one.** No measurement of this provider's
   restatement latency exists. Five covers a correction published within a normal working week
-  while keeping the window short enough that its cost stays negligible. FR-012 requires it to be
-  a stated value precisely so that evidence can change it later without archaeology.
+  while keeping the window short enough that its cost stays negligible. It is deliberately
+  configurable (FR-012) rather than fixed: once runs start reporting how many sessions they
+  corrected, that count is the evidence for whether five is right, and acting on it should be a
+  setting rather than a release.
 - **The routine pass keeps its existing kind.** Its purpose — the scheduled pass that keeps
   stored history current — is unchanged; only how far back it looks has widened. A new kind would
   split the operational report in two for no reader's benefit.

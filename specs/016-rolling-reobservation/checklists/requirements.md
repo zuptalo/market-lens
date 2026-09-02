@@ -35,8 +35,11 @@ Three decisions the description raised were resolved here rather than deferred, 
 under Assumptions with the reasoning that settles it:
 
 - **Window size and unit** — five trading sessions on the instrument's own exchange (FR-002,
-  FR-003). Sessions rather than days because the four exchanges keep different holiday calendars,
-  and a fixed number of days would reach different distances into each.
+  FR-003), configurable rather than fixed (FR-012, FR-015). Sessions rather than days because the
+  four exchanges keep different holiday calendars, and a fixed number of days would reach
+  different distances into each. Configurable because five is a guess: the corrected-session
+  count this feature adds is the evidence that would revise it, and acting on that evidence
+  should not require a release.
 - **Run kind** — unchanged (FR-008). Widening what the routine pass observes does not change what
   it is for; a new kind would split the operational report for no reader's benefit.
 - **Behaviour after an outage** — the window does not widen (FR-013). Recovering missed history

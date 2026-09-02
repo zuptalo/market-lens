@@ -1,0 +1,97 @@
+openapi: 3.1.0
+info:
+  title: Market Lens Import Run Corrections
+  version: 1.0.0
+  description: >
+    One added field on an existing read. A routine import pass re-observes a trailing window of
+    recent sessions, so it can now correct a session it stored earlier as well as store a new
+    one. The two are different events for an operator, and only one of them means every derived
+    value for that session changed underneath, so the run reports them separately.
+
+    No new operation and no new event type. The field travels on the read and the change event
+    that already carry the run.
+servers:
+  - url: /api/v1
+x-market-lens-access-boundary:
+  authenticated:
+    - /market-data/imports
+  rule: >
+    Unchanged. The operational reads require an active session and are refused to a deactivated
+    account.
+x-market-lens-events:
+  - type: import_run.changed.v1
+    scope: shared
+    entity: import_run
+    description: >
+      Unchanged in shape and scope. The run it describes now carries revised_count, so a screen
+      watching a pass sees a correction reported without reloading.
+
+paths:
+  /market-data/imports:
+    get:
+      summary: Recent import runs
+      description: >
+        Unchanged, except that each run states how many stored sessions it corrected.
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+      responses:
+        "200":
+          description: Recent runs, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/ImportRun" }
+        "401":
+          description: No active session
+
+components:
+  schemas:
+    ImportCounts:
+      type: object
+      required: [processed, accepted, rejected, flagged, revised]
+      properties:
+        processed:
+          type: integer
+          description: Sessions the source was asked about and answered for.
+        accepted:
+          type: integer
+          description: Observations that passed validation and were stored.
+        rejected:
+          type: integer
+        flagged:
+          type: integer
+        revised:
+          type: integer
+          description: >
+            Stored sessions whose source values had changed since they were first observed, and
+            which this run replaced. Never greater than processed. Zero means the run extended
+            history without correcting any of it — which is the ordinary case, and must not be
+            presented as though a correction had occurred.
+
+    ImportRun:
+      type: object
+      required: [id, kind, provider, status, started_at, finished_at, counts]
+      properties:
+        id: { type: string, format: uuid }
+        kind:
+          type: string
+          enum: [universe_sync, backfill, daily_update, retry]
+          description: >
+            Unchanged. daily_update still means the scheduled pass that keeps stored history
+            current; it now re-observes a trailing window of recent sessions rather than only the
+            session that most recently closed.
+        provider: { type: string }
+        status:
+          type: string
+          enum: [running, succeeded, partial, failed, cancelled]
+        started_at: { type: string, format: date-time }
+        finished_at: { type: [string, "null"], format: date-time }
+        counts: { $ref: "#/components/schemas/ImportCounts" }
+        error_summary: { type: [string, "null"] }
