@@ -106,15 +106,16 @@ rather than a mixture of two runs; and cross-sectional factors mean one instrume
 every other instrument's rank for that session, so an incremental pass rescores the whole universe
 over the affected sessions.
 
-In planning now: feature 016, rolling re-observation of recent sessions. Specification and plan
-are at `specs/016-rolling-reobservation/plan.md`; implementation must start with
-`TestARestatedCloseIsCorrectedByTheNextRoutinePass` observed red. The nightly pass asks the source
-about exactly one session, so the correction path feature 002 specified and 013 and 015 extended
-has never run in normal operation. Two measured properties make the fix small and are worth
-knowing before touching this code: a source range costs one request per instrument whatever its
-width, and an unchanged re-observation performs no write — which is what keeps a quiet night from
-triggering a recomputation cascade, because the incremental feature scope is derived from the
-bar's `import_run_id`.
+Feature 016 (`specs/016-rolling-reobservation/`) shipped in `v0.13.0`: the scheduled pass re-asks
+the source about the last five trading sessions rather than only the one that just closed, so a
+restated close is corrected through the path 002 specified and 013 and 015 extended — which had
+never run in normal operation, because nothing ever re-imported a date. Three things it leaves
+behind. A source range costs one request per instrument whatever its width, so the window is not a
+cost dial. An unchanged re-observation performs no write, which is what keeps a quiet night from
+triggering a recomputation cascade — the incremental feature scope is derived from the bar's
+`import_run_id`, so if that ever changed, every night would rescore the whole universe with no
+symptom but a slower pass. And a run reports how many sessions it corrected, distinctly from how
+many it stored, because only a correction means every derived value moved underneath.
 
 Two constraints that outlive any single feature:
 

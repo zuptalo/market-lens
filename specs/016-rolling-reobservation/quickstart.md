@@ -93,6 +93,55 @@ SELECT count(*) FROM import_runs WHERE revised_count > processed_count;
 
 ---
 
+## Recorded evidence
+
+`v0.13.0`, deployed 2026-09-02 23:21 UTC.
+
+**The migration, on the live database.** Schema at version 22, with `revised_count` present on
+both tables and all 12 pre-existing runs reading `0` rather than null — the upgrade behaved as
+the migration test predicted, with no manual step.
+
+```
+ schema
+--------
+     22
+
+ runs_with_column
+------------------
+               12
+```
+
+**The window in effect.** `MARKET_DATA_REOBSERVE_SESSIONS` is not set in the deployment, so the
+built-in default of five sessions applies. Nothing needs configuring for the feature to work; the
+setting exists to change it later on evidence.
+
+**What is not yet verified in production, and why.** The widened window belongs to the *scheduled*
+pass, which runs at 20:00 Europe/Stockholm. This shipped at 01:21 the same night, so no scheduled
+pass has run under it yet. The first one will produce a `daily_update` run whose targets span five
+sessions rather than one, and a `revised_count` — almost certainly zero, since a restatement is a
+rare event and the point of the window is to catch one whenever it happens rather than to find one
+on the first night.
+
+The behaviour itself is proven against a real store and a source that answers only for the range
+it was asked about, in `server/internal/scheduler/marketdata_integration_test.go`: a close restated
+three sessions back is corrected, the previous values are archived, the recomputation scope of a
+quiet run is empty, and a five-session window makes exactly as many source requests as a
+one-session window.
+
+To confirm the first scheduled pass:
+
+```sql
+SELECT started_at, kind, processed_count, accepted_count, revised_count
+FROM import_runs WHERE kind = 'daily_update' ORDER BY started_at DESC LIMIT 3;
+-- processed_count should be about five times what it was before this shipped
+
+SELECT requested_from, requested_to FROM import_items
+WHERE run_id = (SELECT id FROM import_runs ORDER BY started_at DESC LIMIT 1) LIMIT 5;
+-- requested_from should be four trading sessions before requested_to
+```
+
+---
+
 ## Is five the right number?
 
 This is the question the feature makes answerable, and it was a guess when it shipped. After a

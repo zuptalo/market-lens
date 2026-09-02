@@ -91,6 +91,12 @@ sessions from two different runs, every row well formed and the series from no s
 Its weights are stated rather than fitted and it has not been tested against outcomes; the caveat
 saying so is stored on the version and travels with every response that carries a signal.
 
+Feature 016 followed it, closing a gap the earlier specifications had left without noticing: the
+correction path for a restated bar was specified in feature 002 and extended by 013 and 015, fully
+tested, and unreachable — the nightly pass asked the source about exactly one session and so never
+gave it a chance to change its mind. The pass now re-observes the last five trading sessions, and a
+run states how many it corrected.
+
 **The next product feature is Milestone 5, reproducible backtesting**, which reads these signals.
 
 Milestone 5 is the next planning sequence. Create separate feature specs so their
