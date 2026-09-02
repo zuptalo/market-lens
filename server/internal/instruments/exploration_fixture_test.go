@@ -2,6 +2,7 @@ package instruments_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"market-lens/server/internal/db"
@@ -368,4 +369,18 @@ func (f *explorationFixture) latestSession(t *testing.T, instrument instruments.
 		t.Fatalf("latest session of %s: %v", instrument, err)
 	}
 	return session
+}
+
+// addSector adds `count` instruments in one sector on one exchange, so a filter can match a
+// known number of rows rather than however many the seeded Nordic universe happens to hold.
+// The tickers are numbered so an ordering assertion has something stable to check.
+func (f *explorationFixture) addSector(t *testing.T, prefix string, count int) []instruments.UUID {
+	t.Helper()
+	ids := make([]instruments.UUID, 0, count)
+	for index := 0; index < count; index++ {
+		ids = append(ids, f.addInstrument(t, f.stockholm,
+			fmt.Sprintf("SE90%08d", index), fmt.Sprintf("%s%03d", prefix, index),
+			fmt.Sprintf("%s Holdings %03d AB", prefix, index), "SEK", "SE", "Industrials", "Machinery"))
+	}
+	return ids
 }

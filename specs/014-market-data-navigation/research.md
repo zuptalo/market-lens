@@ -113,6 +113,30 @@ that do not belong to it.
 - *Restore only the filters, not the rows* — rejected as the status quo the requirement exists to
   improve.
 
+**Amended during implementation (2026-09-02).** The premise above is wrong about this codebase.
+Opening an instrument is not a router navigation: `MarketsView` calls
+`window.location.assign('/markets/{id}?return=…')`, a full page load, and the detail view's back
+link is a second full load. No module-scoped anything survives either, so the cache this decision
+describes cannot exist as written.
+
+What is already restored, and remains restored, is the reader's **filters, search term and
+sort**, carried in that `return` query string and applied on the way back. What is not restored
+is the set of pages they had loaded and their offset within it.
+
+Closing that gap means one of two changes, both larger than this story:
+
+- Convert the instrument detail to a router navigation, so client state survives it. That
+  changes how the application navigates generally, and every journey that currently asserts a
+  full page load would have to be re-examined.
+- Persist the loaded rows and re-request them on return, which is the stale-snapshot approach
+  rejected above, or persist only the page count and re-fetch it, which turns one navigation
+  into as many requests as the reader had pages.
+
+The narrower behaviour is what ships: FR-017 is met for filters and sort, and the page count and
+offset are explicitly not restored. This is recorded rather than quietly dropped, and left as
+its own decision for whoever wants scroll restoration badly enough to change how the app
+navigates.
+
 ---
 
 ## R-005: How sector classification is stored

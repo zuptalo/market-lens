@@ -335,6 +335,38 @@ func TestTheFirstPageOfTheUniverseStaysWithinItsBudget(t *testing.T) {
 		if elapsed > 2*time.Second {
 			t.Errorf("the first page sorted by %s took %s, over the two-second budget", sort, elapsed)
 		}
+		// The first page carries the size of the filtered set, so the budget covers the count
+		// as well as the page (research R-008). The bound is the user-facing one rather than
+		// the measured figure: `go test ./...` runs the database-heavy packages together, and
+		// a budget pinned to a quiet machine fails on contention rather than on a defect.
+		if page.Total == nil {
+			t.Fatalf("the first page sorted by %s reported no total", sort)
+		}
+	}
+
+	// A later page is measured separately: it must not count the result set again, so it can
+	// only be faster, and a regression that starts counting per page shows up here.
+	first, err := repository.Listing(fixture.ctx, instruments.ListingFilter{
+		Limit: 5, Sort: instruments.SortName, AsOf: fixtureAsOf,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.NextCursor == "" {
+		t.Fatal("the seeded universe fits one page of five; paging cannot be measured")
+	}
+	started := time.Now()
+	later, err := repository.Listing(fixture.ctx, instruments.ListingFilter{
+		Limit: 5, Sort: instruments.SortName, AsOf: fixtureAsOf, Cursor: first.NextCursor,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Errorf("a later page took %s, over the two-second budget", elapsed)
+	}
+	if later.Total != nil {
+		t.Errorf("a later page counted the result set again")
 	}
 }
 
@@ -438,5 +470,108 @@ func TestSortingByAnAdoptedStatisticUsesTheEngineColumn(t *testing.T) {
 		if count != 1 {
 			t.Errorf("paging by return_20 returned %s %d times", id, count)
 		}
+	}
+}
+
+// Feature 014 US2, the designated first red. A reader scrolling a list needs to know how large
+// it is; the listing reports rows and a cursor and nothing about the size of the result set.
+func TestTheMarketsListingReportsItsTotalAndPosition(t *testing.T) {
+	fixture := newExplorationFixture(t)
+	const seeded = 23
+	fixture.addSector(t, "TOT", seeded)
+
+	page, err := instruments.NewRepository(fixture.pool).Listing(fixture.ctx, instruments.ListingFilter{
+		Query: "TOT Holdings", Sort: instruments.SortName, Limit: 10, AsOf: fixtureAsOf,
+	})
+	if err != nil {
+		t.Fatalf("listing: %v", err)
+	}
+	if len(page.Items) != 10 {
+		t.Fatalf("page holds %d rows, expected 10", len(page.Items))
+	}
+	if page.Total == nil {
+		t.Fatalf("the listing reported no total; a reader cannot tell 10 of 23 from 10 of 10")
+	}
+	if *page.Total != seeded {
+		t.Errorf("total = %d, expected %d — the count must describe the filter, not the page", *page.Total, seeded)
+	}
+}
+
+// The total is counted for a cursor-less request only. Counting it on every page would make
+// each page materialise the whole filtered set, which is exactly the early termination keyset
+// pagination exists to keep (research R-001).
+func TestTheTotalIsCountedOnlyForACursorlessRequest(t *testing.T) {
+	fixture := newExplorationFixture(t)
+	fixture.addSector(t, "CUR", 15)
+	repository := instruments.NewRepository(fixture.pool)
+	filter := instruments.ListingFilter{Query: "CUR Holdings", Sort: instruments.SortName, Limit: 5, AsOf: fixtureAsOf}
+
+	first, err := repository.Listing(fixture.ctx, filter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Total == nil || *first.Total != 15 {
+		t.Fatalf("first page total = %v, expected 15", first.Total)
+	}
+	if first.NextCursor == "" {
+		t.Fatal("a 15-row result set paged by 5 reported no cursor")
+	}
+
+	filter.Cursor = first.NextCursor
+	second, err := repository.Listing(fixture.ctx, filter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Total != nil {
+		t.Errorf("a cursor-carrying page counted the result set again: %d", *second.Total)
+	}
+	if len(second.Items) != 5 {
+		t.Errorf("second page holds %d rows, expected 5", len(second.Items))
+	}
+}
+
+// The stated total must equal what the filter actually returns — including when it returns
+// nothing, where the answer is zero rather than absent.
+func TestTheTotalMatchesWhatTheFilterActuallyReturns(t *testing.T) {
+	fixture := newExplorationFixture(t)
+	fixture.addSector(t, "MAT", 7)
+	repository := instruments.NewRepository(fixture.pool)
+
+	for name, filter := range map[string]instruments.ListingFilter{
+		"a search term":      {Query: "MAT Holdings"},
+		"one exchange":       {MIC: "XSTO"},
+		"active only":        {Status: "active"},
+		"matching nothing":   {Query: "no instrument is called this"},
+		"the whole universe": {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			filter.Sort = instruments.SortName
+			filter.Limit = 7
+			filter.AsOf = fixtureAsOf
+			first, err := repository.Listing(fixture.ctx, filter)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if first.Total == nil {
+				t.Fatalf("no total for %s", name)
+			}
+			// Page to exhaustion and compare against what the count claimed.
+			walked := 0
+			cursor := ""
+			for page := 0; page < 200; page++ {
+				filter.Cursor = cursor
+				result, err := repository.Listing(fixture.ctx, filter)
+				if err != nil {
+					t.Fatal(err)
+				}
+				walked += len(result.Items)
+				if cursor = result.NextCursor; cursor == "" {
+					break
+				}
+			}
+			if int64(walked) != *first.Total {
+				t.Errorf("the listing reported %d matching rows and returned %d", *first.Total, walked)
+			}
+		})
 	}
 }

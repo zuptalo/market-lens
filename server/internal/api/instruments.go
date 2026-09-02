@@ -133,7 +133,11 @@ func listInstrumentsHandler(reader InstrumentReader) http.HandlerFunc {
 		for _, item := range page.Items {
 			items = append(items, listingRowDTO(item))
 		}
-		httpx.JSON(w, http.StatusOK, map[string]any{"items": items, "next_cursor": nullableString(page.NextCursor)})
+		// total is null on a page the repository did not count, which means "unchanged" rather
+		// than "zero" — the client keeps the number it was given with the first page.
+		httpx.JSON(w, http.StatusOK, map[string]any{
+			"items": items, "next_cursor": nullableString(page.NextCursor), "total": page.Total,
+		})
 	}
 }
 

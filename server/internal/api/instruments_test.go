@@ -347,3 +347,49 @@ func TestHistoryEndpointRequiresAnActiveSession(t *testing.T) {
 		t.Fatalf("an anonymous history request returned %d %s", response.Code, response.Body.String())
 	}
 }
+
+// Feature 014 US2: a reader scrolling the universe is told how large it is. The total rides
+// with the first page, because that is the request that counts it; a later page reports null,
+// which means "you already have it" and never "zero".
+func TestListingEndpointReportsTheTotalOnTheFirstPageOnly(t *testing.T) {
+	id := instruments.UUID("33000000-0000-4000-8000-000000000001")
+	total := int64(342)
+	reader := &instrumentReaderStub{
+		listing: instruments.ListingPage{
+			Items:      []instruments.ListingRow{{Instrument: instruments.Instrument{ID: id, Ticker: "ALFA", Name: "Alpha AB"}}},
+			NextCursor: "next-page",
+			Total:      &total,
+		},
+	}
+	router := NewRouter(authenticatedDependencies(Dependencies{Instruments: reader}))
+
+	first := performRequest(router, "/api/v1/instruments?limit=1")
+	if first.Code != http.StatusOK {
+		t.Fatalf("status %d %s", first.Code, first.Body.String())
+	}
+	var firstBody struct {
+		Total      *int64  `json:"total"`
+		NextCursor *string `json:"next_cursor"`
+	}
+	if err := json.Unmarshal(first.Body.Bytes(), &firstBody); err != nil {
+		t.Fatalf("decode: %v — %s", err, first.Body.String())
+	}
+	if firstBody.Total == nil || *firstBody.Total != 342 {
+		t.Errorf("total = %v, expected 342", firstBody.Total)
+	}
+
+	// A page the repository did not count reports null rather than zero: the difference is
+	// "unchanged" against "there is nothing", and a reader is shown one of them.
+	reader.listing.Total = nil
+	later := performRequest(router, "/api/v1/instruments?limit=1&cursor=next-page")
+	var laterBody map[string]any
+	if err := json.Unmarshal(later.Body.Bytes(), &laterBody); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if _, present := laterBody["total"]; !present {
+		t.Errorf("the response omitted total entirely; the contract requires the key")
+	}
+	if laterBody["total"] != nil {
+		t.Errorf("a later page reported total %v, expected null", laterBody["total"])
+	}
+}

@@ -143,9 +143,19 @@ export async function fetchInstrumentListing(
 ): Promise<InstrumentListingPage> {
   const response = await fetcher(`/api/v1/instruments?${listingQueryString(query)}`, { signal });
   if (!response.ok) throw new Error('Unable to load instruments.');
-  const body = await response.json() as { items?: ListingRowWire[]; next_cursor?: string | null };
+  const body = await response.json() as {
+    items?: ListingRowWire[];
+    next_cursor?: string | null;
+    total?: number | null;
+  };
   if (!Array.isArray(body.items)) throw new Error('Unable to load instruments.');
-  return { items: body.items.map(listingRowFromWire), nextCursor: body.next_cursor ?? null };
+  return {
+    items: body.items.map(listingRowFromWire),
+    nextCursor: body.next_cursor ?? null,
+    // `?? null` and never `?? 0`: a page that carries no total says "unchanged", and reading
+    // that as zero would tell the reader the result set had emptied underneath them.
+    total: body.total ?? null,
+  };
 }
 
 interface HistoryWindowWire {

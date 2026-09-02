@@ -204,7 +204,10 @@ instruments classified in it.
 - **FR-016**: Assistive technology MUST be informed when rows arrive — how many were added and
   what the new position and total are — through a polite announcement that does not steal focus.
 - **FR-017**: Returning to the listing from an instrument's detail view MUST restore the
-  reader's filters, sort and position.
+  reader's filters, search term and sort. Restoring the pages they had loaded and their offset
+  within them is **out of scope**: opening an instrument is a full page load in this
+  application, so no client state survives it, and changing that is a separate decision about
+  how the application navigates (research R-004, amended during implementation).
 
 **Live updates within a loaded listing**
 
@@ -370,9 +373,9 @@ N/A. This feature adds no installability or notification behavior.
 - Keyset pagination is retained. The reader gains automatic loading and a stated total, not
   page-number navigation: numbered pages over a changing result set reintroduce exactly the
   repeated and skipped rows that keyset pagination exists to prevent.
-- The reader's position is restored when returning from an instrument detail view; this is
-  assumed to mean the filters, sort and approximate scroll position, not a guarantee that
-  identical rows are re-fetched.
+- The reader's filters, search term and sort are restored when returning from an instrument
+  detail view. The loaded pages and scroll offset are not: this application opens an instrument
+  with a full page load, which discards client state (research R-004, amended).
 - Live updates continue to use the event types already published. This feature defines client
   behavior over multiple loaded pages and adds no new event.
 - The deployment's current market-data subscription excludes fundamental data, so sector cannot

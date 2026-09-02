@@ -297,6 +297,12 @@ type ListingFilter struct {
 type ListingPage struct {
 	Items      []ListingRow
 	NextCursor string
+	// Total is how many instruments match the filter, ignoring the page limit — what a reader
+	// scrolling a list needs in order to tell "ten of ten" from "ten of three hundred". It is
+	// counted only for a cursor-less request: counting it per page would make every page
+	// materialise the whole filtered set and lose the early termination keyset paging exists
+	// for (research R-001). Absent on a later page means "unchanged", never "zero".
+	Total *int64
 }
 
 // SeriesBasis records whether the displayed closes are the provider's raw observations or

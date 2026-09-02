@@ -261,6 +261,26 @@ JOIN s ON s.instrument_id = i.id
 %s
 LIMIT %s`, where, listingStatisticsCTE, sort.sql, where, keyset, ordering, limit)
 
+	// The size of the filtered set, counted only when the reader is at the start of it. On a
+	// later page the client already holds the number, and counting again would make the page
+	// materialise every matching row — the opposite of what keyset paging is for (R-001). The
+	// count reuses the same WHERE construction as the page, so the two cannot disagree.
+	var total *int64
+	if cursor == nil {
+		// The filter's placeholders keep the numbering they were built with, so $1 — the as-of
+		// date, which only the freshness subquery uses — has to be mentioned for PostgreSQL to
+		// type it. Naming it here is cheaper and less error-prone than renumbering the filter.
+		countConditions := strings.Replace(where, "WHERE ", "AND ", 1)
+		countStatement := fmt.Sprintf(`SELECT count(*) FROM instruments i
+			JOIN exchanges e ON e.id = i.exchange_id
+			WHERE $1::date IS NOT NULL %s`, countConditions)
+		var counted int64
+		if err := r.pool.QueryRow(ctx, countStatement, arguments[:len(arguments)-1]...).Scan(&counted); err != nil {
+			return ListingPage{}, fmt.Errorf("count instruments: %w", err)
+		}
+		total = &counted
+	}
+
 	rows, err := r.pool.Query(ctx, statement, arguments...)
 	if err != nil {
 		return ListingPage{}, fmt.Errorf("list instruments: %w", err)
@@ -290,7 +310,7 @@ LIMIT %s`, where, listingStatisticsCTE, sort.sql, where, keyset, ordering, limit
 		})
 		items = items[:filter.Limit]
 	}
-	return ListingPage{Items: items, NextCursor: next}, nil
+	return ListingPage{Items: items, NextCursor: next, Total: total}, nil
 }
 
 func scanListingRow(rows pgx.Rows) (ListingRow, *string, error) {

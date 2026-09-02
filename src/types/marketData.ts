@@ -163,6 +163,12 @@ export interface ListingQuery {
 export interface InstrumentListingPage {
   items: InstrumentListingRow[];
   nextCursor: string | null;
+  /**
+   * How many instruments match the filter, ignoring the page size. Present on the first page
+   * of a result set and null afterwards, where it means "unchanged" rather than "zero" — the
+   * server counts only for a cursor-less request (research R-001).
+   */
+  total: number | null;
 }
 
 export type SeriesBasis = 'raw' | 'provider_adjusted';
