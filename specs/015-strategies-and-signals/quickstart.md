@@ -140,6 +140,51 @@ WHERE (c->>'feature_session')::date > s.session_date;
 
 ---
 
+## Recorded evidence
+
+The first production computation, `v0.12.0`, 2026-09-02, on the k3s deployment.
+
+```
+run_id=bad5e559-8b6c-419e-bd8c-ee3a1a147bc8 status=succeeded instruments=100 signals=243005 failed=0
+```
+
+It took 89 seconds against a stated bound of 10 minutes, over sessions from 2016-08-31 to
+2026-09-02, and wrote one run item per instrument and 1,940 `signals.changed.v1` events.
+
+| Check | Expected | Result |
+|---|---|---|
+| Signals stored | — | 243,005 (222,853 scored, 20,152 absent) |
+| Neither a view nor an absence | 0 | 0 |
+| Both a view and an absence | 0 | 0 |
+| A contribution read from a later session | 0 | 0 |
+| An instrument-session with data and no signal | 0 | 0 |
+| A scored signal its contributions do not account for | 0 | 0 |
+| A signal naming no run | 0 | 0 |
+
+Every scored signal records all seven contributions, available or not. The two absence reasons
+that occur are the ones the design predicts:
+
+| Reason | Count | Why |
+|---|---|---|
+| `insufficient_history` | 20,000 | Exactly 100 instruments × the version's 200-session minimum: the opening of every instrument's history, before the longest factor window can be reached. |
+| `feature_unavailable` | 152 | Sessions where no factor had a usable value. |
+
+The views the first version formed, across the whole history:
+
+| Action | Count |
+|---|---|
+| HOLD | 65,788 |
+| WATCH | 50,667 |
+| REDUCE | 41,387 |
+| BUY | 37,336 |
+| SELL | 27,675 |
+
+The most recent session, 2026-09-02, holds 84 signals rather than 100 — that is not a gap. Only
+84 instruments have stored values for it yet, and the invariant is that every instrument-session
+the engine computed has a signal, which holds at 0 missing.
+
+---
+
 ## When something is wrong
 
 | Symptom | Where to look |
