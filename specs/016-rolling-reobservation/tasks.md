@@ -114,9 +114,9 @@ that session were recomputed.
 - [x] T030 Run `make verify` and fix what it reports without weakening a test
 - [x] T031 Run `npm run test:e2e` across `mobile-chromium`, `tablet-chromium` and `desktop-chromium`
 - [x] T032 Run `docker build -t market-lens:local .` and `docker compose config`
-- [ ] T033 Ship as one PR from `016-rolling-reobservation` (`feat(marketdata): …`), wait for Keel to roll it, and confirm the next scheduled pass ran with the widened window
-- [ ] T034 [P] Run the quickstart's verification queries against production and record each result in `specs/016-rolling-reobservation/quickstart.md` under *Recorded evidence*, with the date and app version
-- [ ] T035 [P] Update `specs/016-rolling-reobservation/spec.md` status to `shipped`, the 016 row in `specs/README.md`, `ROADMAP.md`, and the SPECKIT block in `AGENTS.md`
+- [x] T033 Ship as one PR from `016-rolling-reobservation` (`feat(marketdata): …`), wait for Keel to roll it, and confirm the next scheduled pass ran with the widened window
+- [x] T034 [P] Run the quickstart's verification queries against production and record each result in `specs/016-rolling-reobservation/quickstart.md` under *Recorded evidence*, with the date and app version
+- [x] T035 [P] Update `specs/016-rolling-reobservation/spec.md` status to `shipped`, the 016 row in `specs/README.md`, `ROADMAP.md`, and the SPECKIT block in `AGENTS.md`
 
 ---
 

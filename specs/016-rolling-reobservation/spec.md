@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-02
 
-**Status**: planned
+**Status**: shipped
 <!-- Market Lens spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: User description: "Rolling re-observation so a restated bar is noticed. The nightly
