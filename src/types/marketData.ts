@@ -6,6 +6,13 @@ export interface ImportCounts {
   accepted: number;
   rejected: number;
   flagged: number;
+  /**
+   * Sessions this run replaced because the source had changed its answer since they were first
+   * observed. Distinct from `accepted`, which counts everything stored: only a correction means
+   * every value derived from that session moved underneath. Optional because a server that
+   * predates feature 016 does not send it, and absent is not the same claim as zero.
+   */
+  revised?: number;
 }
 
 export interface ImportRunSummary {

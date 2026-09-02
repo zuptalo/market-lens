@@ -2,6 +2,8 @@ package config
 
 import (
 	"reflect"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -108,5 +110,53 @@ func assertField(t *testing.T, value reflect.Value, name string, want any) {
 	}
 	if got := field.Interface(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("%s = %#v, want %#v", name, got, want)
+	}
+}
+
+// TestReobserveSessionsIsBoundedAndRefused covers the window a routine pass re-observes.
+//
+// Refusing an out-of-range value rather than clamping it is the point. An operator who sets 500
+// believing they have covered a quarter's corrections would, under clamping, silently be covering
+// three months instead — and would have no way to find out short of reading the source.
+func TestReobserveSessionsIsBoundedAndRefused(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://example")
+
+	t.Run("defaults to five sessions", func(t *testing.T) {
+		t.Setenv("DATABASE_URL", "postgres://example")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load: %v", err)
+		}
+		if cfg.MarketData.ReobserveSessions != 5 {
+			t.Fatalf("default window is %d sessions, wanted 5", cfg.MarketData.ReobserveSessions)
+		}
+	})
+
+	for _, accepted := range []string{"1", "5", "20", "60"} {
+		t.Run("accepts "+accepted, func(t *testing.T) {
+			t.Setenv("DATABASE_URL", "postgres://example")
+			t.Setenv("MARKET_DATA_REOBSERVE_SESSIONS", accepted)
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("%s was refused: %v", accepted, err)
+			}
+			if got := strconv.Itoa(cfg.MarketData.ReobserveSessions); got != accepted {
+				t.Fatalf("configured %s, read %s", accepted, got)
+			}
+		})
+	}
+
+	for _, refused := range []string{"0", "-1", "61", "500", "five", "5.5", ""} {
+		t.Run("refuses "+refused, func(t *testing.T) {
+			t.Setenv("DATABASE_URL", "postgres://example")
+			t.Setenv("MARKET_DATA_REOBSERVE_SESSIONS", refused)
+			_, err := Load()
+			if err == nil {
+				t.Fatalf("%q was accepted; an out-of-range window must be refused, not clamped", refused)
+			}
+			if !strings.Contains(err.Error(), "MARKET_DATA_REOBSERVE_SESSIONS") {
+				t.Fatalf("the error does not name the setting: %v", err)
+			}
+		})
 	}
 }

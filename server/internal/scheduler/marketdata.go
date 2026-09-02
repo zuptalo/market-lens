@@ -23,10 +23,21 @@ type MarketDataConfig struct {
 	AppVersion string
 	MaxRetries int
 	Workers    int
+	// ReobserveSessions is how many recent trading sessions the pass re-asks the source about,
+	// so a close restated after the fact is noticed. Zero means one — the behaviour before
+	// feature 016 — so a caller that has not been updated keeps working.
+	ReobserveSessions int
 }
 
 type TargetSource interface {
 	TargetsForUniverse(context.Context, string, string) ([]marketdata.ImportTarget, error)
+	// ReobservationStarts gives each member the first session this pass should re-ask the
+	// source about. It is part of the interface rather than an optional capability the
+	// scheduler sniffs for, because a silent fallback is how a feature stops working with
+	// nothing failing: the pass would quietly narrow to one session again and the only
+	// symptom would be restatements nobody notices.
+	ReobservationStarts(ctx context.Context, provider, universe string, sessions int,
+		asOf marketdata.SessionDate) (map[instruments.UUID]marketdata.SessionDate, error)
 }
 
 type Importer interface {
@@ -48,6 +59,16 @@ type MarketData struct {
 	importer    Importer
 	mu          sync.Mutex
 	lastSession string
+}
+
+// reobserveSessions is the configured window, with zero meaning one: the behaviour before
+// feature 016, so a caller that has not been updated keeps working rather than silently
+// widening.
+func (s *MarketData) reobserveSessions() int {
+	if s.config.ReobserveSessions < 1 {
+		return 1
+	}
+	return s.config.ReobserveSessions
 }
 
 func NewMarketData(config MarketDataConfig, targets TargetSource, importer Importer) (*MarketData, error) {
@@ -98,9 +119,21 @@ func (s *MarketData) RunDue(ctx context.Context, now time.Time) error {
 	if err != nil {
 		return err
 	}
+	// Re-ask the source about a trailing window, not only the session that just closed, so a
+	// close restated after the fact is noticed (feature 016). Widening the range costs no extra
+	// provider requests — a range is asked for once per instrument whatever its width — and a
+	// re-observation that finds nothing changed writes nothing and triggers nothing.
+	starts, err := s.targets.ReobservationStarts(ctx, s.config.Provider, s.config.Universe,
+		s.reobserveSessions(), date)
+	if err != nil {
+		return err
+	}
 	for index := range targets {
-		targets[index].From = date
 		targets[index].To = date
+		targets[index].From = date
+		if start, known := starts[targets[index].InstrumentID]; known && start < date {
+			targets[index].From = start
+		}
 	}
 	run, err := s.importer.Import(ctx, marketdata.ImportRequest{
 		Kind: marketdata.ImportDailyUpdate, Provider: s.config.Provider, AppVersion: s.config.AppVersion,

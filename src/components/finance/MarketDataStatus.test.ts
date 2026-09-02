@@ -46,3 +46,47 @@ describe('MarketDataStatus', () => {
     expect(failed.get('[role="alert"]').text()).toBe('Unable to load market-data status.');
   });
 });
+
+describe('MarketDataStatus corrected sessions', () => {
+  function run(revised: number | undefined): ImportRunSummary {
+    return {
+      ...partialRun,
+      status: 'succeeded',
+      errorSummary: null,
+      counts: { processed: 5, accepted: 5, rejected: 0, flagged: 0, revised },
+    };
+  }
+
+  // A run that corrected a session it had already stored is the one worth noticing: every
+  // feature and every signal derived from that session moved underneath it.
+  it('states how many sessions a run corrected', () => {
+    const wrapper = mount(MarketDataStatus, {
+      props: { runs: [run(2)], connectionState: 'connected' },
+    });
+    const text = wrapper.text();
+    expect(text).toContain('Corrected');
+    expect(text).toMatch(/Corrected\s*2/);
+    // The correction must not be conveyed by replacing another count.
+    expect(text).toMatch(/Accepted\s*5/);
+  });
+
+  // Zero is shown the way the other zero counts are shown. Hiding it would make an ordinary
+  // night indistinguishable from a screen that cannot report corrections at all.
+  it('does not imply a correction occurred when none did', () => {
+    const wrapper = mount(MarketDataStatus, {
+      props: { runs: [run(0)], connectionState: 'connected' },
+    });
+    const text = wrapper.text();
+    expect(text).toMatch(/Corrected\s*0/);
+    expect(text).not.toMatch(/Corrected\s*[1-9]/);
+  });
+
+  // A server that predates this feature sends no count. Absent and zero are different claims,
+  // so the row is omitted rather than rendered as a confident zero the server never made.
+  it('says nothing when the server did not report a count', () => {
+    const wrapper = mount(MarketDataStatus, {
+      props: { runs: [run(undefined)], connectionState: 'connected' },
+    });
+    expect(wrapper.text()).not.toContain('Corrected');
+  });
+});

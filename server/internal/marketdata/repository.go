@@ -303,11 +303,14 @@ func (s *ImportScope) persist(ctx context.Context, input persistInput) (ImportCo
 		Flagged:   flaggedObservationCount(input.Validation, input.Processed),
 	}
 	for _, candidate := range input.Validation.Bars {
-		changed, err := s.upsertBar(ctx, input, candidate)
+		outcome, err := s.upsertBar(ctx, input, candidate)
 		if err != nil {
 			return ImportCounts{}, err
 		}
-		if changed {
+		if outcome == barRevised {
+			counts.Revised++
+		}
+		if outcome.changed() {
 			entityID := input.Target.InstrumentID.String() + ":" + candidate.SessionDate.String()
 			if err := emitEvent(ctx, s.tx, "daily_bar", entityID,
 				map[string]any{"instrument_id": input.Target.InstrumentID.String(), "session_date": candidate.SessionDate.String()}, input.ObservedAt); err != nil {
@@ -343,9 +346,10 @@ func (s *ImportScope) persist(ctx context.Context, input persistInput) (ImportCo
 		status = ImportPartial
 	}
 	_, err := s.tx.Exec(ctx, `UPDATE import_items SET status=$3,processed_count=$4,accepted_count=$5,
-		rejected_count=$6,flagged_count=$7,finished_at=$8 WHERE run_id=$1 AND instrument_id=$2 AND status='running'`,
+		rejected_count=$6,flagged_count=$7,revised_count=$8,finished_at=$9
+		WHERE run_id=$1 AND instrument_id=$2 AND status='running'`,
 		input.RunID.String(), input.Target.InstrumentID.String(), status, counts.Processed, counts.Accepted,
-		counts.Rejected, counts.Flagged, input.ObservedAt)
+		counts.Rejected, counts.Flagged, counts.Revised, input.ObservedAt)
 	if err != nil {
 		return ImportCounts{}, fmt.Errorf("finish import item: %w", err)
 	}
@@ -356,7 +360,21 @@ func (s *ImportScope) persist(ctx context.Context, input persistInput) (ImportCo
 	return counts, nil
 }
 
-func (s *ImportScope) upsertBar(ctx context.Context, input persistInput, candidate ProviderBar) (bool, error) {
+// barOutcome says which of the three things happened to one observed session. The caller needs
+// two different answers from it — whether to publish a change event, and whether this was a
+// correction rather than a first observation — and a single boolean could only carry one.
+type barOutcome int
+
+const (
+	barUnchanged barOutcome = iota
+	barInserted
+	barRevised
+)
+
+// changed reports whether the stored bar moved, which is what decides a change event.
+func (o barOutcome) changed() bool { return o != barUnchanged }
+
+func (s *ImportScope) upsertBar(ctx context.Context, input persistInput, candidate ProviderBar) (barOutcome, error) {
 	var existing DailyBar
 	var open, high, low, closeValue string
 	var adjusted *string
@@ -376,10 +394,13 @@ func (s *ImportScope) upsertBar(ctx context.Context, input persistInput, candida
 			input.Target.InstrumentID.String(), candidate.SessionDate.String(), candidate.Open.String(),
 			candidate.High.String(), candidate.Low.String(), candidate.Close.String(), decimalValue(candidate.AdjustedClose),
 			candidate.Volume, input.Target.Currency, input.Provider, candidate.SourceHash, input.RunID.String(), input.ObservedAt)
-		return err == nil, err
+		if err != nil {
+			return barUnchanged, err
+		}
+		return barInserted, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("read current daily bar: %w", err)
+		return barUnchanged, fmt.Errorf("read current daily bar: %w", err)
 	}
 	for _, field := range []struct {
 		raw         string
@@ -389,33 +410,37 @@ func (s *ImportScope) upsertBar(ctx context.Context, input persistInput, candida
 	} {
 		value, parseErr := ParseDecimal(field.raw)
 		if parseErr != nil {
-			return false, parseErr
+			return barUnchanged, parseErr
 		}
 		*field.destination = value
 	}
 	parsedRunID, err := instruments.ParseUUID(importRunID)
 	if err != nil {
-		return false, err
+		return barUnchanged, err
 	}
 	existing.ImportRunID = parsedRunID
 	if adjusted != nil {
 		value, parseErr := ParseDecimal(*adjusted)
 		if parseErr != nil {
-			return false, parseErr
+			return barUnchanged, parseErr
 		}
 		existing.AdjustedClose = &value
 	}
 	if existing.SourceHash == candidate.SourceHash {
-		return false, nil
+		// The source stands by what it said. Nothing is written, so the bar keeps the
+		// import_run_id of the run that first stored it — which is what the incremental feature
+		// scope is derived from, and therefore what keeps a quiet re-observation from
+		// triggering a recomputation of everything it looked at.
+		return barUnchanged, nil
 	}
 	var revision int
 	if err := s.tx.QueryRow(ctx, `SELECT coalesce(max(revision),0)+1 FROM price_bar_revisions
 		WHERE instrument_id=$1 AND session_date=$2`, input.Target.InstrumentID.String(), candidate.SessionDate.String()).Scan(&revision); err != nil {
-		return false, err
+		return barUnchanged, err
 	}
 	revisionID, err := instruments.NewUUID()
 	if err != nil {
-		return false, err
+		return barUnchanged, err
 	}
 	if _, err := s.tx.Exec(ctx, `INSERT INTO price_bar_revisions
 		(id,instrument_id,session_date,revision,open,high,low,close,adjusted_close,volume,currency,
@@ -426,7 +451,7 @@ func (s *ImportScope) upsertBar(ctx context.Context, input persistInput, candida
 		decimalValue(existing.AdjustedClose), existing.Volume, existing.Currency, existing.Provider,
 		existing.SourceHash, existing.ImportRunID.String(), existing.FirstObservedAt, existing.LastObservedAt,
 		input.RunID.String(), input.ObservedAt); err != nil {
-		return false, fmt.Errorf("archive corrected daily bar: %w", err)
+		return barUnchanged, fmt.Errorf("archive corrected daily bar: %w", err)
 	}
 	_, err = s.tx.Exec(ctx, `UPDATE daily_price_bars SET open=$3,high=$4,low=$5,close=$6,
 		adjusted_close=$7,volume=$8,currency=$9,provider=$10,source_hash=$11,import_run_id=$12,
@@ -434,7 +459,10 @@ func (s *ImportScope) upsertBar(ctx context.Context, input persistInput, candida
 		input.Target.InstrumentID.String(), candidate.SessionDate.String(), candidate.Open.String(), candidate.High.String(),
 		candidate.Low.String(), candidate.Close.String(), decimalValue(candidate.AdjustedClose), candidate.Volume,
 		input.Target.Currency, input.Provider, candidate.SourceHash, input.RunID.String(), input.ObservedAt)
-	return err == nil, err
+	if err != nil {
+		return barUnchanged, err
+	}
+	return barRevised, nil
 }
 
 func (s *ImportScope) upsertAction(ctx context.Context, input persistInput, action ProviderAction) (bool, error) {
@@ -583,9 +611,9 @@ func (r *Repository) finishRun(ctx context.Context, runID instruments.UUID, fini
 		count(*) FILTER (WHERE status='succeeded'), count(*) FILTER (WHERE status='partial'),
 		count(*) FILTER (WHERE status='failed'), count(*) FILTER (WHERE status='cancelled'),
 		coalesce(sum(processed_count),0),coalesce(sum(accepted_count),0),
-		coalesce(sum(rejected_count),0),coalesce(sum(flagged_count),0)
+		coalesce(sum(rejected_count),0),coalesce(sum(flagged_count),0),coalesce(sum(revised_count),0)
 		FROM import_items WHERE run_id=$1`, runID.String()).Scan(&total, &succeeded, &partial, &failed, &cancelled,
-		&counts.Processed, &counts.Accepted, &counts.Rejected, &counts.Flagged); err != nil {
+		&counts.Processed, &counts.Accepted, &counts.Rejected, &counts.Flagged, &counts.Revised); err != nil {
 		return ImportRun{}, fmt.Errorf("summarize import run: %w", err)
 	}
 	status := ImportSucceeded
@@ -608,15 +636,15 @@ func (r *Repository) finishRun(ctx context.Context, runID instruments.UUID, fini
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := tx.Exec(ctx, `UPDATE import_runs SET status=$2,finished_at=$3,
-		processed_count=$4,accepted_count=$5,rejected_count=$6,flagged_count=$7,
-		error_code=$8,error_summary=$9 WHERE id=$1`,
+		processed_count=$4,accepted_count=$5,rejected_count=$6,flagged_count=$7,revised_count=$8,
+		error_code=$9,error_summary=$10 WHERE id=$1`,
 		runID.String(), status, finishedAt, counts.Processed, counts.Accepted, counts.Rejected, counts.Flagged,
-		errorCode, errorSummary); err != nil {
+		counts.Revised, errorCode, errorSummary); err != nil {
 		return ImportRun{}, fmt.Errorf("finish import run: %w", err)
 	}
 	if err := emitEvent(ctx, tx, "import_run", runID.String(), map[string]any{
 		"status": status, "processed": counts.Processed, "accepted": counts.Accepted,
-		"rejected": counts.Rejected, "flagged": counts.Flagged,
+		"rejected": counts.Rejected, "flagged": counts.Flagged, "revised": counts.Revised,
 	}, finishedAt); err != nil {
 		return ImportRun{}, err
 	}
@@ -677,10 +705,10 @@ func (r *Repository) getRun(ctx context.Context, runID instruments.UUID) (Import
 	var from, to, parent, errorCode, errorSummary *string
 	if err := r.pool.QueryRow(ctx, `SELECT id::text,kind,provider,requested_from::text,requested_to::text,
 		status,parent_run_id::text,started_at,finished_at,processed_count,accepted_count,rejected_count,
-		flagged_count,error_code,error_summary,app_version FROM import_runs WHERE id=$1`, runID.String()).Scan(
+		flagged_count,revised_count,error_code,error_summary,app_version FROM import_runs WHERE id=$1`, runID.String()).Scan(
 		&id, &run.Kind, &run.Provider, &from, &to, &run.Status, &parent, &run.StartedAt, &run.FinishedAt,
 		&run.Counts.Processed, &run.Counts.Accepted, &run.Counts.Rejected, &run.Counts.Flagged,
-		&errorCode, &errorSummary, &run.AppVersion); err != nil {
+		&run.Counts.Revised, &errorCode, &errorSummary, &run.AppVersion); err != nil {
 		return ImportRun{}, err
 	}
 	var err error
@@ -1000,4 +1028,72 @@ func flaggedObservationCount(validation ValidationResult, processed int64) int64
 		return processed
 	}
 	return count
+}
+
+// ReobservationStarts returns, per universe member, the first session a routine pass should
+// re-ask the source about.
+//
+// It is one query for the whole universe rather than one per instrument, following the reason
+// TargetsForUniverse already gives for carrying its findings along: a hundred instruments should
+// cost one query, and no caller should be able to forget to ask.
+//
+// Two rules decide each answer. The window is counted in *trading sessions* on the instrument's
+// own exchange, because the four Nordic exchanges keep different holiday calendars and a fixed
+// number of calendar days would reach a different distance into each. And it never starts before
+// the instrument's first stored session, so an instrument listed last week is not asked about
+// sessions that predate its listing.
+func (r *Repository) ReobservationStarts(
+	ctx context.Context, provider, universe string, sessions int, asOf SessionDate,
+) (map[instruments.UUID]SessionDate, error) {
+	if r == nil || r.pool == nil {
+		return nil, errors.New("market-data repository is not configured")
+	}
+	if sessions < 1 {
+		sessions = 1
+	}
+	rows, err := r.pool.Query(ctx, `
+		WITH members AS (
+			SELECT i.id AS instrument_id, i.exchange_id
+			FROM research_universes u
+			JOIN universe_memberships m ON m.universe_id = u.id AND m.included_to IS NULL
+			JOIN instruments i ON i.id = m.instrument_id AND i.active
+			JOIN provider_instruments p ON p.instrument_id = i.id AND p.provider = $2 AND p.active
+			WHERE u.code = $1 AND u.active
+		),
+		window_start AS (
+			SELECT e.exchange_id, (
+				SELECT s.session_date FROM exchange_sessions s
+				WHERE s.exchange_id = e.exchange_id AND s.status IN ('open', 'half_day')
+				  AND s.session_date <= $3::date
+				ORDER BY s.session_date DESC OFFSET ($4::int - 1) LIMIT 1
+			) AS start_date
+			FROM (SELECT DISTINCT exchange_id FROM members) e
+		)
+		SELECT m.instrument_id::text, greatest(
+			coalesce(w.start_date, $3::date),
+			coalesce((SELECT min(b.session_date) FROM daily_price_bars b
+				WHERE b.instrument_id = m.instrument_id), coalesce(w.start_date, $3::date))
+		)::text
+		FROM members m JOIN window_start w ON w.exchange_id = m.exchange_id`,
+		universe, provider, asOf.String(), sessions)
+	if err != nil {
+		return nil, fmt.Errorf("read re-observation window: %w", err)
+	}
+	defer rows.Close()
+	starts := map[instruments.UUID]SessionDate{}
+	for rows.Next() {
+		var instrument, start string
+		if err := rows.Scan(&instrument, &start); err != nil {
+			return nil, fmt.Errorf("scan re-observation window: %w", err)
+		}
+		id, err := instruments.ParseUUID(instrument)
+		if err != nil {
+			return nil, err
+		}
+		starts[id] = SessionDate(start)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read re-observation window: %w", err)
+	}
+	return starts, nil
 }

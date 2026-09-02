@@ -147,3 +147,46 @@ func mustAPIUUID(t *testing.T, value string) instruments.UUID {
 }
 
 var _ = errors.Is
+
+// TestImportRunResponseCarriesTheRevisedCount: a run that corrected history and one that merely
+// extended it must be distinguishable by a client, and the field must be present either way —
+// omitting it on a quiet run would make "no corrections" and "an older server" look the same.
+func TestImportRunResponseCarriesTheRevisedCount(t *testing.T) {
+	corrected := marketdata.ImportRun{
+		ID: mustAPIUUID(t, "22000000-0000-4000-8000-0000000000a1"), Kind: marketdata.ImportDailyUpdate,
+		Provider: "fixture", Status: marketdata.ImportSucceeded, StartedAt: time.Now().UTC(),
+		Counts: marketdata.ImportCounts{Processed: 5, Accepted: 5, Revised: 2},
+	}
+	quiet := corrected
+	quiet.ID = mustAPIUUID(t, "22000000-0000-4000-8000-0000000000a2")
+	quiet.Counts.Revised = 0
+
+	router := NewRouter(authenticatedDependencies(Dependencies{
+		MarketData: &marketDataReaderStub{runs: []marketdata.ImportRun{corrected, quiet}},
+	}))
+	response := performRequest(router, "/api/v1/market-data/imports?limit=5")
+	if response.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", response.Code, response.Body.String())
+	}
+	items, _ := decodeBody(t, response)["items"].([]any)
+	if len(items) != 2 {
+		t.Fatalf("items are %#v", items)
+	}
+	first, _ := items[0].(map[string]any)
+	counts, _ := first["counts"].(map[string]any)
+	if counts["revised"] != float64(2) {
+		t.Errorf("a run that corrected two sessions reports revised %#v", counts["revised"])
+	}
+	if counts["accepted"] != float64(5) {
+		t.Errorf("corrections must not replace the accepted count: %#v", counts["accepted"])
+	}
+	second, _ := items[1].(map[string]any)
+	quietCounts, _ := second["counts"].(map[string]any)
+	value, present := quietCounts["revised"]
+	if !present {
+		t.Fatalf("a run that corrected nothing omits the field entirely: %#v", quietCounts)
+	}
+	if value != float64(0) {
+		t.Errorf("a quiet run reports revised %#v", value)
+	}
+}

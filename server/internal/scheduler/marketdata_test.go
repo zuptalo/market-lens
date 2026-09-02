@@ -142,7 +142,15 @@ func staticTargets(t *testing.T) TargetSource {
 	})
 }
 
+// targetSourceFunc answers with targets and reports no re-observation window, so the scheduler
+// falls back to the session that just closed. The window itself is exercised against a real
+// calendar in marketdata_integration_test.go, which is the only place it can mean anything.
 type targetSourceFunc func(context.Context, string, string) ([]marketdata.ImportTarget, error)
+
+func (f targetSourceFunc) ReobservationStarts(context.Context, string, string, int,
+	marketdata.SessionDate) (map[instruments.UUID]marketdata.SessionDate, error) {
+	return nil, nil
+}
 
 func (f targetSourceFunc) TargetsForUniverse(ctx context.Context, provider, universe string) ([]marketdata.ImportTarget, error) {
 	if f == nil {
