@@ -154,6 +154,7 @@ func NewRouter(deps Dependencies) http.Handler {
 	if deps.Features != nil {
 		protected.HandleFunc("GET /api/v1/instruments/{id}/features", getInstrumentFeaturesHandler(deps.Features))
 		protected.HandleFunc("GET /api/v1/feature-definitions", listFeatureDefinitionsHandler(deps.Features))
+		protected.HandleFunc("GET /api/v1/feature-runs", listFeatureRunsHandler(deps.Features))
 	}
 	if deps.Events != nil {
 		protected.HandleFunc("GET /api/v1/events", eventsHandler(deps.Events, deps.EventHeartbeat,

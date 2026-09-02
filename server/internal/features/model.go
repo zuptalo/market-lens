@@ -126,7 +126,10 @@ type Run struct {
 	FinishedAt      *time.Time
 	InstrumentCount int64
 	ValueCount      int64
-	AppVersion      string
+	// FailedCount is how many instruments failed in this run. It is what tells a reader that
+	// some values are stale without making them open the run to find out.
+	FailedCount int64
+	AppVersion  string
 }
 
 type RunItemStatus string

@@ -19,6 +19,7 @@ const auth = useAuth();
       <nav class="primary-nav" aria-label="Primary navigation">
         <RouterLink v-if="auth.state.status === 'authenticated'" to="/">Overview</RouterLink>
         <RouterLink v-if="auth.state.status === 'authenticated'" to="/markets">Market data</RouterLink>
+        <RouterLink v-if="auth.state.status === 'authenticated'" to="/operations">Operations</RouterLink>
         <RouterLink v-if="auth.state.status === 'authenticated'" to="/account">Account</RouterLink>
         <RouterLink v-else to="/login">Sign in</RouterLink>
       </nav>

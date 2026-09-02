@@ -17,6 +17,24 @@ import (
 type FeatureReader interface {
 	Read(context.Context, features.ReadRequest) (features.FeatureSet, error)
 	ListDefinitions(ctx context.Context, name string, includeSuperseded bool) ([]features.Definition, error)
+	ListRuns(ctx context.Context, limit int) ([]features.Run, error)
+}
+
+// featureRunResponse reports one engine run to the operational screen. The failed count is
+// the field that matters most there: a partial run leaves the previous values standing, which
+// is correct behaviour and entirely invisible unless something says so.
+type featureRunResponse struct {
+	ID              string     `json:"id"`
+	Kind            string     `json:"kind"`
+	Status          string     `json:"status"`
+	StartedAt       time.Time  `json:"started_at"`
+	FinishedAt      *time.Time `json:"finished_at"`
+	InstrumentCount int64      `json:"instrument_count"`
+	ValueCount      int64      `json:"value_count"`
+	FailedCount     int64      `json:"failed_count"`
+	TriggerRunID    *string    `json:"trigger_run_id"`
+	DefinitionName  *string    `json:"definition_name"`
+	AppVersion      *string    `json:"app_version"`
 }
 
 type compositeReferenceResponse struct {
@@ -124,6 +142,45 @@ func listFeatureDefinitionsHandler(reader FeatureReader) http.HandlerFunc {
 				UndefinedConditions: definition.UndefinedConditions, SessionLengthSensitive: definition.SessionLengthSensitive,
 				PublishedAt: definition.PublishedAt, SupersededAt: definition.SupersededAt,
 			})
+		}
+		httpx.JSON(w, http.StatusOK, map[string]any{"items": items})
+	}
+}
+
+// listFeatureRunsHandler reports the engine's recent runs for the operational screen.
+func listFeatureRunsHandler(reader FeatureReader) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		limit := 10
+		if raw := r.URL.Query().Get("limit"); raw != "" {
+			value, err := strconv.Atoi(raw)
+			if err != nil || value < 1 || value > 50 {
+				writeFeatureError(w, http.StatusBadRequest, "invalid_limit", "limit must be between 1 and 50.", nil)
+				return
+			}
+			limit = value
+		}
+		runs, err := reader.ListRuns(r.Context(), limit)
+		if err != nil {
+			writeFeatureError(w, http.StatusInternalServerError, "features_unavailable", "The run request failed.", nil)
+			return
+		}
+		items := make([]featureRunResponse, 0, len(runs))
+		for _, run := range runs {
+			item := featureRunResponse{
+				ID: run.ID.String(), Kind: string(run.Kind), Status: string(run.Status),
+				StartedAt: run.StartedAt, FinishedAt: run.FinishedAt,
+				InstrumentCount: run.InstrumentCount, ValueCount: run.ValueCount,
+				FailedCount: run.FailedCount, DefinitionName: run.DefinitionName,
+			}
+			if run.TriggerRunID != nil {
+				trigger := run.TriggerRunID.String()
+				item.TriggerRunID = &trigger
+			}
+			if run.AppVersion != "" {
+				version := run.AppVersion
+				item.AppVersion = &version
+			}
+			items = append(items, item)
 		}
 		httpx.JSON(w, http.StatusOK, map[string]any{"items": items})
 	}

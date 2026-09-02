@@ -83,6 +83,23 @@ describe('MarketsView', () => {
     expect(text).toContain('Current');
   });
 
+  // Feature 014 US1: operational reporting belongs on its own screen. A research page that
+  // ends in a maintenance console serves neither reader — one scrolls past it, the other
+  // cannot find it.
+  it('carries no operational report, only a compact freshness statement that links onward', async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    const text = wrapper.text();
+    // The import report's own vocabulary must be gone from this page.
+    expect(text).not.toContain('Recent imports');
+    expect(text).not.toContain('Copy retry command');
+    expect(wrapper.find('[data-testid="import-run-list"]').exists()).toBe(false);
+    // What remains is one statement about freshness, and a way to the detail.
+    const link = wrapper.find('a[href="/operations"]');
+    expect(link.exists()).toBe(true);
+    expect(wrapper.findAll('a[href="/operations"]').length).toBe(1);
+  });
+
   it('renders an uncomputed statistic as an absence rather than as a zero move', async () => {
     const wrapper = mountView();
     await flushPromises();

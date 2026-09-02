@@ -3,7 +3,6 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import Button from 'primevue/button';
 import Checkbox from 'primevue/checkbox';
 import Drawer from 'primevue/drawer';
-import MarketDataStatus from '@/components/finance/MarketDataStatus.vue';
 import InstrumentFilters from '@/components/finance/InstrumentFilters.vue';
 import InstrumentTable from '@/components/finance/InstrumentTable.vue';
 import { useCompactViewport } from '@/composables/useCompactViewport';
@@ -176,6 +175,21 @@ async function refresh(): Promise<void> {
   }
 }
 
+/**
+ * How current the data is, in one line. Derived from the most recent import the view already
+ * reads, so the badge costs no extra request.
+ */
+const freshnessSummary = computed(() => {
+  if (error.value) return 'Market-data status unavailable.';
+  if (loading.value && runs.value.length === 0) return 'Checking market-data status…';
+  const latest = runs.value[0];
+  if (!latest) return 'No import has run yet.';
+  const when = latest.finishedAt ?? latest.startedAt;
+  const stamp = new Date(when).toLocaleString();
+  if (latest.status === 'succeeded') return `Data as of ${stamp}.`;
+  return `Last import ${latest.status}, ${stamp}.`;
+});
+
 function browserEventSource(url: string, lastEventId: string): LiveEventSource {
   const endpoint = lastEventId ? `${url}?last_event_id=${encodeURIComponent(lastEventId)}` : url;
   const source = new EventSource(endpoint);
@@ -280,6 +294,17 @@ onBeforeUnmount(() => {
       <p class="eyebrow">Data foundation</p>
       <h1>Market data</h1>
       <p>Browse the curated Nordic universe. Every price is stated in its own listing currency; nothing is converted or compared across currencies.</p>
+      <!--
+        One line about how current the data is, and a way to the detail. The full operational
+        report lives on its own screen: stacked under the instrument table it served neither
+        reader, since researching meant scrolling past it and checking an import meant
+        scrolling the whole universe to reach it.
+      -->
+      <p class="data-freshness">
+        <span :class="['data-freshness__dot', `data-freshness__dot--${connectionState}`]" aria-hidden="true" />
+        <span>{{ freshnessSummary }}</span>
+        <a href="/operations">Operations</a>
+      </p>
     </header>
 
     <section class="instrument-browser" aria-labelledby="instrument-browser-heading">
@@ -404,12 +429,32 @@ onBeforeUnmount(() => {
       </ul>
       <p class="column-note">Remembered on this device.</p>
     </Drawer>
-
-    <MarketDataStatus :runs="runs" :connection-state="connectionState" :loading="loading" :error="error" />
   </div>
 </template>
 
 <style scoped>
+.data-freshness {
+  align-items: center;
+  color: var(--p-text-muted-color);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.875rem;
+  gap: 0.5rem;
+  margin: 0.5rem 0 0;
+}
+
+.data-freshness__dot {
+  border-radius: 50%;
+  flex: none;
+  height: 0.5rem;
+  width: 0.5rem;
+  background: var(--p-primary-color);
+}
+
+.data-freshness__dot--reconnecting { background: var(--p-orange-400, orange); }
+.data-freshness__dot--stale { background: var(--p-orange-400, orange); }
+.data-freshness__dot--offline { background: var(--p-surface-400, grey); }
+
 .browser-actions {
   display: flex;
   gap: 0.5rem;

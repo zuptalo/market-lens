@@ -1,6 +1,7 @@
 import type {
   ConnectionState,
   DailyBarSummary,
+  FeatureRunSummary,
   ImportRunSummary,
   InstrumentDetail,
   InstrumentListingPage,
@@ -275,6 +276,41 @@ interface ImportRunWire {
   counts: ImportRunSummary['counts'];
   error_summary?: string | null;
   error?: { summary?: string } | null;
+}
+
+interface FeatureRunWire {
+  id: string;
+  kind: FeatureRunSummary['kind'];
+  status: FeatureRunSummary['status'];
+  started_at: string;
+  finished_at: string | null;
+  instrument_count: number;
+  value_count: number;
+  failed_count: number;
+  trigger_run_id: string | null;
+  definition_name: string | null;
+  app_version: string | null;
+}
+
+/** The engine's recent runs, newest first, for the operational screen. */
+export async function fetchFeatureRuns(fetcher: Fetcher = fetch, signal?: AbortSignal): Promise<FeatureRunSummary[]> {
+  const response = await fetcher('/api/v1/feature-runs?limit=10', { signal });
+  if (!response.ok) throw new Error('Unable to load recent feature runs.');
+  const body = await response.json() as { items?: FeatureRunWire[] };
+  if (!Array.isArray(body.items)) throw new Error('Unable to load recent feature runs.');
+  return body.items.map((run) => ({
+    id: run.id,
+    kind: run.kind,
+    status: run.status,
+    startedAt: run.started_at,
+    finishedAt: run.finished_at ?? null,
+    instrumentCount: run.instrument_count,
+    valueCount: run.value_count,
+    failedCount: run.failed_count,
+    triggerRunId: run.trigger_run_id ?? null,
+    definitionName: run.definition_name ?? null,
+    appVersion: run.app_version ?? null,
+  }));
 }
 
 export async function fetchRecentImports(fetcher: Fetcher = fetch, signal?: AbortSignal): Promise<ImportRunSummary[]> {

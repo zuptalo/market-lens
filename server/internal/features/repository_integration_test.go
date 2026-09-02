@@ -459,3 +459,107 @@ func TestListDefinitionsIncludesSupersededVersionsUnlessAsked(t *testing.T) {
 		t.Errorf("unknown name: %d definitions, err %v; expected an empty list", len(none), err)
 	}
 }
+
+// The operational screen reports whether the engine has run and whether it succeeded. Until
+// now the engine has run in production with no interface at all: a failed computation leaves
+// the statistics on the market screens stale with nothing anywhere to say so (feature 014 US1).
+func TestListingFeatureRunsReturnsTheMostRecentFirst(t *testing.T) {
+	f := newEngineFixture(t)
+	repository := features.NewRepository(f.pool)
+	started := time.Date(2026, 9, 1, 3, 0, 0, 0, time.UTC)
+
+	// Three runs, created out of order so the ordering cannot pass by accident.
+	for _, seeded := range []struct {
+		id       string
+		kind     features.RunKind
+		status   features.RunStatus
+		minutes  int
+		failed   int
+		values   int64
+		trigger  string
+		defName  string
+		instrums int64
+	}{
+		{id: "eeeeeeee-0014-4000-8000-000000000002", kind: features.RunKindIncremental,
+			status: features.RunStatusPartial, minutes: 60, failed: 1, values: 7502, instrums: 13,
+			trigger: "ffffffff-0013-4000-8000-00000000a002"},
+		{id: "eeeeeeee-0014-4000-8000-000000000001", kind: features.RunKindFull,
+			status: features.RunStatusSucceeded, minutes: 0, values: 77208, instrums: 13},
+		{id: "eeeeeeee-0014-4000-8000-000000000003", kind: features.RunKindDefinition,
+			status: features.RunStatusFailed, minutes: 120, values: 0, instrums: 13, defName: "rsi_14"},
+	} {
+		// A run is created running and finished with its outcome, the way the engine does it:
+		// the schema refuses a finished status with no finish time.
+		run := features.Run{
+			ID: features.UUID(seeded.id), Kind: seeded.kind, Status: features.RunStatusRunning,
+			UniverseID: fixtureUnivID, StartedAt: started.Add(time.Duration(seeded.minutes) * time.Minute),
+			InstrumentCount: seeded.instrums, ValueCount: seeded.values, AppVersion: "test",
+		}
+		if seeded.trigger != "" {
+			f.newImportRun(features.UUID(seeded.trigger))
+			trigger := features.UUID(seeded.trigger)
+			run.TriggerRunID = &trigger
+		}
+		if seeded.defName != "" {
+			name := seeded.defName
+			run.DefinitionName = &name
+		}
+		if err := repository.CreateRun(f.ctx, run); err != nil {
+			t.Fatalf("create run %s: %v", seeded.id, err)
+		}
+		finished := run.StartedAt.Add(4 * time.Minute)
+		if err := repository.FinishRun(f.ctx, run.ID, seeded.status, run.InstrumentCount, run.ValueCount, finished); err != nil {
+			t.Fatalf("finish run %s: %v", seeded.id, err)
+		}
+		for index := 0; index < seeded.failed; index++ {
+			code := "compute_failed"
+			summary := "seeded failure"
+			if err := repository.WriteItem(f.ctx, features.RunItem{
+				RunID: run.ID, InstrumentID: fixtureA, Status: features.RunItemFailed,
+				StartedAt: run.StartedAt, ErrorCode: &code, ErrorSummary: &summary,
+			}); err != nil {
+				t.Fatalf("write failed item: %v", err)
+			}
+		}
+	}
+
+	runs, err := repository.ListRuns(f.ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 3 {
+		t.Fatalf("listed %d runs, expected 3", len(runs))
+	}
+	// Newest first: the definition run at +120, the incremental at +60, the full at +0.
+	if runs[0].Kind != features.RunKindDefinition || runs[1].Kind != features.RunKindIncremental ||
+		runs[2].Kind != features.RunKindFull {
+		t.Errorf("runs came back as %s, %s, %s; expected newest first", runs[0].Kind, runs[1].Kind, runs[2].Kind)
+	}
+	if runs[0].Status != features.RunStatusFailed || runs[0].DefinitionName == nil || *runs[0].DefinitionName != "rsi_14" {
+		t.Errorf("the definition run reads %+v", runs[0])
+	}
+	// The count of failed instruments is what tells a reader that values are stale without
+	// making them open the run to find out.
+	if runs[1].FailedCount != 1 {
+		t.Errorf("the partial run reports %d failed instruments, expected 1", runs[1].FailedCount)
+	}
+	if runs[2].FailedCount != 0 || runs[2].ValueCount != 77208 || runs[2].InstrumentCount != 13 {
+		t.Errorf("the full run reads %+v", runs[2])
+	}
+	if runs[1].TriggerRunID == nil {
+		t.Errorf("the incremental run lost the import it followed")
+	}
+	if runs[0].FinishedAt == nil {
+		t.Errorf("a finished run reports no finish time")
+	}
+
+	t.Run("the limit bounds what is returned", func(t *testing.T) {
+		limited, err := repository.ListRuns(f.ctx, 2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(limited) != 2 || limited[0].Kind != features.RunKindDefinition {
+			t.Errorf("a limit of 2 returned %d runs starting with %s", len(limited), limited[0].Kind)
+		}
+	})
+}

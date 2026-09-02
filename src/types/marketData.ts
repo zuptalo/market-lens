@@ -19,6 +19,27 @@ export interface ImportRunSummary {
   errorSummary?: string | null;
 }
 
+/**
+ * One run of the feature engine, as the operational screen reads it.
+ *
+ * `failedCount` is the field that matters most there. A partial run leaves the previous values
+ * standing, which is correct and completely invisible on the market screens: the statistics
+ * look current because they are the last ones that computed.
+ */
+export interface FeatureRunSummary {
+  id: string;
+  kind: 'full' | 'incremental' | 'definition';
+  status: 'running' | 'succeeded' | 'partial' | 'failed';
+  startedAt: string;
+  finishedAt: string | null;
+  instrumentCount: number;
+  valueCount: number;
+  failedCount: number;
+  triggerRunId: string | null;
+  definitionName: string | null;
+  appVersion: string | null;
+}
+
 export interface ExchangeIdentity {
   mic: string;
   name: string;

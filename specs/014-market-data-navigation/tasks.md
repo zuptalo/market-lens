@@ -21,7 +21,7 @@ neighbours and may run in parallel.
 
 ## Phase 1: Setup
 
-- [ ] T001 Register `../../../specs/014-market-data-navigation/contracts/openapi.yaml` in `contractPaths` in `server/internal/api/contract_test.go`, and run the contract suite to record which of the three new operations it reports as unimplemented — that list is the checklist for Phases 4–6
+- [x] T001 Register `../../../specs/014-market-data-navigation/contracts/openapi.yaml` in `contractPaths` in `server/internal/api/contract_test.go`, and run the contract suite to record which of the three new operations it reports as unimplemented — that list is the checklist for Phases 4–6
 
 ---
 
@@ -30,7 +30,7 @@ neighbours and may run in parallel.
 **Purpose**: The shared fixture work every story's tests need. No user-visible behaviour.
 
 - [ ] T002 [P] Extend `newExplorationFixture` in `server/internal/instruments/exploration_fixture_test.go` with a helper that seeds enough instruments to exceed one page under a stated filter, so that paging, totals and scrolling can be tested against a known number rather than against however many the Nordic seed happens to contain
-- [ ] T003 [P] Add a Vitest helper in `src/services/__fixtures__/marketData.ts` that builds a listing response with a `total` and a `next_cursor`, and one that builds a page without a total, so component tests can express "first page" and "later page" without hand-writing envelopes
+- [x] T003 [P] Add a Vitest helper in `src/services/__fixtures__/marketData.ts` that builds a listing response with a `total` and a `next_cursor`, and one that builds a page without a total, so component tests can express "first page" and "later page" without hand-writing envelopes
 - [ ] T004 [P] Add a Playwright helper in `e2e/support/` that stubs a multi-page listing — a stated total, cursors that chain, and a last page with `next_cursor: null` — so every viewport scenario drives the same data
 
 **Checkpoint**: Fixtures exist; no behaviour has changed.
@@ -47,23 +47,23 @@ visiting Market Data; open Market Data and find nothing below the instrument tab
 
 ### Failing tests for User Story 1 (MANDATORY) ⚠️
 
-- [ ] T005 [P] [US1] Write `TestListingFeatureRunsReturnsTheMostRecentFirst` in `server/internal/features/repository_integration_test.go`: seed three runs of different kinds and statuses, assert the read returns them newest first with kind, status, timestamps, instrument count, value count and failed count. Record the red: no such read exists
-- [ ] T006 [P] [US1] Write `TestFeatureRunsEndpointReportsRecentRuns` in `server/internal/api/features_test.go`: the endpoint returns the contract's shape, defaults to ten, honours `limit`, and rejects a limit outside 1..50. Record the red
-- [ ] T007 [P] [US1] Write `TestFeatureRunsEndpointRequiresAnActiveSession` in the same file: anonymous and deactivated callers are refused before any data is read, and no response carries a credential, token or raw provider error. Record the red
-- [ ] T008 [P] [US1] Write `OperationsView.test.ts` in `src/views/`: the view renders import runs with their counts, the selected run's per-instrument outcomes, open quality findings, and feature-engine runs including a failed one, and explains a fresh installation with no runs at all rather than rendering empty tables. Record the red: the view does not exist
-- [ ] T009 [P] [US1] Write `TestMarketsViewCarriesNoOperationalReport` in `src/views/MarketsView.test.ts`: the Markets view renders no import-run list, and renders exactly one compact freshness statement that links to the operations route. Record the red: it renders the full report today
-- [ ] T010 [P] [US1] Write `e2e/operations.spec.ts` covering 360x800, 768x1024 and 1440x900: the operational screen is reachable from the primary navigation, shows a failed import with its sanitized reason, shows the engine's most recent run, and fits 320 CSS pixels without horizontal page scrolling. Record the red
+- [x] T005 [P] [US1] Write `TestListingFeatureRunsReturnsTheMostRecentFirst` in `server/internal/features/repository_integration_test.go`: seed three runs of different kinds and statuses, assert the read returns them newest first with kind, status, timestamps, instrument count, value count and failed count. Record the red: no such read exists
+- [x] T006 [P] [US1] Write `TestFeatureRunsEndpointReportsRecentRuns` in `server/internal/api/features_test.go`: the endpoint returns the contract's shape, defaults to ten, honours `limit`, and rejects a limit outside 1..50. Record the red
+- [x] T007 [P] [US1] Write `TestFeatureRunsEndpointRequiresAnActiveSession` in the same file: anonymous and deactivated callers are refused before any data is read, and no response carries a credential, token or raw provider error. Record the red
+- [x] T008 [P] [US1] Write `OperationsView.test.ts` in `src/views/`: the view renders import runs with their counts, the selected run's per-instrument outcomes, open quality findings, and feature-engine runs including a failed one, and explains a fresh installation with no runs at all rather than rendering empty tables. Record the red: the view does not exist
+- [x] T009 [P] [US1] Write `TestMarketsViewCarriesNoOperationalReport` in `src/views/MarketsView.test.ts`: the Markets view renders no import-run list, and renders exactly one compact freshness statement that links to the operations route. Record the red: it renders the full report today
+- [x] T010 [P] [US1] Write `e2e/operations.spec.ts` covering 360x800, 768x1024 and 1440x900: the operational screen is reachable from the primary navigation, shows a failed import with its sanitized reason, shows the engine's most recent run, and fits 320 CSS pixels without horizontal page scrolling. Record the red
 
 ### Implementation for User Story 1
 
-- [ ] T011 [US1] Implement `ListRuns(ctx, limit)` in `server/internal/features/repository.go` returning runs newest first with their counts, deriving `failed_count` from `feature_run_items`; green T005
-- [ ] T012 [US1] Add `listFeatureRunsHandler` to `server/internal/api/features.go`, extend the `FeatureReader` interface, and register `GET /api/v1/feature-runs` in `server/internal/api/router.go` inside the protected mux; green T006 and T007
-- [ ] T013 [P] [US1] Add `fetchFeatureRuns` and its types to `src/services/marketData.ts` and `src/types/marketData.ts`, mapping the wire shape once at the boundary
-- [ ] T014 [P] [US1] Build `src/components/finance/FeatureRunList.vue` from PrimeVue primitives: kind, status, timing, instrument and value counts, failed count, and an explicit empty state for a deployment where the engine has never run
-- [ ] T015 [US1] Build `src/views/OperationsView.vue` composing the existing `MarketDataStatus.vue`, the quality findings already fetched by the Markets view, and `FeatureRunList.vue`; green T008
-- [ ] T016 [US1] Add the `/operations` route to `src/router/index.ts` behind the authenticated guard, and a link in `src/components/AppShell.vue` beside Overview, Market data and Account
-- [ ] T017 [US1] Remove the operational report from `src/views/MarketsView.vue` and replace it with a compact freshness statement near the top of the page that links to `/operations`, reusing the import-status read it already performs with a limit of one; green T009
-- [ ] T018 [US1] Run the three-viewport Playwright scenario; green T010
+- [x] T011 [US1] Implement `ListRuns(ctx, limit)` in `server/internal/features/repository.go` returning runs newest first with their counts, deriving `failed_count` from `feature_run_items`; green T005
+- [x] T012 [US1] Add `listFeatureRunsHandler` to `server/internal/api/features.go`, extend the `FeatureReader` interface, and register `GET /api/v1/feature-runs` in `server/internal/api/router.go` inside the protected mux; green T006 and T007
+- [x] T013 [P] [US1] Add `fetchFeatureRuns` and its types to `src/services/marketData.ts` and `src/types/marketData.ts`, mapping the wire shape once at the boundary
+- [x] T014 [P] [US1] Build `src/components/finance/FeatureRunList.vue` from PrimeVue primitives: kind, status, timing, instrument and value counts, failed count, and an explicit empty state for a deployment where the engine has never run
+- [x] T015 [US1] Build `src/views/OperationsView.vue` composing the existing `MarketDataStatus.vue`, the quality findings already fetched by the Markets view, and `FeatureRunList.vue`; green T008
+- [x] T016 [US1] Add the `/operations` route to `src/router/index.ts` behind the authenticated guard, and a link in `src/components/AppShell.vue` beside Overview, Market data and Account
+- [x] T017 [US1] Remove the operational report from `src/views/MarketsView.vue` and replace it with a compact freshness statement near the top of the page that links to `/operations`, reusing the import-status read it already performs with a limit of one; green T009
+- [x] T018 [US1] Run the three-viewport Playwright scenario; green T010
 
 **Checkpoint**: Operational state has a home, the engine's runs are visible for the first time,
 and Market Data is a research screen. Shippable on its own.
