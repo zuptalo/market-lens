@@ -86,16 +86,15 @@ computed is stored and shown as an absence with a reason, never as a zero. The M
 reads `return_20`, `return_90` and `volatility_20` from it — feature 005's definitions adopted
 verbatim as version 1, so adopting the engine moved no displayed number.
 
-In planning now: feature 014, the Market Data view's structure, sector data and continuous
-listing. Its specification and plan are at `specs/014-market-data-navigation/plan.md` with
-research, data model, contracts and quickstart alongside; implementation has not begun and must
-start with `TestTheMarketsListingReportsItsTotalAndPosition` observed red. Three things it
-settles: operational reporting — including the feature engine's runs, which have no interface at
-all today — moves off Market Data to its own screen; the listing loads on scroll and states its
-size while keeping keyset pagination; and sector becomes curated reference data carried by
-migration, because this deployment's market-data plan excludes fundamentals.
+Feature 014 (`specs/014-market-data-navigation/`) shipped after it. Three rules it leaves
+behind: operational reporting lives on `/operations`, not on a research screen; the instrument
+listing counts its filtered total only for a cursor-less request, because counting per page
+would defeat the keyset paging it is built on; and sector is curated reference data whose column
+is NOT NULL against a vocabulary containing `unclassified`, so an instrument cannot enter the
+universe with no classification state — which is exactly how the column sat empty for a hundred
+instruments without anyone noticing.
 
-After that, Milestone 4, deterministic strategies and signals, which is not yet specified.
+Next is Milestone 4, deterministic strategies and signals, which is not yet specified.
 
 Two constraints that outlive any single feature:
 
