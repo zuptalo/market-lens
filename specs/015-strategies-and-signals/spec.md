@@ -202,6 +202,10 @@ signals for exactly the affected sessions are recomputed and published.
 - **FR-008**: A signal MUST record the instrument, the session it is as of, the strategy and
   version, the parameters in force, the score, the action, the confidence, the feature values
   read, and the per-factor contributions.
+- **FR-008a**: A signal MUST exist for **every instrument in the universe at every session it
+  has stored history for**, under each published strategy version — either a scored signal or a
+  stated absence. Reading "what did this strategy say about this instrument on this date" MUST
+  therefore be a single lookup rather than a search backwards for the most recent one.
 - **FR-009**: Actions MUST be one of `BUY`, `HOLD`, `REDUCE`, `SELL`, `WATCH`. A strategy is
   not required to recommend a trade, and `HOLD` MUST mean a stated view rather than an absence.
 - **FR-010**: The action boundaries MUST be defined by the strategy version, so that a score
@@ -211,8 +215,14 @@ signals for exactly the affected sessions are recomputed and published.
 - **FR-012**: Where a signal cannot be produced, the system MUST record the absence with its
   reason against the instrument and session, and MUST NOT record a score, a neutral action, or
   a default.
-- **FR-013**: Confidence MUST be defined by the strategy version in stated terms and derived
-  deterministically from the inputs; it MUST NOT be an unexplained number.
+- **FR-013**: Confidence MUST express **agreement between the factors**: how much of the
+  available contribution weight points the same way as the score. It MUST be derived
+  deterministically from the contributions already recorded, MUST be stated in those terms
+  wherever it is shown, and MUST NOT be presented as a probability that the view is correct.
+- **FR-013a**: Where factors disagree, confidence MUST fall; where every available factor points
+  the same way, it MUST be at its maximum. A signal with only one available factor MUST NOT
+  report the same confidence as one where seven factors agree, because unanimity among one
+  factor is not agreement.
 
 **Reproducibility and time**
 
@@ -355,7 +365,13 @@ signals for exactly the affected sessions are recomputed and published.
 
 - Signals are computed for the full stored history, not only the latest session. Backtesting
   (Milestone 5) needs the history, and computing it later would mean recomputing everything
-  anyway. The volume is comparable to the feature store's, whose scale is already known.
+  anyway.
+- One signal per instrument, per session, per strategy version — roughly 250,000 rows for
+  today's universe and history, against the feature store's 5.8 million. Storing only the
+  sessions where the view changes would be smaller, but it turns every point-in-time question
+  into "the most recent signal on or before this session", which is easy to get subtly wrong
+  and would be relied on by every later milestone. The decision (2026-09-02) trades storage,
+  which is cheap here, for a lookup that cannot be misread.
 - The strategy reads only stored features, never bars directly. The engine already owns
   definitions, versioning and the no-lookahead guarantee; a strategy reaching past it would
   fork that logic, which the product vision explicitly forbids.
@@ -373,41 +389,32 @@ signals for exactly the affected sessions are recomputed and published.
 - Costs, position sizing, risk limits and order intents are out of scope and are named here only
   to make the boundary explicit.
 
-## Open Questions
+## Resolved decisions
 
-### Question 1: What does confidence mean?
+### Confidence expresses agreement between factors (decided 2026-09-02)
 
-**Context**: FR-013 requires confidence to be defined in stated terms and derived
-deterministically, and FR-008 records it on every signal. The product vision lists confidence
-as a persisted field but does not define it.
-
-**What we need to know**: What should confidence express, given the same inputs must always
-produce the same number?
+The product vision persists a confidence field without defining it. Three definitions were
+weighed, each measuring something different.
 
 | Option | Answer | Implications |
 |--------|--------|--------------|
-| A | Agreement between factors — how many point the same way, and how strongly | Cheap to compute, easy to explain ("six of seven factors agree"), and honest about what it is: internal consistency, not probability. It says nothing about whether the strategy is any good. |
-| B | Distance from the action boundary — how far the score sits from the threshold where the action would change | Directly meaningful for the decision at hand and trivially reproducible, but it conflates "clearly in this band" with "likely to be right". |
-| C | Completeness of inputs — the proportion of factors that had usable feature values | Makes the absence rules visible in a number, and is the most defensible claim, but it measures data coverage rather than conviction. |
-| Custom | Provide your own answer | For example: drop confidence from the first strategy entirely and record only score and action, adding it when backtesting can give the word evidence. |
+| **A (chosen)** | Agreement between factors — how much of the available contribution weight points the same way as the score | Cheap, reproducible from contributions already recorded, and explains itself in a sentence: "six of seven factors agree". Honest about what it is — internal consistency, not a probability of being right. |
+| B | Distance from the action boundary | Directly meaningful for the decision at hand, but conflates "clearly inside this band" with "likely to be correct". |
+| C | Completeness of inputs | Makes the absence rules visible, but measures data coverage rather than conviction, which the word does not suggest. |
 
-**Your choice**: _[Wait for user response]_
+**Chosen: A**, with the constraint in FR-013 that it is never presented as a probability that
+the view is correct. Nothing in this feature can support that claim, and the word invites it —
+which is why the requirement fixes both the definition and how it must be described.
 
-### Question 2: Are signals stored for every instrument and session, or only where the view changes?
-
-**Context**: The assumption above computes signals over the full stored history. The feature
-store holds 5.8 million values over 100 instruments and 2,546 sessions; one signal per
-instrument per session per strategy version is roughly 250,000 rows per version, each with its
-factor contributions.
-
-**What we need to know**: Should a signal exist for every scored instrument at every session, or
-only where the action or score changes from the previous session?
+### A signal exists for every instrument at every session (decided 2026-09-02)
 
 | Option | Answer | Implications |
 |--------|--------|--------------|
-| A | Every instrument, every session | Simplest to reason about and to query: "what did it say on this date" is one lookup. Largest storage, and most of the rows repeat the previous day's view. |
-| B | Only when the action changes, with the score recorded as a series | Far fewer rows and a natural reading of "when did it change its mind", but every point-in-time query becomes "the most recent signal on or before this session", which is easy to get subtly wrong. |
-| C | Every session, but contributions stored only when they change | A middle path that keeps point-in-time lookups simple while shrinking the largest part of the data. More machinery than either extreme. |
-| Custom | Provide your own answer | For example: full history for the latest version, and only changes for superseded ones. |
+| **A (chosen)** | One signal per instrument, session and strategy version — scored or a stated absence | "What did it say on this date" is one lookup. About 250,000 rows per version against a feature store of 5.8 million; most rows repeat the previous session's view, which is the price. |
+| B | Only when the action changes | Far fewer rows and a natural reading of "when did it change its mind", but every point-in-time query becomes "most recent on or before", which every later milestone would depend on getting right. |
+| C | Every session, contributions only when they change | Middle path, more machinery than either extreme. |
 
-**Your choice**: _[Wait for user response]_
+**Chosen: A.** Storage is the cheap resource here and correctness of the point-in-time lookup is
+not; backtesting, portfolio and paper trading all read signals as of a date, and each of them
+inheriting a subtle "most recent on or before" rule is a poor trade for space this deployment
+has.

@@ -13,7 +13,7 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain
+- [x] No [NEEDS CLARIFICATION] markers remain
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic (no implementation details)
@@ -31,23 +31,17 @@
 
 ## Notes
 
-Two questions remain open, both deliberately. They are the decisions where a reasonable default
-would have been a guess dressed as a requirement:
+Both open questions were resolved on 2026-09-02 and the reasoning is kept in *Resolved
+decisions* rather than discarded:
 
-- **Confidence** (FR-013). The product vision persists a confidence field but never says what it
-  means. Any definition is defensible and they measure different things — factor agreement,
-  distance from an action boundary, or input completeness — so choosing one silently would put a
-  number on every signal that nobody could interpret. Question 1 sets out the three with their
-  consequences, including dropping the field until backtesting can give the word evidence.
-- **Signal storage grain** (the assumption behind US2 and SC-001). One row per instrument per
-  session per version is about 250,000 rows per version over today's history; storing only
-  changes is far smaller but makes every point-in-time query "the most recent on or before this
-  session", which is easy to get subtly wrong. This is a scope and correctness decision, not a
-  storage optimisation, so Question 2 puts it to the reader.
-
-Everything else in the specification stands independently of both answers: the versioning rules,
-the no-lookahead requirement, the explanation requirement, the absence rules and the not-advice
-requirement do not change whichever way they go.
+- **Confidence** means agreement between factors (Option A). Choosing it added FR-013a — a
+  signal resting on one available factor may not report the confidence of one where seven agree,
+  because unanimity among one factor is not agreement — and a constraint that confidence is
+  never described as a probability that the view is correct. The word invites that reading and
+  nothing in this feature supports it.
+- **Storage grain** is one signal per instrument, session and strategy version (Option A), which
+  added FR-008a: a point-in-time question is one lookup, not a search backwards. Roughly 250,000
+  rows per version against a feature store already holding 5.8 million.
 
 Two things were tightened during validation:
 
