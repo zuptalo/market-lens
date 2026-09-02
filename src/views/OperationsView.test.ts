@@ -2,7 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils';
 import PrimeVue from 'primevue/config';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import OperationsView from './OperationsView.vue';
-import { buildFeatureRun } from '@/services/__fixtures__/marketData';
+import { buildFeatureRun, buildStrategyRun } from '@/services/__fixtures__/marketData';
 
 class QuietEventSource extends EventTarget {
   close(): void {}
@@ -39,9 +39,27 @@ function featureRunWire(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function strategyRunWire(overrides: Record<string, unknown> = {}) {
+  const run = buildStrategyRun();
+  return {
+    id: run.id,
+    kind: run.kind,
+    status: run.status,
+    started_at: run.startedAt,
+    finished_at: run.finishedAt,
+    instrument_count: run.instrumentCount,
+    signal_count: run.signalCount,
+    failed_count: run.failedCount,
+    trigger_feature_run_id: run.triggerFeatureRunId,
+    app_version: run.appVersion,
+    ...overrides,
+  };
+}
+
 function stubFetch(options: {
   imports?: unknown[];
   featureRuns?: unknown[];
+  strategyRuns?: unknown[];
   findings?: unknown[];
 } = {}) {
   vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
@@ -51,6 +69,9 @@ function stubFetch(options: {
     }
     if (url.includes('/api/v1/feature-runs')) {
       return { ok: true, json: async () => ({ items: options.featureRuns ?? [featureRunWire()] }) };
+    }
+    if (url.includes('/api/v1/strategy-runs')) {
+      return { ok: true, json: async () => ({ items: options.strategyRuns ?? [strategyRunWire()] }) };
     }
     if (url.includes('/api/v1/market-data/quality-findings')) {
       return { ok: true, json: async () => ({ items: options.findings ?? [] }) };
@@ -109,5 +130,58 @@ describe('OperationsView', () => {
     const wrapper = mount(OperationsView, { global: { plugins: [PrimeVue] } });
     await flushPromises();
     expect(wrapper.text().toLowerCase()).toMatch(/no import|has not run|not yet/);
+  });
+});
+
+describe('OperationsView strategy runs', () => {
+  beforeEach(() => {
+    vi.stubGlobal('EventSource', QuietEventSource);
+    stubFetch();
+  });
+
+  it('shows strategy runs beside the feature runs they follow', async () => {
+    const wrapper = mount(OperationsView, { global: { plugins: [PrimeVue] } });
+    await flushPromises();
+    const strategy = wrapper.find('[aria-labelledby="strategy-runs-heading"]').text();
+    expect(strategy).toContain('25,460');
+    expect(strategy.toLowerCase()).toContain('incremental');
+    // Both engines are on one screen, in the order they run.
+    expect(wrapper.find('[aria-labelledby="feature-runs-heading"]').exists()).toBe(true);
+  });
+
+  // A partial run left some instruments with the views a previous run recorded. Nothing on the
+  // ranking screen can say so, which is why this screen must.
+  it('states how many instruments a partial strategy run left with earlier signals', async () => {
+    stubFetch({ strategyRuns: [strategyRunWire({ status: 'partial', failed_count: 4 })] });
+    const wrapper = mount(OperationsView, { global: { plugins: [PrimeVue] } });
+    await flushPromises();
+    const strategy = wrapper.find('[aria-labelledby="strategy-runs-heading"]').text().toLowerCase();
+    expect(strategy).toContain('partial');
+    expect(strategy).toContain('4 instruments kept their earlier signals');
+  });
+
+  it('explains a deployment where no strategy has run', async () => {
+    stubFetch({ strategyRuns: [] });
+    const wrapper = mount(OperationsView, { global: { plugins: [PrimeVue] } });
+    await flushPromises();
+    const strategy = wrapper.find('[aria-labelledby="strategy-runs-heading"]').text().toLowerCase();
+    expect(strategy).toContain('no strategy has run');
+    expect(wrapper.find('[data-testid="strategy-run-list"]').exists()).toBe(false);
+  });
+
+  it('keeps the two reports independent when one of them fails', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes('/api/v1/strategy-runs')) return { ok: false, json: async () => ({}) };
+      if (url.includes('/api/v1/feature-runs')) {
+        return { ok: true, json: async () => ({ items: [featureRunWire()] }) };
+      }
+      return { ok: true, json: async () => ({ items: [importRun()] }) };
+    }));
+    const wrapper = mount(OperationsView, { global: { plugins: [PrimeVue] } });
+    await flushPromises();
+    expect(wrapper.text()).toContain('Unable to load recent strategy runs.');
+    // The feature half still answers the question somebody came here to ask.
+    expect(wrapper.find('[data-testid="feature-run-list"]').exists()).toBe(true);
   });
 });

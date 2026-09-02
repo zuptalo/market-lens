@@ -5,9 +5,14 @@ import {
 	fetchInstrument,
 	fetchInstrumentListing,
 	fetchRecentImports,
+	fetchInstrumentSignal,
+	fetchSignalRanking,
+	fetchStrategyRuns,
+	MARKET_DATA_EVENT_TYPES,
   type LiveEvent,
   type LiveEventSource,
 } from './marketData';
+import { buildRankingWire, buildSignalWire } from '@/services/__fixtures__/marketData';
 
 describe('instrument snapshots', () => {
   it('maps typed search, detail, history, and empty results', async () => {
@@ -308,3 +313,73 @@ class FakeSource implements LiveEventSource {
     for (const listener of this.listeners.get(type) ?? []) listener(event);
   }
 }
+
+describe('signal reads', () => {
+  it('maps a scored signal, keeping every decimal a string', async () => {
+    const fetcher = vi.fn(async () => ({ ok: true, status: 200, json: async () => buildSignalWire() }));
+    const signal = await fetchInstrumentSignal('dddddddd-0015-4000-8000-000000000001', {}, fetcher);
+    expect(signal?.score).toBe('0.412500000000');
+    expect(signal?.action).toBe('WATCH');
+    expect(signal?.strategy.caveat).toContain('stated rather than fitted');
+    expect(signal?.contributions[0]).toMatchObject({
+      factor: 'momentum_90', feature: 'return_90',
+      featureValue: '0.081234000000', featureSession: '2026-06-30',
+      weight: '0.250000000000', contribution: '0.100000000000',
+    });
+  });
+
+  // An instrument with no recorded view is an ordinary state of the world — a newly listed
+  // company, a strategy that has not run — not an error the screen should shout about.
+  it('returns null rather than throwing when no signal exists', async () => {
+    const fetcher = vi.fn(async () => ({ ok: false, status: 404, json: async () => ({}) }));
+    await expect(fetchInstrumentSignal('x', {}, fetcher)).resolves.toBeNull();
+  });
+
+  it('throws when the signal read fails for any other reason', async () => {
+    const fetcher = vi.fn(async () => ({ ok: false, status: 500, json: async () => ({}) }));
+    await expect(fetchInstrumentSignal('x', {}, fetcher)).rejects.toThrow();
+  });
+
+  it('forwards the session, strategy and version it was asked for', async () => {
+    const requested: string[] = [];
+    const fetcher = vi.fn(async (input: string) => {
+      requested.push(input);
+      return { ok: true, status: 200, json: async () => buildSignalWire() };
+    });
+    await fetchInstrumentSignal('abc', { asOf: '2026-06-30', strategy: 'momentum_trend', version: 2 }, fetcher);
+    const url = requested[0];
+    expect(url).toContain('as_of=2026-06-30');
+    expect(url).toContain('strategy=momentum_trend');
+    expect(url).toContain('version=2');
+  });
+
+  it('maps a ranking, separating what was scored from what was not', async () => {
+    const fetcher = vi.fn(async () => ({ ok: true, status: 200, json: async () => buildRankingWire() }));
+    const page = await fetchSignalRanking({}, fetcher);
+    expect(page.scored).toBe(1);
+    expect(page.unscored).toBe(1);
+    expect(page.total).toBe(2);
+    expect(page.sessionDate).toBe('2026-06-30');
+    expect(page.items[0]).toMatchObject({ ticker: 'ALFA', rank: 1, action: 'WATCH' });
+    expect(page.items[1]).toMatchObject({ ticker: 'BETA', rank: null, absenceReason: 'insufficient_history' });
+  });
+
+  it('maps strategy runs for the operational screen', async () => {
+    const fetcher = vi.fn(async () => ({
+      ok: true, status: 200, json: async () => ({ items: [{
+        id: 'cccccccc-0015-4000-8000-000000000001', kind: 'incremental', status: 'partial',
+        started_at: '2026-09-02T04:10:00Z', finished_at: '2026-09-02T04:10:26Z',
+        instrument_count: 100, signal_count: 25_460, failed_count: 4,
+        trigger_feature_run_id: 'bbbbbbbb-0013-4000-8000-000000000001', app_version: '0.12.0',
+      }] }),
+    }));
+    const runs = await fetchStrategyRuns(fetcher);
+    expect(runs[0]).toMatchObject({ status: 'partial', failedCount: 4, signalCount: 25_460 });
+  });
+
+  // The server writes signals.changed.v1 as a named SSE event; listening only for 'message'
+  // receives nothing, with no error to notice.
+  it('subscribes to signals.changed.v1 by name', () => {
+    expect(MARKET_DATA_EVENT_TYPES).toContain('signals.changed.v1');
+  });
+});

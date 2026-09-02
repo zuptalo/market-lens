@@ -39,9 +39,19 @@ type scope struct {
 
 // Service runs the engine: one composite stage over the universe, then every instrument in
 // its own transaction (research R-005).
+// SignalComputer is the strategy layer, seen from here as one question: the features for these
+// sessions have changed, would you like to score them? The engine knows nothing else about it,
+// which is what keeps the dependency pointing one way — signals read features, never the reverse.
+type SignalComputer interface {
+	ComputeSinceFeatureRun(context.Context, UUID) error
+}
+
 type Service struct {
 	repository *Repository
 	logger     *slog.Logger
+	// Signals, when set, is asked to score every successful run. It is optional: the engine is
+	// useful on its own, and the composition root decides whether a strategy layer exists.
+	Signals SignalComputer
 }
 
 func NewService(repository *Repository, logger *slog.Logger) *Service {
@@ -334,6 +344,17 @@ func (s *Service) finish(ctx context.Context, run Run, instrumentCount, succeede
 	run.Status, run.FinishedAt, run.InstrumentCount, run.ValueCount = status, &finished, int64(instrumentCount), values
 	s.logger.Info("feature run finished", "run_id", run.ID, "status", status, "instruments", instrumentCount,
 		"failed", failed, "values", values, "elapsed", finished.Sub(run.StartedAt))
+
+	// Signals are scored from what this run just committed, so the ask comes after the values
+	// are durable. A failure there is logged and swallowed: the values are correct and stored,
+	// and turning a good computation into a failed one would make an operator repeat the
+	// expensive half of the work to fix the cheap half.
+	if s.Signals != nil && status != RunStatusFailed {
+		if err := s.Signals.ComputeSinceFeatureRun(ctx, run.ID); err != nil {
+			s.logger.Error("signal computation after the feature run failed",
+				"run_id", run.ID, "error", err)
+		}
+	}
 	return run, nil
 }
 

@@ -34,6 +34,7 @@ import (
 	"market-lens/server/internal/marketdata"
 	"market-lens/server/internal/marketdata/eodhd"
 	"market-lens/server/internal/scheduler"
+	"market-lens/server/internal/strategies"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/term"
@@ -179,6 +180,107 @@ func executeFeaturesCommand(ctx context.Context, command featuresCommand, comput
 	}
 	_, err = fmt.Fprintf(output, "run_id=%s status=%s instruments=%d values=%d\n",
 		run.ID, run.Status, run.InstrumentCount, run.ValueCount)
+	return err
+}
+
+// newSignalPass builds the strategy layer for one universe. It exists so the command line, the
+// scheduler and the import path all trigger the same computation rather than three variations of
+// it — the product's position is that strategy behaviour has exactly one implementation.
+func newSignalPass(pool *pgxpool.Pool, universe, appVersion string, workers int) signalPass {
+	return signalPass{
+		service: strategies.NewService(strategies.NewRepository(pool),
+			features.NewRepository(pool), slog.Default()),
+		universe: universe, appVersion: appVersion, workers: workers,
+	}
+}
+
+// signalPass scores the sessions a feature run wrote. It is what the feature engine asks when a
+// run commits, seen from the engine as features.SignalComputer.
+type signalPass struct {
+	service    *strategies.Service
+	universe   string
+	appVersion string
+	workers    int
+}
+
+func (p signalPass) ComputeSinceFeatureRun(ctx context.Context, runID features.UUID) error {
+	_, err := p.service.Compute(ctx, strategies.ComputeRequest{
+		Kind: strategies.RunKindIncremental, Universe: p.universe, SinceFeatureRun: strategies.UUID(runID),
+		Workers: p.workers, AppVersion: p.appVersion,
+	})
+	return err
+}
+
+// signalsCommand is one strategy computation over a universe, asked for by an owner.
+type signalsCommand struct {
+	Kind     strategies.RunKind
+	Universe string
+	// SinceFeatureRun names the feature run an incremental pass follows; Strategy and Version
+	// name the one published version a strategy pass recomputes. At most one of them is set.
+	SinceFeatureRun strategies.UUID
+	Strategy        string
+	Version         int
+}
+
+type signalComputer interface {
+	Compute(context.Context, strategies.ComputeRequest) (strategies.Run, error)
+}
+
+const signalsUsage = "expected signals compute [--universe CODE] [--since-feature-run FEATURE_RUN_ID | --strategy NAME [--version N]]"
+
+func parseSignalsCommand(args []string) (signalsCommand, error) {
+	if len(args) < 2 || args[0] != "signals" || args[1] != "compute" {
+		return signalsCommand{}, errors.New(signalsUsage)
+	}
+	command := signalsCommand{Kind: strategies.RunKindFull, Universe: "nordic-liquid-v1"}
+	flags := flag.NewFlagSet("signals compute", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	flags.StringVar(&command.Universe, "universe", command.Universe, "research universe code")
+	var sinceFeatureRun, strategy string
+	var version int
+	flags.StringVar(&sinceFeatureRun, "since-feature-run", "", "score only the sessions this feature run wrote")
+	flags.StringVar(&strategy, "strategy", "", "recompute one published strategy over the whole history")
+	flags.IntVar(&version, "version", 0, "a specific strategy version, with --strategy")
+	if err := flags.Parse(args[2:]); err != nil || flags.NArg() != 0 || strings.TrimSpace(command.Universe) == "" {
+		return signalsCommand{}, errors.New(signalsUsage)
+	}
+	sinceGiven, strategyGiven := isFlagSet(flags, "since-feature-run"), isFlagSet(flags, "strategy")
+	if sinceGiven && strategyGiven {
+		return signalsCommand{}, errors.New(signalsUsage)
+	}
+	if isFlagSet(flags, "version") && version < 1 {
+		return signalsCommand{}, errors.New(signalsUsage)
+	}
+	switch {
+	case sinceGiven:
+		parsed, err := instruments.ParseUUID(strings.TrimSpace(sinceFeatureRun))
+		if err != nil {
+			return signalsCommand{}, errors.New(signalsUsage)
+		}
+		command.Kind, command.SinceFeatureRun = strategies.RunKindIncremental, strategies.UUID(parsed)
+	case strategyGiven:
+		if strings.TrimSpace(strategy) == "" {
+			return signalsCommand{}, errors.New(signalsUsage)
+		}
+		command.Kind, command.Strategy, command.Version = strategies.RunKindStrategy, strings.TrimSpace(strategy), version
+	}
+	return command, nil
+}
+
+func executeSignalsCommand(ctx context.Context, command signalsCommand, computer signalComputer,
+	output io.Writer, appVersion string, workers int) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	run, err := computer.Compute(ctx, strategies.ComputeRequest{
+		Kind: command.Kind, Universe: command.Universe, Workers: workers, AppVersion: appVersion,
+		SinceFeatureRun: command.SinceFeatureRun, Strategy: command.Strategy, Version: command.Version,
+	})
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(output, "run_id=%s status=%s instruments=%d signals=%d failed=%d\n",
+		run.ID, run.Status, run.InstrumentCount, run.SignalCount, run.FailedCount)
 	return err
 }
 
@@ -939,7 +1041,17 @@ func run() error {
 				return err
 			}
 			service := features.NewService(features.NewRepository(pool), slog.Default())
+			service.Signals = newSignalPass(pool, command.Universe, version, cfg.MarketData.Workers)
 			return executeFeaturesCommand(ctx, command, service, os.Stdout, version, cfg.MarketData.Workers)
+		}
+		if os.Args[1] == "signals" {
+			command, err := parseSignalsCommand(os.Args[1:])
+			if err != nil {
+				return err
+			}
+			service := strategies.NewService(strategies.NewRepository(pool),
+				features.NewRepository(pool), slog.Default())
+			return executeSignalsCommand(ctx, command, service, os.Stdout, version, cfg.MarketData.Workers)
 		}
 		if os.Args[1] != "marketdata" {
 			return errors.New("unknown command")
@@ -987,7 +1099,9 @@ func run() error {
 			return reportSymbolAudit(os.Stdout, entries, catalog)
 		}
 		service := marketdata.NewImportService(repository, provider)
-		pass := featurePass{service: features.NewService(features.NewRepository(pool), slog.Default()),
+		featureService := features.NewService(features.NewRepository(pool), slog.Default())
+		featureService.Signals = newSignalPass(pool, command.Universe, version, cfg.MarketData.Workers)
+		pass := featurePass{service: featureService,
 			universe: command.Universe, appVersion: version, workers: cfg.MarketData.Workers}
 		if command.Kind == marketdata.ImportRetry {
 			return executeMarketDataRetry(ctx, command, service, os.Stdout, version,
@@ -1024,7 +1138,9 @@ func run() error {
 		if err != nil {
 			return err
 		}
-		job.Features = featurePass{service: features.NewService(features.NewRepository(pool), slog.Default()),
+		scheduledFeatures := features.NewService(features.NewRepository(pool), slog.Default())
+		scheduledFeatures.Signals = newSignalPass(pool, "nordic-liquid-v1", version, cfg.MarketData.Workers)
+		job.Features = featurePass{service: scheduledFeatures,
 			universe: "nordic-liquid-v1", appVersion: version, workers: cfg.MarketData.Workers}
 		jobErrors := make(chan error, 1)
 		scheduleErr = jobErrors
@@ -1061,6 +1177,7 @@ func run() error {
 		MarketData:    marketdata.NewRepository(pool),
 		Instruments:   instruments.NewQueryService(instruments.NewRepository(pool), marketdata.NewRepository(pool)),
 		Features:      features.NewRepository(pool),
+		Signals:       strategies.NewRepository(pool),
 		Events:        clientevents.NewService(clientevents.NewRepository(pool)),
 		// An open stream re-reads its session and account on a bound tighter than the product's
 		// five-second promise, so a revocation or deactivation ends it without a reconnect.

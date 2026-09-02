@@ -282,3 +282,64 @@ func TestTheCompositeIsFinishedBeforeAnyInstrumentBegins(t *testing.T) {
 		t.Errorf("%d composite sessions, expected one per session any member traded (%d)", n, fixtureASessions)
 	}
 }
+
+// signalComputerSpy records what the engine asks of the strategy layer, and can refuse.
+type signalComputerSpy struct {
+	runs []features.UUID
+	fail error
+}
+
+func (s *signalComputerSpy) ComputeSinceFeatureRun(_ context.Context, runID features.UUID) error {
+	s.runs = append(s.runs, runID)
+	return s.fail
+}
+
+// TestAFeatureRunTriggersTheSignalPass wires the two engines together in the only order that
+// makes sense: signals read features, so they are computed after them and never beside them.
+//
+// The third case is the one worth stating. A failure in the strategy layer must not fail the
+// feature run: the values are already committed and correct, and turning a good computation into
+// a failed one would make an operator re-run the expensive half to fix the cheap half.
+func TestAFeatureRunTriggersTheSignalPass(t *testing.T) {
+	t.Run("a successful run asks for signals", func(t *testing.T) {
+		f := newEngineFixture(t)
+		spy := &signalComputerSpy{}
+		service := features.NewService(features.NewRepository(f.pool), slog.Default())
+		service.Signals = spy
+		run, err := service.Compute(context.Background(), features.ComputeRequest{
+			Kind: features.RunKindFull, Universe: fixtureUniverse, Workers: 4, AppVersion: "test",
+		})
+		if err != nil {
+			t.Fatalf("compute: %v", err)
+		}
+		if len(spy.runs) != 1 || spy.runs[0] != run.ID {
+			t.Fatalf("the strategy layer was asked for %v, wanted one call for run %s", spy.runs, run.ID)
+		}
+	})
+
+	t.Run("a failing signal pass leaves the feature run succeeded", func(t *testing.T) {
+		f := newEngineFixture(t)
+		spy := &signalComputerSpy{fail: context.DeadlineExceeded}
+		service := features.NewService(features.NewRepository(f.pool), slog.Default())
+		service.Signals = spy
+		run, err := service.Compute(context.Background(), features.ComputeRequest{
+			Kind: features.RunKindFull, Universe: fixtureUniverse, Workers: 4, AppVersion: "test",
+		})
+		if err != nil {
+			t.Fatalf("a signal failure failed the feature run: %v", err)
+		}
+		if run.Status != features.RunStatusSucceeded {
+			t.Fatalf("the feature run ended %s because signals failed", run.Status)
+		}
+		if len(spy.runs) != 1 {
+			t.Fatalf("the strategy layer was asked %d times", len(spy.runs))
+		}
+	})
+
+	t.Run("no collaborator is not an error", func(t *testing.T) {
+		f := newEngineFixture(t)
+		if _, run := computeFixture(t, f, 4); run.Status != features.RunStatusSucceeded {
+			t.Fatalf("a run with no strategy layer ended %s", run.Status)
+		}
+	})
+}

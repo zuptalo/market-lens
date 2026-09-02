@@ -3,14 +3,21 @@ import { onBeforeUnmount, onMounted, ref } from 'vue';
 import Message from 'primevue/message';
 import MarketDataStatus from '@/components/finance/MarketDataStatus.vue';
 import FeatureRunList from '@/components/finance/FeatureRunList.vue';
+import StrategyRunList from '@/components/finance/StrategyRunList.vue';
 import {
   MarketDataLive,
   fetchFeatureRuns,
   fetchRecentImports,
+  fetchStrategyRuns,
   type LiveEventSource,
 } from '@/services/marketData';
 import { createCoalescer } from '@/services/coalesce';
-import type { ConnectionState, FeatureRunSummary, ImportRunSummary } from '@/types/marketData';
+import type {
+  ConnectionState,
+  FeatureRunSummary,
+  ImportRunSummary,
+  StrategyRunSummary,
+} from '@/types/marketData';
 
 /**
  * Operational state: did the data arrive, and was it turned into the numbers the market
@@ -22,9 +29,11 @@ import type { ConnectionState, FeatureRunSummary, ImportRunSummary } from '@/typ
  */
 const imports = ref<ImportRunSummary[]>([]);
 const runs = ref<FeatureRunSummary[]>([]);
+const strategyRuns = ref<StrategyRunSummary[]>([]);
 const loading = ref(true);
 const importError = ref('');
 const runError = ref('');
+const strategyError = ref('');
 const connectionState = ref<ConnectionState>(navigator.onLine ? 'reconnecting' : 'offline');
 
 let controller: AbortController | undefined;
@@ -36,9 +45,10 @@ async function load(): Promise<void> {
   loading.value = true;
   // The two reads are independent: one failing must not hide the other, because either alone
   // still answers a question somebody came here to ask.
-  const [importResult, runResult] = await Promise.allSettled([
+  const [importResult, runResult, strategyResult] = await Promise.allSettled([
     fetchRecentImports(fetch, signal),
     fetchFeatureRuns(fetch, signal),
+    fetchStrategyRuns(fetch, signal),
   ]);
   if (signal.aborted) return;
   if (importResult.status === 'fulfilled') {
@@ -52,6 +62,12 @@ async function load(): Promise<void> {
     runError.value = '';
   } else {
     runError.value = 'Unable to load recent feature runs.';
+  }
+  if (strategyResult.status === 'fulfilled') {
+    strategyRuns.value = strategyResult.value;
+    strategyError.value = '';
+  } else {
+    strategyError.value = 'Unable to load recent strategy runs.';
   }
   loading.value = false;
 }
@@ -123,6 +139,8 @@ onBeforeUnmount(() => {
     />
 
     <FeatureRunList :runs="runs" :loading="loading" :error="runError" />
+
+    <StrategyRunList :runs="strategyRuns" :loading="loading" :error="strategyError" />
   </div>
 </template>
 

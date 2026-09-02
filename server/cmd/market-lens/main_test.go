@@ -17,6 +17,7 @@ import (
 	"market-lens/server/internal/features"
 	"market-lens/server/internal/instruments"
 	"market-lens/server/internal/marketdata"
+	"market-lens/server/internal/strategies"
 )
 
 func TestParseMarketDataCommandsBoundsRequestedScope(t *testing.T) {
@@ -602,4 +603,78 @@ type computerFunc func(context.Context, features.ComputeRequest) (features.Run, 
 
 func (f computerFunc) Compute(ctx context.Context, request features.ComputeRequest) (features.Run, error) {
 	return f(ctx, request)
+}
+
+type signalComputerFunc func(context.Context, strategies.ComputeRequest) (strategies.Run, error)
+
+func (f signalComputerFunc) Compute(ctx context.Context, request strategies.ComputeRequest) (strategies.Run, error) {
+	return f(ctx, request)
+}
+
+// TestSignalsComputeAcceptsItsRunKinds covers the three ways an owner asks for signals and the
+// combinations that are not askable. The mutual exclusion matters: following a feature run and
+// recomputing one published version are different questions about different session ranges, and
+// silently honouring one while ignoring the other would produce a run that looks right and
+// covers the wrong sessions.
+func TestSignalsComputeAcceptsItsRunKinds(t *testing.T) {
+	featureRun := "ffffffff-0015-4000-8000-00000000b001"
+
+	command, err := parseSignalsCommand([]string{"signals", "compute"})
+	if err != nil || command.Kind != strategies.RunKindFull || command.Universe != "nordic-liquid-v1" {
+		t.Fatalf("bare: command = %#v, err = %v", command, err)
+	}
+	command, err = parseSignalsCommand([]string{"signals", "compute", "--since-feature-run", featureRun})
+	if err != nil || command.Kind != strategies.RunKindIncremental ||
+		command.SinceFeatureRun.String() != featureRun {
+		t.Fatalf("--since-feature-run: command = %#v, err = %v", command, err)
+	}
+	command, err = parseSignalsCommand([]string{"signals", "compute", "--strategy", "momentum_trend",
+		"--version", "2", "--universe", "fixture-v1"})
+	if err != nil || command.Kind != strategies.RunKindStrategy || command.Strategy != "momentum_trend" ||
+		command.Version != 2 || command.Universe != "fixture-v1" {
+		t.Fatalf("--strategy: command = %#v, err = %v", command, err)
+	}
+
+	for _, args := range [][]string{
+		{"signals", "compute", "--since-feature-run", "not-a-uuid"},
+		{"signals", "compute", "--since-feature-run", ""},
+		{"signals", "compute", "--strategy", ""},
+		{"signals", "compute", "--since-feature-run", featureRun, "--strategy", "momentum_trend"},
+		{"signals", "compute", "--version", "0", "--strategy", "momentum_trend"},
+		{"signals", "compute", "--universe", ""},
+	} {
+		if _, err := parseSignalsCommand(args); err == nil || !strings.Contains(err.Error(), "signals compute") {
+			t.Errorf("%v: err = %v, expected usage naming signals compute", args, err)
+		}
+	}
+
+	var received strategies.ComputeRequest
+	computer := signalComputerFunc(func(_ context.Context, request strategies.ComputeRequest) (strategies.Run, error) {
+		received = request
+		return strategies.Run{ID: strategies.UUID(featureRun), Status: strategies.RunStatusSucceeded,
+			InstrumentCount: 7, SignalCount: 700}, nil
+	})
+	var output bytes.Buffer
+	if err := executeSignalsCommand(context.Background(), signalsCommand{
+		Kind: strategies.RunKindIncremental, Universe: "fixture-v1",
+		SinceFeatureRun: strategies.UUID(featureRun),
+	}, computer, &output, "v", 2); err != nil {
+		t.Fatal(err)
+	}
+	if received.Kind != strategies.RunKindIncremental || received.SinceFeatureRun.String() != featureRun ||
+		received.Universe != "fixture-v1" || received.Workers != 2 || received.AppVersion != "v" {
+		t.Errorf("incremental request = %#v", received)
+	}
+	if !strings.Contains(output.String(), "signals=700") || !strings.Contains(output.String(), "status=succeeded") {
+		t.Errorf("output = %q", output.String())
+	}
+
+	if err := executeSignalsCommand(context.Background(), signalsCommand{
+		Kind: strategies.RunKindStrategy, Universe: "fixture-v1", Strategy: "momentum_trend", Version: 2,
+	}, computer, &output, "v", 2); err != nil {
+		t.Fatal(err)
+	}
+	if received.Kind != strategies.RunKindStrategy || received.Strategy != "momentum_trend" || received.Version != 2 {
+		t.Errorf("strategy request = %#v", received)
+	}
 }

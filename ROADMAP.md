@@ -31,7 +31,7 @@ without a reviewed feature spec and valid red test.
 | Experience-A | Installable PWA and device lifecycle | Backlog | Not yet specified | Security-A; SSE foundation | Chrome/Edge installability on mobile/tablet/desktop, offline/stale behavior, devices, and permission lifecycle. |
 | 2 | Instrument exploration and financial charts | Shipped | [`005-instrument-exploration`](specs/005-instrument-exploration/spec.md) | Milestone 1 | Search/browse, instrument detail, responsive candlestick/volume history, overlays, and basic statistics. |
 | 3 | Reusable feature engine | Shipped | [`013-feature-engine`](specs/013-feature-engine/spec.md) and [plan](specs/013-feature-engine/plan.md) | Milestone 1 | Deterministic, versioned, point-in-time returns, trend, momentum, relative strength, volatility, ATR, RSI/MACD, drawdown, volume and regime features over stored sessions, with leakage proven by test. Relative strength is measured against an equal-weighted composite of the curated universe, which needed no new data. Markets reads its three statistics from the engine. |
-| 4 | Deterministic strategies and signals | Backlog | Not yet specified | Milestone 3 | Versioned momentum/trend strategy, parameters, immutable actions/scores/confidence/explanations and reproducibility. |
+| 4 | Deterministic strategies and signals | Shipped | [015](specs/015-strategies-and-signals/spec.md) | Milestone 3 | Versioned momentum/trend strategy, parameters, immutable actions/scores/confidence/explanations and reproducibility. |
 | 5 | Reproducible backtesting | Backlog | Not yet specified | Milestone 4; benchmark data | Historical simulation, accounting, brokerage/FX/slippage, benchmarks, metrics, curves, and traceable trades/signals. |
 | 6 | Personal tracking, portfolio, and risk engine | Backlog | Not yet specified | Security-A; Milestone 4; preferably Milestone 5 evidence | User-owned holdings/trades/tracking rules, positions, cash/P&L/exposures, independent limits/rejections/modifications, and order intents. |
 | 7 | Paper trading | Backlog | Not yet specified | Milestones 1, 4, and 6 | Permanent simulated orders/trades and forward performance using shared strategy/risk/accounting. |
@@ -74,10 +74,26 @@ scrolls and states how large the result set is; and sector became curated refere
 carried by migration, because the deployment's market-data plan excludes the fundamentals that
 would otherwise supply it.
 
-**The next product feature is Milestone 4, deterministic strategies and signals.** Strategies
-depend on the engine, backtesting on strategies, and portfolio and paper trading on those.
+**Milestone 4, deterministic strategies and signals, is shipped.** One published version,
+`momentum_trend` v1, reads seven of the engine's definitions and records for every instrument and
+every stored session either a score, an action and a confidence with the per-factor contributions
+that produced them, or a stated reason no view could be formed. A version is superseded, never
+edited, so a signal recorded months ago stays reproducible from the definition behind it.
 
-Milestones 3–5 are the next planning sequence. Create separate feature specs so their
+Two things the implementation settled that the specification left open. The stored contributions
+are snapped to the stored precision *before* the score is derived from them, so the explanation is
+what produced the score rather than a rendering of it — summing rounded contributions and dividing
+by the divisor reproduces the stored score exactly. And a computation runs in two passes: the
+first writes nothing and only learns which instruments the version cannot score, the second
+writes and skips them. Writing as it went would have left a failed instrument holding a mixture of
+sessions from two different runs, every row well formed and the series from no single computation.
+
+Its weights are stated rather than fitted and it has not been tested against outcomes; the caveat
+saying so is stored on the version and travels with every response that carries a signal.
+
+**The next product feature is Milestone 5, reproducible backtesting**, which reads these signals.
+
+Milestone 5 is the next planning sequence. Create separate feature specs so their
 acceptance criteria, data ownership, responsive behavior, and test-first proof can be
 reviewed independently. Do not combine them into one implementation batch.
 

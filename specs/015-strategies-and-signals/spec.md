@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-02
 
-**Status**: planned
+**Status**: shipped
 <!-- Market Lens spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: User description: "Deterministic strategies and signals (Milestone 4). Versioned

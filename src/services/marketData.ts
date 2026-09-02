@@ -10,6 +10,14 @@ import type {
   ListingQuery,
   SectorOption,
   HistoryWindow,
+  Signal,
+  SignalAbsenceReason,
+  SignalAction,
+  SignalRankingPage,
+  StrategyActionBand,
+  StrategyDefinition,
+  StrategyFactor,
+  StrategyRunSummary,
 } from '@/types/marketData';
 
 export interface LiveEvent {
@@ -23,7 +31,14 @@ export interface LiveEventSource {
   close(): void;
 }
 
-export type Fetcher = (input: string, init?: RequestInit) => Promise<Pick<Response, 'ok' | 'json'>>;
+/**
+ * The shape of `fetch` this module actually uses. `status` is optional because most reads only
+ * need to know whether the request succeeded; the signal read is the exception — for it, "this
+ * instrument has no recorded view" is an ordinary answer rather than a failure, and only the
+ * status code distinguishes the two.
+ */
+export type Fetcher = (input: string, init?: RequestInit)
+  => Promise<Pick<Response, 'ok' | 'json'> & { status?: number }>;
 
 interface InstrumentWire {
   id: string;
@@ -399,6 +414,9 @@ export const MARKET_DATA_EVENT_TYPES = [
   // The feature engine's own change: the three statistics on the Markets list are its values,
   // so the page hears about a recomputation the same way it hears about a new bar.
   'feature_values.changed.v1',
+  // A strategy's recomputed views. The event names the instrument and the session range, never
+  // the signals themselves: an open ranking re-reads them through the authorized path.
+  'signals.changed.v1',
 ] as const;
 
 /** What a market-data event says about the change it reports. */
@@ -506,4 +524,181 @@ export class MarketDataLive {
     this.reconnectTimer = undefined;
     this.staleTimer = undefined;
   }
+}
+
+
+interface StrategyRefWire {
+  name: string;
+  version: number;
+  title: string;
+  caveat: string;
+  superseded: boolean;
+}
+
+interface ContributionWire {
+  factor: string;
+  feature: string;
+  feature_value: string | null;
+  feature_session: string | null;
+  factor_score: string | null;
+  weight: string;
+  contribution: string | null;
+  unavailable_reason: string | null;
+}
+
+interface SignalWire {
+  instrument_id: string;
+  session_date: string;
+  strategy: StrategyRefWire;
+  score: string | null;
+  action: SignalAction | null;
+  confidence: string | null;
+  absence_reason: SignalAbsenceReason | null;
+  contributions: ContributionWire[];
+  divisor: string | null;
+  computed_at: string;
+}
+
+interface RankedSignalWire extends SignalWire {
+  ticker: string;
+  name: string;
+  rank: number | null;
+}
+
+function toSignal(wire: SignalWire): Signal {
+  return {
+    instrumentId: wire.instrument_id,
+    sessionDate: wire.session_date,
+    strategy: { ...wire.strategy },
+    score: wire.score ?? null,
+    action: wire.action ?? null,
+    confidence: wire.confidence ?? null,
+    absenceReason: wire.absence_reason ?? null,
+    divisor: wire.divisor ?? null,
+    computedAt: wire.computed_at,
+    contributions: (wire.contributions ?? []).map((contribution) => ({
+      factor: contribution.factor,
+      feature: contribution.feature,
+      featureValue: contribution.feature_value ?? null,
+      featureSession: contribution.feature_session ?? null,
+      factorScore: contribution.factor_score ?? null,
+      weight: contribution.weight,
+      contribution: contribution.contribution ?? null,
+      unavailableReason: contribution.unavailable_reason ?? null,
+    })),
+  };
+}
+
+/**
+ * One instrument's signal as of a session.
+ *
+ * A 404 is returned as null rather than thrown: an instrument with no recorded view is an
+ * ordinary state of the world — a newly listed company, a strategy that has not run — and the
+ * instrument screen shows the rest of its page rather than an error.
+ */
+export async function fetchInstrumentSignal(
+  id: string,
+  options: { asOf?: string; strategy?: string; version?: number } = {},
+  fetcher: Fetcher = fetch,
+  signal?: AbortSignal,
+): Promise<Signal | null> {
+  const query = new URLSearchParams();
+  if (options.asOf) query.set('as_of', options.asOf);
+  if (options.strategy) query.set('strategy', options.strategy);
+  if (options.version) query.set('version', String(options.version));
+  const suffix = query.toString() ? `?${query.toString()}` : '';
+  const response = await fetcher(`/api/v1/instruments/${encodeURIComponent(id)}/signal${suffix}`, { signal });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error('Unable to load this instrument\'s signal.');
+  return toSignal(await response.json() as SignalWire);
+}
+
+/** One page of the universe in a strategy's order. */
+export async function fetchSignalRanking(
+  options: { asOf?: string; strategy?: string; version?: number; cursor?: string; limit?: number } = {},
+  fetcher: Fetcher = fetch,
+  signal?: AbortSignal,
+): Promise<SignalRankingPage> {
+  const query = new URLSearchParams();
+  if (options.asOf) query.set('as_of', options.asOf);
+  if (options.strategy) query.set('strategy', options.strategy);
+  if (options.version) query.set('version', String(options.version));
+  if (options.cursor) query.set('cursor', options.cursor);
+  query.set('limit', String(options.limit ?? 50));
+  const response = await fetcher(`/api/v1/signals?${query.toString()}`, { signal });
+  if (!response.ok) throw new Error('Unable to load the strategy ranking.');
+  const body = await response.json() as {
+    items?: RankedSignalWire[];
+    next_cursor?: string | null;
+    total?: number | null;
+    strategy?: StrategyRefWire;
+    session_date?: string;
+    scored?: number;
+    unscored?: number;
+  };
+  if (!Array.isArray(body.items) || !body.strategy) throw new Error('Unable to load the strategy ranking.');
+  return {
+    items: body.items.map((item) => ({
+      ...toSignal(item), ticker: item.ticker, name: item.name, rank: item.rank ?? null,
+    })),
+    nextCursor: body.next_cursor ?? null,
+    total: body.total ?? null,
+    strategy: { ...body.strategy },
+    sessionDate: body.session_date ?? '',
+    scored: body.scored ?? 0,
+    unscored: body.unscored ?? 0,
+  };
+}
+
+/** Every published strategy version, current and superseded. */
+export async function fetchStrategies(fetcher: Fetcher = fetch, signal?: AbortSignal): Promise<StrategyDefinition[]> {
+  const response = await fetcher('/api/v1/strategies', { signal });
+  if (!response.ok) throw new Error('Unable to load the published strategies.');
+  const body = await response.json() as { items?: (StrategyRefWire & {
+    intent: string;
+    factors: StrategyFactor[];
+    action_bands: StrategyActionBand[];
+    published_at: string;
+    superseded_at: string | null;
+  })[] };
+  if (!Array.isArray(body.items)) throw new Error('Unable to load the published strategies.');
+  return body.items.map((item) => ({
+    name: item.name, version: item.version, title: item.title, caveat: item.caveat,
+    superseded: item.superseded, intent: item.intent, factors: item.factors ?? [],
+    actionBands: item.action_bands ?? [], publishedAt: item.published_at,
+    supersededAt: item.superseded_at ?? null,
+  }));
+}
+
+interface StrategyRunWire {
+  id: string;
+  kind: StrategyRunSummary['kind'];
+  status: StrategyRunSummary['status'];
+  started_at: string;
+  finished_at: string | null;
+  instrument_count: number;
+  signal_count: number;
+  failed_count: number;
+  trigger_feature_run_id: string | null;
+  app_version: string | null;
+}
+
+/** Recent strategy computations, newest first, for the operational screen. */
+export async function fetchStrategyRuns(fetcher: Fetcher = fetch, signal?: AbortSignal): Promise<StrategyRunSummary[]> {
+  const response = await fetcher('/api/v1/strategy-runs?limit=10', { signal });
+  if (!response.ok) throw new Error('Unable to load recent strategy runs.');
+  const body = await response.json() as { items?: StrategyRunWire[] };
+  if (!Array.isArray(body.items)) throw new Error('Unable to load recent strategy runs.');
+  return body.items.map((run) => ({
+    id: run.id,
+    kind: run.kind,
+    status: run.status,
+    startedAt: run.started_at,
+    finishedAt: run.finished_at ?? null,
+    instrumentCount: run.instrument_count,
+    signalCount: run.signal_count,
+    failedCount: run.failed_count,
+    triggerFeatureRunId: run.trigger_feature_run_id ?? null,
+    appVersion: run.app_version ?? null,
+  }));
 }

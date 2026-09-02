@@ -198,3 +198,81 @@ export function buildFeatureRun(overrides: Record<string, unknown> = {}) {
     ...overrides,
   };
 }
+
+/** A recent strategy computation, as the operational screen reads it. */
+export function buildStrategyRun(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'cccccccc-0015-4000-8000-000000000001',
+    kind: 'incremental' as const,
+    status: 'succeeded' as const,
+    startedAt: '2026-09-02T04:10:00Z',
+    finishedAt: '2026-09-02T04:10:26Z',
+    instrumentCount: 100,
+    signalCount: 25_460,
+    failedCount: 0,
+    triggerFeatureRunId: 'bbbbbbbb-0013-4000-8000-000000000001',
+    appVersion: '0.12.0',
+    ...overrides,
+  };
+}
+
+const signalStrategy = {
+  name: 'momentum_trend',
+  version: 1,
+  title: 'Momentum and trend',
+  caveat: 'Its weights are stated rather than fitted, and it has not been tested against outcomes.',
+  superseded: false,
+};
+
+/** A scored signal with one contribution, as the wire delivers it. */
+export function buildSignalWire(overrides: Record<string, unknown> = {}) {
+  return {
+    instrument_id: 'dddddddd-0015-4000-8000-000000000001',
+    session_date: '2026-06-30',
+    strategy: { ...signalStrategy },
+    score: '0.412500000000',
+    action: 'WATCH',
+    confidence: '0.875000000000',
+    absence_reason: null,
+    divisor: '1.000000000000',
+    computed_at: '2026-07-01T04:00:00Z',
+    contributions: [{
+      factor: 'momentum_90',
+      feature: 'return_90',
+      feature_value: '0.081234000000',
+      feature_session: '2026-06-30',
+      factor_score: '0.400000000000',
+      weight: '0.250000000000',
+      contribution: '0.100000000000',
+      unavailable_reason: null,
+    }],
+    ...overrides,
+  };
+}
+
+/** A signal the strategy declined to form, with the reason it recorded. */
+export function buildAbsentSignalWire(overrides: Record<string, unknown> = {}) {
+  return buildSignalWire({
+    instrument_id: 'dddddddd-0015-4000-8000-000000000002',
+    score: null, action: null, confidence: null, divisor: null,
+    absence_reason: 'insufficient_history', contributions: [],
+    ...overrides,
+  });
+}
+
+/** One page of the ranking, as the wire delivers it. */
+export function buildRankingWire(overrides: Record<string, unknown> = {}) {
+  return {
+    items: [
+      { ...buildSignalWire(), ticker: 'ALFA', name: 'Alfa AB', rank: 1 },
+      { ...buildAbsentSignalWire(), ticker: 'BETA', name: 'Beta AB', rank: null },
+    ],
+    next_cursor: null,
+    total: 2,
+    strategy: { ...signalStrategy },
+    session_date: '2026-06-30',
+    scored: 1,
+    unscored: 1,
+    ...overrides,
+  };
+}

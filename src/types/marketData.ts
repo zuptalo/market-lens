@@ -241,3 +241,109 @@ export interface HistoryWindow {
 export interface ColumnPreference {
   columns: string[];
 }
+
+/**
+ * A strategy's stated view, never advice.
+ *
+ * Every decimal arrives as a string because the server stores them as numeric(24,12); parsing
+ * them into JavaScript numbers would round them at the boundary, and a score that renders
+ * differently from the one that was recorded is a score nobody can check.
+ */
+export type SignalAction = 'BUY' | 'HOLD' | 'REDUCE' | 'SELL' | 'WATCH';
+
+export type SignalAbsenceReason =
+  | 'insufficient_history'
+  | 'feature_unavailable'
+  | 'composite_undefined'
+  | 'liquidity_excluded';
+
+/**
+ * The version that produced a signal, carried on every response that shows one. The caveat is
+ * part of it rather than fetched separately, so no surface can show a score without it.
+ */
+export interface StrategyRef {
+  name: string;
+  version: number;
+  title: string;
+  caveat: string;
+  superseded: boolean;
+}
+
+/** One factor's part of a score, recorded so a reader can check the arithmetic. */
+export interface SignalContribution {
+  factor: string;
+  feature: string;
+  featureValue: string | null;
+  featureSession: string | null;
+  factorScore: string | null;
+  weight: string;
+  contribution: string | null;
+  unavailableReason: string | null;
+}
+
+export interface Signal {
+  instrumentId: string;
+  sessionDate: string;
+  strategy: StrategyRef;
+  /** Null exactly when absenceReason is set: a signal is a view or a stated absence, never both. */
+  score: string | null;
+  action: SignalAction | null;
+  confidence: string | null;
+  absenceReason: SignalAbsenceReason | null;
+  contributions: SignalContribution[];
+  divisor: string | null;
+  computedAt: string;
+}
+
+export interface RankedSignal extends Signal {
+  ticker: string;
+  name: string;
+  /** Position among scored instruments. Null for one the strategy could not score. */
+  rank: number | null;
+}
+
+export interface SignalRankingPage {
+  items: RankedSignal[];
+  nextCursor: string | null;
+  /** Present on a cursor-less request, null afterwards, where it means "unchanged". */
+  total: number | null;
+  strategy: StrategyRef;
+  sessionDate: string;
+  scored: number;
+  unscored: number;
+}
+
+export interface StrategyFactor {
+  name: string;
+  feature: string;
+  mode: 'cross_sectional' | 'absolute';
+  weight: string;
+  description: string;
+}
+
+export interface StrategyActionBand {
+  lower: string;
+  upper: string;
+  action: SignalAction;
+}
+
+export interface StrategyDefinition extends StrategyRef {
+  intent: string;
+  factors: StrategyFactor[];
+  actionBands: StrategyActionBand[];
+  publishedAt: string;
+  supersededAt: string | null;
+}
+
+export interface StrategyRunSummary {
+  id: string;
+  kind: 'full' | 'incremental' | 'strategy';
+  status: 'running' | 'succeeded' | 'partial' | 'failed';
+  startedAt: string;
+  finishedAt: string | null;
+  instrumentCount: number;
+  signalCount: number;
+  failedCount: number;
+  triggerFeatureRunId: string | null;
+  appVersion: string | null;
+}

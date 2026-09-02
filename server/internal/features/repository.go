@@ -736,3 +736,160 @@ func (r *Repository) requestedNames(ctx context.Context, requested []string) ([]
 	sort.Strings(names)
 	return names, nil
 }
+
+// UniverseValue is one instrument's value for one definition at one session, as a strategy
+// reads it: the decimal exactly as stored, or the label, or the reason it is absent.
+type UniverseValue struct {
+	InstrumentID  UUID
+	SessionDate   SessionDate
+	Name          string
+	Value         *string
+	Label         *string
+	AbsenceReason *AbsenceReason
+}
+
+// ValuesForSessions reads the named definitions for every member of a universe across a session
+// range, in one pass.
+//
+// A strategy scores a whole universe per session — a cross-sectional factor is meaningless
+// otherwise — so reading instrument by instrument would be a round trip per instrument-session:
+// hundreds of thousands of them over a full history. This exists so the strategy layer can read
+// what it needs without reaching into this package's tables itself.
+func (r *Repository) ValuesForSessions(
+	ctx context.Context, universeID UUID, names []string, from, to SessionDate,
+) ([]UniverseValue, error) {
+	if err := r.ready(); err != nil {
+		return nil, err
+	}
+	rows, err := r.pool.Query(ctx, `SELECT v.instrument_id::text, v.session_date::text, d.name,
+		v.value::text, v.label, v.absence_reason
+		FROM feature_values v
+		JOIN feature_definitions d ON d.id = v.definition_id AND d.superseded_at IS NULL
+		JOIN universe_memberships m ON m.instrument_id = v.instrument_id AND m.universe_id = $1
+		  AND (m.included_to IS NULL OR m.included_to >= v.session_date)
+		WHERE d.name = ANY($2::text[])
+		  AND v.session_date BETWEEN $3::date AND $4::date
+		ORDER BY v.session_date, v.instrument_id, d.name`,
+		universeID.String(), names, from.String(), to.String())
+	if err != nil {
+		return nil, fmt.Errorf("read universe feature values: %w", err)
+	}
+	defer rows.Close()
+	values := make([]UniverseValue, 0, 4096)
+	for rows.Next() {
+		var value UniverseValue
+		var reason *string
+		if err := rows.Scan((*string)(&value.InstrumentID), (*string)(&value.SessionDate), &value.Name,
+			&value.Value, &value.Label, &reason); err != nil {
+			return nil, fmt.Errorf("scan universe feature value: %w", err)
+		}
+		if reason != nil {
+			absence := AbsenceReason(*reason)
+			value.AbsenceReason = &absence
+		}
+		values = append(values, value)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read universe feature values: %w", err)
+	}
+	return values, nil
+}
+
+// SessionBounds returns the first and last session for which any member of a universe has a
+// stored feature value. A strategy's full history is exactly this range: earlier there is
+// nothing to read, and later nothing has been computed.
+func (r *Repository) SessionBounds(ctx context.Context, universeID UUID) (SessionDate, SessionDate, bool, error) {
+	if err := r.ready(); err != nil {
+		return "", "", false, err
+	}
+	var from, to *string
+	if err := r.pool.QueryRow(ctx, `SELECT min(v.session_date)::text, max(v.session_date)::text
+		FROM feature_values v
+		JOIN universe_memberships m ON m.instrument_id = v.instrument_id AND m.universe_id = $1`,
+		universeID.String()).Scan(&from, &to); err != nil {
+		return "", "", false, fmt.Errorf("read universe session bounds: %w", err)
+	}
+	if from == nil || to == nil {
+		return "", "", false, nil
+	}
+	return SessionDate(*from), SessionDate(*to), true, nil
+}
+
+// SessionsTouchedByFeatureRun returns the span of sessions one feature run wrote or revised.
+// An incremental strategy pass recomputes that span for the whole universe rather than for the
+// instruments the run touched: a cross-sectional factor makes one instrument's change move
+// every other instrument's rank for the same session.
+func (r *Repository) SessionsTouchedByFeatureRun(ctx context.Context, runID UUID) (SessionDate, SessionDate, bool, error) {
+	if err := r.ready(); err != nil {
+		return "", "", false, err
+	}
+	var from, to *string
+	if err := r.pool.QueryRow(ctx, `SELECT min(from_session)::text, max(to_session)::text
+		FROM feature_run_items WHERE run_id = $1 AND status = 'succeeded'`,
+		runID.String()).Scan(&from, &to); err != nil {
+		return "", "", false, fmt.Errorf("read feature run sessions: %w", err)
+	}
+	if from == nil || to == nil {
+		return "", "", false, nil
+	}
+	return SessionDate(*from), SessionDate(*to), true, nil
+}
+
+// SessionCountsBefore returns, per universe member, how many sessions it already has stored
+// values for strictly before a session. It is what lets an incremental pass apply the same
+// history gate a full pass applies without re-reading the history the gate is counting.
+func (r *Repository) SessionCountsBefore(ctx context.Context, universeID UUID, before SessionDate) (map[UUID]int, error) {
+	if err := r.ready(); err != nil {
+		return nil, err
+	}
+	rows, err := r.pool.Query(ctx, `SELECT v.instrument_id::text, count(DISTINCT v.session_date)
+		FROM feature_values v
+		JOIN universe_memberships m ON m.instrument_id = v.instrument_id AND m.universe_id = $1
+		WHERE v.session_date < $2::date
+		GROUP BY v.instrument_id`, universeID.String(), before.String())
+	if err != nil {
+		return nil, fmt.Errorf("count stored sessions: %w", err)
+	}
+	defer rows.Close()
+	counts := map[UUID]int{}
+	for rows.Next() {
+		var id string
+		var count int
+		if err := rows.Scan(&id, &count); err != nil {
+			return nil, fmt.Errorf("scan stored session count: %w", err)
+		}
+		counts[UUID(id)] = count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("count stored sessions: %w", err)
+	}
+	return counts, nil
+}
+
+// Sessions lists the distinct sessions a universe has stored values for, in range and ascending.
+func (r *Repository) Sessions(ctx context.Context, universeID UUID, from, to SessionDate) ([]SessionDate, error) {
+	if err := r.ready(); err != nil {
+		return nil, err
+	}
+	rows, err := r.pool.Query(ctx, `SELECT DISTINCT v.session_date::text
+		FROM feature_values v
+		JOIN universe_memberships m ON m.instrument_id = v.instrument_id AND m.universe_id = $1
+		WHERE v.session_date BETWEEN $2::date AND $3::date
+		ORDER BY 1`, universeID.String(), from.String(), to.String())
+	if err != nil {
+		return nil, fmt.Errorf("list universe sessions: %w", err)
+	}
+	defer rows.Close()
+	var sessions []SessionDate
+	for rows.Next() {
+		var value string
+		if err := rows.Scan(&value); err != nil {
+			return nil, fmt.Errorf("scan universe session: %w", err)
+		}
+		sessions = append(sessions, SessionDate(value))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list universe sessions: %w", err)
+	}
+	return sessions, nil
+}
