@@ -13,7 +13,7 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain
+- [x] No [NEEDS CLARIFICATION] markers remain
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic (no implementation details)
@@ -31,12 +31,17 @@
 
 ## Notes
 
-One marker remains, deliberately: **FR-023**, the source of sector classification, is a
-commercial decision rather than a technical one — the deployment's market-data plan excludes
-fundamental data, so the provider cannot supply sector without a paid plan change. The three
-options and their consequences are set out as Question 1 at the end of the spec. Everything
-else in User Story 3 is specified independently of the answer: FR-020 states the rule that no
-filter may offer only empty results, and each option satisfies it differently.
+All items pass. The single open marker — the source of sector classification — was resolved on
+2026-09-02 in favour of curated reference data maintained by ordered migration, and the reasoning
+and the two rejected options are recorded in *Resolved decisions* in the spec rather than
+discarded.
+
+Choosing that option added four requirements that would otherwise have been left implicit, each
+one a consequence of curating data by hand: a fixed vocabulary so the filter's choices are a
+closed set (FR-023); recorded provenance and review date so a stale classification reads as stale
+(FR-024); classification at the moment an instrument joins the universe, so the "no classification
+at all" state cannot recur (FR-025); and "unclassified" as a stated value rather than an empty
+cell (FR-026).
 
 Two phrasings were tightened during validation:
 
@@ -46,5 +51,3 @@ Two phrasings were tightened during validation:
 - The first user story originally said the operational view "replaces" the report on Market
   Data. It now says the report is not on Market Data and that a compact freshness statement
   remains and links onward, which is testable as two separate assertions.
-
-Items marked incomplete require spec updates before `/speckit-clarify` or `/speckit-plan`.

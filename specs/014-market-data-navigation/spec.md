@@ -102,19 +102,19 @@ appears, the stated position advances, and the stated total is correct against t
 
 ---
 
-### User Story 3 - Sector is real information or it is not offered (Priority: P3)
+### User Story 3 - Sector is real information (Priority: P3)
 
-A person filtering the universe by sector either gets a working filter over real sector
-classifications, or does not see a sector control at all. What they must not see is a column of
-blanks and a filter that returns nothing.
+A person filtering the universe by sector gets a working filter over real classifications: every
+instrument states its sector, and choosing one returns exactly the instruments in it. What they
+must not see is what they see today — a column of blanks and a filter that returns nothing.
 
 **Why this priority**: It affects one column and one filter rather than the shape of the page,
-but leaving it as it stands is worse than either resolution: an empty column reads as broken
-data, and a filter that cannot match anything wastes the reader's attention.
+but leaving it as it stands is worse than resolving it either way: an empty column reads as
+broken data, and a filter that cannot match anything wastes the reader's attention.
 
-**Independent Test**: Open Market Data and confirm that either every instrument states a sector
-and filtering by any offered sector returns exactly the instruments in it, or no sector column
-and no sector filter is present anywhere in the interface.
+**Independent Test**: Open Market Data and confirm that every instrument states a sector or
+states that it is unclassified, and that filtering by any offered sector returns exactly the
+instruments classified in it.
 
 **Acceptance Scenarios**:
 
@@ -126,9 +126,12 @@ and no sector filter is present anywhere in the interface.
 3. **Given** an instrument whose sector is genuinely unknown, **When** its row is displayed,
    **Then** it states that the classification is unknown rather than showing an empty cell,
    and it is reachable through a filter choice that means "unclassified".
-4. **Given** sector data is not to be carried, **When** the interface is displayed, **Then**
-   neither a sector column nor a sector filter appears, and the column-chooser offers no sector
-   option.
+4. **Given** a fresh installation, **When** the database is migrated and no import has run,
+   **Then** every instrument in the curated universe already carries its classification,
+   because the classification is reference data rather than something an import supplies.
+5. **Given** a reader inspecting where a classification came from, **When** they read an
+   instrument's sector, **Then** the source and the date it was last reviewed are available to
+   them rather than the classification being presented as unattributed fact.
 
 ---
 
@@ -215,20 +218,25 @@ and no sector filter is present anywhere in the interface.
 **Sector**
 
 - **FR-020**: The system MUST NOT present a filter whose every possible choice returns an empty
-  result. Either sector data is carried for the curated universe, or the sector column and
-  sector filter are removed from every surface, including the column chooser and the sort keys.
-- **FR-021**: If sector data is carried, every instrument in the curated universe MUST have
-  either a stated sector or an explicit "unclassified" state, and the filter MUST offer only
-  values that exist in the data, including "unclassified" when any instrument holds it.
-- **FR-022**: If sector data is carried, it MUST arrive through the same reviewed, ordered
-  migration mechanism as every other schema and reference-data change; it MUST NOT be entered
-  by hand into the deployed database.
-- **FR-023**: [NEEDS CLARIFICATION: Where does sector and industry classification come from?
-  The deployment's current market-data plan excludes fundamental data, so the provider cannot
-  supply it today. See Question 1 below.]
-- **FR-024**: If sector data is carried, the system MUST record where each classification came
-  from and when it was last reviewed, so that a stale classification is visible as stale rather
-  than presented as current fact.
+  result. Sector data is therefore carried for the curated universe (decided 2026-09-02; see
+  *Resolved decisions*), and the sector column, filter and sort remain.
+- **FR-021**: Every instrument in the curated universe MUST have either a stated sector or an
+  explicit "unclassified" state. The filter MUST offer only values that exist in the data,
+  including "unclassified" when any instrument holds it.
+- **FR-022**: Sector classification MUST arrive through the same reviewed, ordered migration
+  mechanism as every other schema and reference-data change. It MUST NOT be entered by hand
+  into the deployed database, and no classification may be introduced by a provider import.
+- **FR-023**: Sector values MUST come from a fixed vocabulary declared in the migration, not
+  from free text. Adding a sector to the vocabulary MUST be a reviewed change, so that the
+  filter's choices are a known, closed set rather than whatever happens to be stored.
+- **FR-024**: Each classification MUST record where it came from and when it was last reviewed,
+  so that a stale classification is visible as stale rather than presented as current fact.
+- **FR-025**: Adding an instrument to the curated universe MUST classify it in the same
+  migration that adds it, or record it as unclassified. It MUST NOT be possible for an
+  instrument to enter the universe with no classification state at all, because that is the
+  condition this feature exists to end.
+- **FR-026**: The interface MUST distinguish "unclassified" from a missing value. An
+  unclassified instrument states that it is unclassified; no row shows an empty sector cell.
 
 ### Test-First Proof *(mandatory)*
 
@@ -243,12 +251,11 @@ and no sector filter is present anywhere in the interface.
 - **Green evidence**: The Go listing suite (`server/internal/instruments`), the API contract
   suite (`server/internal/api`), the Vitest suites for the Markets view and the listing service,
   and the Playwright journeys across the mobile, tablet and desktop projects.
-- **Database migration proof**: If sector data is carried, an ordered migration introduces it,
-  and a migration test MUST prove that a clean database and an upgraded database both end with
-  every curated instrument classified, with no manual step. If sector is removed instead, a
-  migration test MUST prove the column's removal or disuse leaves the listing query working on
-  a database that still holds the old column. State N/A only if neither is chosen, which
-  FR-020 forbids.
+- **Database migration proof**: An ordered migration introduces the classification vocabulary
+  and the classification of every instrument in the curated universe. A migration test MUST
+  prove that a clean installation and an upgrade from the current schema both end with every
+  curated instrument carrying a classification state and a recorded source, with no manual
+  step, and that the vocabulary constrains what may be stored.
 
 ### Responsive UI Behavior *(mandatory for user-facing features; otherwise state N/A)*
 
@@ -342,8 +349,8 @@ N/A. This feature adds no installability or notification behavior.
   bound the listing already meets today, and loading each further page stays within that bound.
 - **SC-008**: No filter offered in the interface can return an empty result for every possible
   choice.
-- **SC-009**: If sector is carried, every instrument in the curated universe states a sector or
-  states that it is unclassified; no instrument shows a blank.
+- **SC-009**: Every instrument in the curated universe states a sector or states that it is
+  unclassified; no instrument shows a blank, on a fresh installation and on an upgrade alike.
 - **SC-010**: A live change to an instrument on a page other than the first updates that
   instrument's row without moving the reader's position and without reloading the pages already
   read.
@@ -369,31 +376,39 @@ N/A. This feature adds no installability or notification behavior.
 - Live updates continue to use the event types already published. This feature defines client
   behavior over multiple loaded pages and adds no new event.
 - The deployment's current market-data subscription excludes fundamental data, so sector cannot
-  be fetched from the provider without a plan change. This is a commercial decision, not a
-  technical one, and is the subject of Question 1.
-- Industry, the finer classification beneath sector, is out of scope unless it arrives free with
-  whatever answers the sector question. The interface offers no industry filter today.
+  be fetched from the provider without a plan change. Curated reference data was chosen instead
+  (see *Resolved decisions*), which means classification is deliberately independent of the
+  provider and of the subscription remaining active.
+- The classification is the project's own editorial judgement about each company, recorded with
+  its source, using conventional sector names. It is not a reproduction of a licensed
+  classification's assignments, and the specification does not claim conformance to one.
+- Around a hundred hand-curated companies is a size a person can classify once and review
+  occasionally. The assumption fails if the universe grows to a size nobody will re-review, at
+  which point the provider question returns on its own merits.
+- Industry, the finer classification beneath sector, stays out of scope. The interface offers no
+  industry filter today and the same argument would have to be made again for it.
 - Unrelated but recorded because it threatens the data this screen displays: the provider
   subscription is cancelled and the key expires 2026-09-29. Nothing in this feature depends on
   it, but every import after that date does.
 
-## Open Questions
+## Resolved decisions
 
-### Question 1: Where does sector classification come from?
+### Sector classification comes from curated reference data (decided 2026-09-02)
 
-**Context**: FR-020 forbids offering a filter that can only return nothing, and FR-023 marks the
-source of sector data as undecided. Sector is currently null for all 100 instruments: the
-universe seed migration never populated it, the code path that would write it has no caller, and
-the deployment's market-data plan excludes fundamental data.
-
-**What we need to know**: Which source should carry sector and industry classification for the
-curated universe?
+Sector is null for all 100 instruments today: the universe seed migration never populated it,
+the code path that would write it has no caller, and the deployment's market-data plan excludes
+fundamental data, so the provider cannot supply it. Three resolutions were weighed.
 
 | Option | Answer | Implications |
 |--------|--------|--------------|
-| A | Carry sector as curated reference data, introduced and maintained by ordered migration | No provider dependency and no new cost. One hundred classifications are reviewed once and change rarely. Staleness is possible and must be visible, which FR-024 requires. Adding an instrument to the universe means classifying it in the same migration that adds it. |
-| B | Upgrade the market-data subscription to a plan that includes fundamental data, and fetch classification from the provider | Classification stays current without human review and extends to any future universe. It costs roughly five times the current subscription for this one field today, adds a provider surface to build and test, and makes a displayed column dependent on a paid plan remaining active. |
-| C | Remove the sector column, the sector filter and the sector sort from the interface | Smallest change and no false promise. The reader loses a way to slice the universe that the product's own vision assumes will exist later, so it is likely to return as work rather than being settled. |
-| Custom | Provide your own answer | For example: carry a coarse classification by migration now and revisit if the universe grows beyond hand curation. |
+| **A (chosen)** | Carry sector as curated reference data, introduced and maintained by ordered migration | No provider dependency and no new cost. One hundred classifications are reviewed once and change rarely. Staleness is possible and must therefore be visible, which FR-024 requires. Adding an instrument to the universe means classifying it in the same migration that adds it, which FR-025 requires. |
+| B | Upgrade the market-data subscription to a plan including fundamental data | Classification stays current without human review and extends to any future universe. It costs roughly five times the current subscription for this one field today, adds a provider surface to build and test, and makes a displayed column dependent on a paid plan remaining active. |
+| C | Remove the sector column, filter and sort | Smallest change and no false promise, but the product's own direction assumes slicing the universe by sector, so it would return as work rather than being settled. |
 
-**Your choice**: _[Wait for user response]_
+**Chosen: A.** The universe is hand-curated at a size a person can classify, the classification
+changes on the order of years, and making a visible column depend on a subscription — one that
+is currently cancelled — would trade a small cost for a standing fragility. The consequences
+Option A carries are written into the requirements rather than left implicit: a fixed vocabulary
+(FR-023), recorded provenance and review date (FR-024), classification at the moment an
+instrument joins the universe (FR-025), and "unclassified" as a stated value rather than an
+empty cell (FR-021, FR-026).
