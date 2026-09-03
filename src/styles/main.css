@@ -85,7 +85,22 @@ a { color: inherit; }
   font-size: .8rem;
   letter-spacing: .04em;
 }
-.app-content { width: min(72rem, 100%); margin: 0 auto; padding: clamp(2rem, 7vw, 6rem) 1.5rem; }
+/*
+  The application is read on a desk. It was capped at 72rem, so a 1920 or 2560 pixel display
+  showed a 1150-pixel column with several hundred pixels of empty ground on each side, and the
+  tables that are the whole point of the screen scrolled or crowded inside it while the space to
+  fix that sat unused.
+  Width is given to the dense content; prose keeps its own narrower caps below, because a
+  1700-pixel line of text is harder to read, not easier.
+*/
+.app-content { width: min(110rem, 100%); margin: 0 auto; padding: clamp(1.5rem, 3vw, 3rem) clamp(1rem, 2vw, 2.5rem); }
+
+/*
+  Forms and other single-column panels stop well short of the full width. A text field stretched
+  across 1700 pixels is not more usable; it just makes the eye travel from a label on the left to
+  a value on the right with nothing in between.
+*/
+.form-panel, .account-view > .p-panel { max-width: 64rem; }
 .hero { max-width: 48rem; }
 .hero h1 { margin: 1rem 0 .75rem; font-size: clamp(3rem, 8vw, 5.5rem); line-height: .95; letter-spacing: -.055em; }
 .hero > p { margin: 0 0 2.5rem; max-width: 38rem; font-size: clamp(1.15rem, 3vw, 1.5rem); color: color-mix(in srgb, currentColor 70%, transparent); }
