@@ -144,3 +144,29 @@ describe('InstrumentTable sector', () => {
     expect(wrapper.text()).not.toContain('health_care');
   });
 });
+
+describe('InstrumentTable while loading', () => {
+  // A table's own overlay covers the table, and before any rows exist the table is only as tall
+  // as its header row — so the spinner landed on the column headings, pointing at the one part of
+  // the screen that was already finished.
+  it('shows a first load where the rows will be, not over the headings', () => {
+    const wrapper = mount(InstrumentTable, {
+      props: { rows: [], loading: true, sort: 'name', order: 'asc', visibleColumns: [] },
+      global: { plugins: [PrimeVue] },
+    });
+    expect(wrapper.find('[data-testid="loading-block"]').exists()).toBe(true);
+    expect(wrapper.find('.p-datatable-mask').exists()).toBe(false);
+    expect(wrapper.text().toLowerCase()).toContain('loading');
+  });
+
+  // A refresh is different: the reader can still see what they had and where new rows will land,
+  // so dimming the existing table in place is right.
+  it('keeps the rows visible while refreshing them', () => {
+    const wrapper = mount(InstrumentTable, {
+      props: { rows: [buildListingRow({ name: 'Interrupted History AB' })], loading: true, sort: 'name', order: 'asc', visibleColumns: [] },
+      global: { plugins: [PrimeVue] },
+    });
+    expect(wrapper.find('[data-testid="loading-block"]').exists()).toBe(false);
+    expect(wrapper.text()).toContain('Interrupted History AB');
+  });
+});

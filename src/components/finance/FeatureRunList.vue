@@ -3,6 +3,7 @@ import Message from 'primevue/message';
 import Tag from 'primevue/tag';
 import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
+import LoadingBlock from './LoadingBlock.vue';
 import type { FeatureRunSummary } from '@/types/marketData';
 
 const props = withDefaults(defineProps<{
@@ -58,7 +59,9 @@ function staleAfter(run: FeatureRunSummary): string {
 
     <Message v-if="props.error" severity="error" :closable="false">{{ props.error }}</Message>
 
-    <Message v-else-if="!props.loading && props.runs.length === 0" severity="info" :closable="false">
+    <LoadingBlock v-else-if="props.loading && props.runs.length === 0" label="Loading feature runs…" :rows="3" />
+
+    <Message v-else-if="props.runs.length === 0" severity="info" :closable="false">
       The feature engine has not run in this deployment. Until it does, the statistics on the
       market screens are absent rather than current.
     </Message>

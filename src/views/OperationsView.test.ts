@@ -185,3 +185,25 @@ describe('OperationsView strategy runs', () => {
     expect(wrapper.find('[data-testid="feature-run-list"]').exists()).toBe(true);
   });
 });
+
+describe('OperationsView while loading', () => {
+  beforeEach(() => {
+    vi.stubGlobal('EventSource', QuietEventSource);
+  });
+
+  // The spinner belongs where the rows will be. A table's own overlay covers the table, and
+  // before any rows exist that is only its header row — so it landed on the column headings.
+  it('shows a first load where each report will be, not over its headings', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})));
+    const wrapper = mount(OperationsView, { global: { plugins: [PrimeVue] } });
+    await flushPromises();
+
+    const blocks = wrapper.findAll('[data-testid="loading-block"]');
+    expect(blocks.length).toBeGreaterThanOrEqual(2);
+    expect(wrapper.text()).toContain('Loading feature runs…');
+    expect(wrapper.text()).toContain('Loading strategy runs…');
+    expect(wrapper.find('.p-datatable-mask').exists()).toBe(false);
+    // And it must not claim the engine has never run while it is still finding out.
+    expect(wrapper.text()).not.toContain('has not run in this deployment');
+  });
+});

@@ -136,3 +136,22 @@ describe('SignalsView', () => {
     expect(wrapper.text()).toContain('1 instrument scored');
   });
 });
+
+describe('SignalsView while loading', () => {
+  beforeEach(() => {
+    RecordingEventSource.instances = [];
+    vi.stubGlobal('EventSource', RecordingEventSource);
+  });
+
+  it('shows a first load where the ranking will be, not over its headings', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})));
+    const wrapper = mountView();
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="loading-block"]').exists()).toBe(true);
+    expect(wrapper.text()).toContain('Loading the ranking…');
+    expect(wrapper.find('[data-testid="signal-ranking"]').exists()).toBe(false);
+    // And it must not say no strategy has run while it is still asking.
+    expect(wrapper.text().toLowerCase()).not.toContain('no strategy has recorded');
+  });
+});
