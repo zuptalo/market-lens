@@ -113,8 +113,8 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="operations">
-    <header class="operations__header">
-      <p class="operations__eyebrow">Operations</p>
+    <header class="page-intro">
+      <p class="eyebrow">Operations</p>
       <h1>Data pipeline</h1>
       <p class="operations__lead">
         Whether the market data arrived, and whether it was turned into the statistics the
@@ -149,19 +149,6 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 2rem;
-  padding: 1rem;
-}
-
-.operations__eyebrow {
-  color: var(--p-text-muted-color);
-  letter-spacing: 0.08em;
-  margin: 0;
-  text-transform: uppercase;
-  font-size: 0.75rem;
-}
-
-.operations__header h1 {
-  margin: 0.25rem 0 0.5rem;
 }
 
 .operations__lead {
@@ -170,9 +157,4 @@ onBeforeUnmount(() => {
   max-width: 60ch;
 }
 
-@media (min-width: 768px) {
-  .operations {
-    padding: 1.5rem;
-  }
-}
 </style>

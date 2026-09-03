@@ -130,8 +130,8 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="signals">
-    <header class="signals__header">
-      <p class="signals__eyebrow">Strategies</p>
+    <header class="page-intro">
+      <p class="eyebrow">Strategies</p>
       <h1>The universe in a strategy's order</h1>
       <p v-if="strategy" class="signals__lead">
         {{ strategy.title }} ({{ strategy.name }} v{{ strategy.version }}) as of
@@ -222,19 +222,6 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
-  padding: 1rem;
-}
-
-.signals__eyebrow {
-  color: var(--p-text-muted-color);
-  letter-spacing: 0.08em;
-  margin: 0;
-  text-transform: uppercase;
-  font-size: 0.75rem;
-}
-
-.signals__header h1 {
-  margin: 0.25rem 0 0.5rem;
 }
 
 .signals__lead,

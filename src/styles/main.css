@@ -101,12 +101,31 @@ a { color: inherit; }
   a value on the right with nothing in between.
 */
 .form-panel, .account-view > .p-panel { max-width: 64rem; }
-.hero { max-width: 48rem; }
-.hero h1 { margin: 1rem 0 .75rem; font-size: clamp(3rem, 8vw, 5.5rem); line-height: .95; letter-spacing: -.055em; }
-.hero > p { margin: 0 0 2.5rem; max-width: 38rem; font-size: clamp(1.15rem, 3vw, 1.5rem); color: color-mix(in srgb, currentColor 70%, transparent); }
+.hero { max-width: 46rem; }
+.hero h1 { margin: .25rem 0 .75rem; font-size: clamp(2.5rem, 7vw, 4.5rem); line-height: 1; letter-spacing: -.045em; }
+/* :not(.eyebrow) so the shared page eyebrow keeps its own small size here; without it this rule
+   wins on specificity, renders the eyebrow at lead size, and pushes the title down the page. */
+.hero > p:not(.eyebrow) { margin: 0 0 2.5rem; max-width: 38rem; font-size: clamp(1.15rem, 3vw, 1.5rem); color: color-mix(in srgb, currentColor 70%, transparent); }
 .foundation-card { max-width: 42rem; }
 .foundation-card p { margin: 0; line-height: 1.7; }
 .markets-view { display: grid; gap: 2rem; }
+/* Every tab's own root sits flush inside the shell's padding; only the shell insets the page. */
+.signals, .operations { padding: 0; }
+/*
+  A page taller than the window takes a scrollbar and a short one does not, so moving from a long
+  tab to a short one shifted every column sideways by the width of the scrollbar. Reserving the
+  gutter costs nothing on a platform that overlays its scrollbars and stops the shift everywhere
+  else.
+*/
+html { scrollbar-gutter: stable; }
+
+/*
+  One page header for every destination in the primary navigation.
+  Each view had grown its own: three title sizes across five tabs, four vertical starting points,
+  and two views adding their own padding on top of the shell's. Moving between tabs shifted the
+  first heading by up to twenty-four pixels down and sixteen across — never enough for anyone to
+  name, always enough for the interface to feel loose. e2e/tab-consistency.spec.ts holds it.
+*/
 .page-intro { max-width: 46rem; }
 .page-intro h1 { margin: .25rem 0 .75rem; font-size: clamp(2.5rem, 7vw, 4.5rem); line-height: 1; letter-spacing: -.045em; }
 .page-intro > p:last-child { margin: 0; max-width: 42rem; color: color-mix(in srgb, currentColor 70%, transparent); font-size: 1.1rem; line-height: 1.65; }
