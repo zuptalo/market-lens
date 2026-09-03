@@ -1,5 +1,16 @@
 import { expect, test, type Page } from '@playwright/test';
 
+/**
+ * A session that is live *now*. Written relative to the clock rather than as fixed dates,
+ * because a signed-in device is one whose session has not expired — and a fixture that pins
+ * an expiry to a calendar date silently becomes an expired session as soon as that date
+ * passes, then asserts it is still listed.
+ */
+const liveSessionExpiry = {
+  idle: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString(),
+  absolute: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+};
+
 const account = {
   id: '10000000-0000-4000-8000-000000000001', email: 'owner@example.com', display_name: 'Owner',
   role: 'owner', status: 'active', email_verified_at: '2026-08-30T08:00:00Z',
@@ -121,7 +132,7 @@ async function mockOwnerAPI(
     return route.fulfill({ json: { items: [{
       id: '20000000-0000-4000-8000-000000000001', current: false, device_label: 'Chrome on Linux',
       created_at: '2026-08-30T08:00:00Z', last_seen_at: '2026-08-30T08:01:00Z',
-      idle_expires_at: '2026-08-30T16:01:00Z', absolute_expires_at: '2026-09-29T08:00:00Z', revoked: false,
+      idle_expires_at: liveSessionExpiry.idle, absolute_expires_at: liveSessionExpiry.absolute, revoked: false,
     }] } });
   });
   await page.route('**/api/v1/account/sessions/*', (route) => route.fulfill({ status: 204 }));
@@ -207,7 +218,7 @@ async function mockMemberSession(page: Page, state: { authenticated: boolean }):
   await page.route('**/api/v1/account/sessions', (route) => route.fulfill({ json: { items: [{
     id: '20000000-0000-4000-8000-0000000000a1', current: true, device_label: 'Member phone',
     created_at: '2026-08-30T08:00:00Z', last_seen_at: '2026-08-30T08:01:00Z',
-    idle_expires_at: '2026-08-30T16:01:00Z', absolute_expires_at: '2026-09-29T08:00:00Z', revoked: false,
+    idle_expires_at: liveSessionExpiry.idle, absolute_expires_at: liveSessionExpiry.absolute, revoked: false,
   }] } }));
   // Owner administration is refused for a member at the server, and nothing about what exists
   // behind it may appear in the refusal.
