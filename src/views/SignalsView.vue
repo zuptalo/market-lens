@@ -249,12 +249,6 @@ onBeforeUnmount(() => {
 .signals__table,
 .signals__unscored {
   --p-datatable-row-padding: 0.75rem;
-  /*
-    Five columns do not need seventeen hundred pixels. The shell gives its width to dense
-    content; a sparse table stretched to fill it just puts a wide empty gap between the last
-    column and the edge, and makes the eye travel further for less.
-  */
-  max-width: 84rem;
 }
 
 .signals__unscored {

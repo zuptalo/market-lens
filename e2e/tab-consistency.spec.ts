@@ -77,6 +77,42 @@ for (const width of [1440, 768, 390]) {
   });
 }
 
+/** How far the widest thing on the page reaches, against how far it is allowed to. */
+async function contentReach(page: Page) {
+  return page.evaluate(() => {
+    const main = document.querySelector('main.app-content') as HTMLElement;
+    const style = getComputedStyle(main);
+    const limit = main.getBoundingClientRect().right - parseFloat(style.paddingRight);
+    let widest = 0;
+    let widestLabel = '';
+    for (const el of Array.from(main.querySelectorAll('*'))) {
+      const box = el.getBoundingClientRect();
+      if (box.width === 0 || box.height === 0) continue;
+      if (box.right > widest) {
+        widest = box.right;
+        widestLabel = `${el.tagName.toLowerCase()}.${(el as HTMLElement).className || ''}`.slice(0, 60);
+      }
+    }
+    return { limit: Math.round(limit), widest: Math.round(widest), widestLabel };
+  });
+}
+
+// Each tab used to stop at a different right edge — the account panels at 64rem, the ranking at
+// 84rem, the overview card at 42rem, while market data and operations ran to the full width. The
+// device column was the visible cost: identifiers wrapped onto two lines inside a table that had
+// been given less room than the page had to give.
+test('every tab uses the same content width', async ({ page }) => {
+  await stub(page);
+  await page.setViewportSize({ width: 1600, height: 900 });
+  for (const tab of TABS) {
+    await page.goto(tab.path);
+    await expect(page.locator('main h1')).toBeVisible();
+    const reach = await contentReach(page);
+    expect(reach.widest, `${tab.name} stops ${reach.limit - reach.widest}px short of the page width (widest: ${reach.widestLabel})`)
+      .toBeGreaterThanOrEqual(reach.limit - 1);
+  }
+});
+
 // A page taller than the window takes a scrollbar and a short one does not, which moves every
 // tab's content sideways on the way in. Reserving the gutter costs nothing and stops it.
 test('a scrollbar appearing does not move the content sideways', async ({ page }) => {

@@ -3,10 +3,13 @@ import Card from 'primevue/card';
 </script>
 
 <template>
-  <section class="hero page-intro" aria-labelledby="page-title">
-    <p class="eyebrow">Foundation stage</p>
-    <h1 id="page-title">Market Lens</h1>
-    <p>Stock research and strategy experimentation platform</p>
+  <div class="overview" aria-labelledby="page-title">
+    <!-- The header keeps a narrow measure like every other tab; what follows spans the page. -->
+    <header class="hero page-intro">
+      <p class="eyebrow">Foundation stage</p>
+      <h1 id="page-title">Market Lens</h1>
+      <p>Stock research and strategy experimentation platform</p>
+    </header>
     <Card class="foundation-card">
       <template #title>Ready for specification-driven development</template>
       <template #content>
@@ -17,5 +20,12 @@ import Card from 'primevue/card';
         </p>
       </template>
     </Card>
-  </section>
+  </div>
 </template>
+
+<style scoped>
+.overview {
+  display: grid;
+  gap: 2rem;
+}
+</style>

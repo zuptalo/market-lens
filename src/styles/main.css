@@ -96,18 +96,21 @@ a { color: inherit; }
 .app-content { width: min(110rem, 100%); margin: 0 auto; padding: clamp(1.5rem, 3vw, 3rem) clamp(1rem, 2vw, 2.5rem); }
 
 /*
-  Forms and other single-column panels stop well short of the full width. A text field stretched
-  across 1700 pixels is not more usable; it just makes the eye travel from a label on the left to
-  a value on the right with nothing in between.
+  Panels span the page. Capping them made each tab stop at a different right edge — and the cost
+  was not only that the edges disagreed: the device column in Signed-in devices had less room than
+  the page had to give, so every identifier wrapped onto two lines.
+
+  A field inside a panel still keeps a sane measure; that belongs on the field, not on the panel
+  that contains it.
 */
-.form-panel, .account-view > .p-panel { max-width: 64rem; }
-.hero { max-width: 46rem; }
+.form-grid input, .form-grid .p-inputtext, .form-grid .p-password { max-width: 44rem; }
+/* The hero's own prose stays narrow through .page-intro; the section spans the page. */
 .hero h1 { margin: .25rem 0 .75rem; font-size: clamp(2.5rem, 7vw, 4.5rem); line-height: 1; letter-spacing: -.045em; }
 /* :not(.eyebrow) so the shared page eyebrow keeps its own small size here; without it this rule
    wins on specificity, renders the eyebrow at lead size, and pushes the title down the page. */
 .hero > p:not(.eyebrow) { margin: 0 0 2.5rem; max-width: 38rem; font-size: clamp(1.15rem, 3vw, 1.5rem); color: color-mix(in srgb, currentColor 70%, transparent); }
-.foundation-card { max-width: 42rem; }
-.foundation-card p { margin: 0; line-height: 1.7; }
+/* The card spans the page like every other panel; its text keeps a readable measure inside it. */
+.foundation-card p { margin: 0; line-height: 1.7; max-width: 70ch; }
 .markets-view { display: grid; gap: 2rem; }
 /* Every tab's own root sits flush inside the shell's padding; only the shell insets the page. */
 .signals, .operations { padding: 0; }
