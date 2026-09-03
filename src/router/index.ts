@@ -10,9 +10,10 @@ import OwnerSetupView from '@/views/OwnerSetupView.vue';
 import AcceptInvitationView from '@/views/AcceptInvitationView.vue';
 import AccountSettingsView from '@/views/AccountSettingsView.vue';
 import { authStore } from '@/stores/auth';
+import type { AuthStatus } from '@/types/auth';
 
 export interface RouteAuthStore {
-  state: { status: 'unknown' | 'anonymous' | 'authenticated' };
+  state: { status: AuthStatus };
   restore(): Promise<void>;
 }
 
@@ -35,6 +36,12 @@ export function createMarketLensRouter(history: RouterHistory, auth: RouteAuthSt
     if (to.meta.public === true) return true;
     await auth.restore();
     if (auth.state.status === 'authenticated') return true;
+    // The server not answering is not the server saying no. A release rolls a new pod and for a
+    // few seconds nothing responds; sending a signed-in person to the login page then is a lie,
+    // and one they pay for — they sign in again, which leaves their real session valid and
+    // unrevoked and adds a dead entry to their device list. Let them stay; the views report the
+    // outage themselves and the store retries.
+    if (auth.state.status === 'unreachable') return true;
     return { path: '/login', query: { redirect: to.fullPath } };
   });
   // Authorization can end between navigations: a revoked session or a deactivated account closes

@@ -1,5 +1,16 @@
 import { expect, test, type Page } from '@playwright/test';
 
+/**
+ * A session that is live *now*. Written relative to the clock rather than as fixed dates,
+ * because a signed-in device is one whose session has not expired — and a fixture that pins
+ * an expiry to a calendar date silently becomes an expired session as soon as that date
+ * passes, then asserts it is still listed.
+ */
+const liveSessionExpiry = {
+  idle: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString(),
+  absolute: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+};
+
 // Every viewport this product commits to, including the 320-pixel floor it must tolerate.
 const VIEWPORTS = [
   { name: '320 floor', width: 320, height: 800 },
@@ -360,7 +371,7 @@ async function mockAccount(page: Page, authenticated: boolean): Promise<void> {
   await page.route('**/api/v1/account/sessions', (route) => route.fulfill({ json: { items: [{
     id: '20000000-0000-4000-8000-000000000001', current: true, device_label: 'Chrome on macOS',
     created_at: '2026-08-31T08:00:00Z', last_seen_at: '2026-08-31T08:01:00Z',
-    idle_expires_at: '2026-08-31T16:01:00Z', absolute_expires_at: '2026-09-30T08:00:00Z', revoked: false,
+    idle_expires_at: liveSessionExpiry.idle, absolute_expires_at: liveSessionExpiry.absolute, revoked: false,
   }] } }));
   await page.route('**/api/v1/owner/members', (route) => route.fulfill({ json: { members: [{
     id: '10000000-0000-4000-8000-000000000601', email: 'member@example.com', display_name: 'Member',

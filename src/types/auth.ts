@@ -2,7 +2,12 @@ import type { ConnectionState } from './marketData';
 
 export type AccountRole = 'owner' | 'member';
 export type AccountStatus = 'active' | 'deactivated';
-export type AuthStatus = 'unknown' | 'anonymous' | 'authenticated';
+/**
+ * `anonymous` means the server said the caller is not signed in. `unreachable` means it did not
+ * say anything — the request failed before an answer came back. Collapsing the two is what sent
+ * a signed-in person to the login page every time the deployment rolled a new pod.
+ */
+export type AuthStatus = 'unknown' | 'anonymous' | 'authenticated' | 'unreachable';
 
 export interface Account {
   id: string;

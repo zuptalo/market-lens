@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
 import Button from 'primevue/button';
@@ -6,8 +7,30 @@ import Panel from 'primevue/panel';
 import Tag from 'primevue/tag';
 import type { Session } from '@/types/auth';
 
-defineProps<{ sessions: Session[]; busy?: boolean }>();
+const props = defineProps<{ sessions: Session[]; busy?: boolean }>();
 defineEmits<{ revoke: [sessionID: string]; revokeAll: []; logout: [] }>();
+
+/**
+ * A session that can no longer authenticate is not a signed-in device.
+ *
+ * The server has always sent both expiry times; this screen used to show every session it had
+ * ever created and decide "live" purely on whether somebody had revoked it. So an ordinary
+ * expired session — nothing wrong with it, nobody revoked it because there was nothing to
+ * revoke — sat in the list with a Revoke button, and the list grew by one every time a person
+ * signed in again. Somebody auditing their devices saw ten where they had one, which is the
+ * opposite of what a security screen is for.
+ */
+function live(session: Session, now: number): boolean {
+  if (session.revoked) return false;
+  return Date.parse(session.idleExpiresAt) > now && Date.parse(session.absoluteExpiresAt) > now;
+}
+
+const active = computed(() => {
+  const now = Date.now();
+  return props.sessions.filter((session) => live(session, now));
+});
+
+const endedCount = computed(() => props.sessions.length - active.value.length);
 </script>
 
 <template>
@@ -27,9 +50,12 @@ defineEmits<{ revoke: [sessionID: string]; revokeAll: []; logout: [] }>();
     </template>
 
     <p v-if="sessions.length === 0" class="empty-state">No sessions are available.</p>
+    <p v-else-if="active.length === 0" class="empty-state">
+      No device is currently signed in. Every session on this account has expired or been revoked.
+    </p>
     <div v-else class="data-scroll">
     <DataTable
-      :value="sessions"
+      :value="active"
       data-key="id"
       aria-label="Signed-in devices"
     >
@@ -46,9 +72,7 @@ defineEmits<{ revoke: [sessionID: string]; revokeAll: []; logout: [] }>();
       </Column>
       <Column header="Actions" :pt="{ bodyCell: { 'data-label': 'Actions' } }">
         <template #body="{ data }">
-          <span v-if="data.revoked">Revoked</span>
           <Button
-            v-else
             type="button" size="small" severity="danger" label="Revoke"
             :disabled="busy" :aria-label="`Revoke ${data.deviceLabel}`"
             @click="$emit('revoke', data.id)" />
@@ -56,6 +80,15 @@ defineEmits<{ revoke: [sessionID: string]; revokeAll: []; logout: [] }>();
       </Column>
     </DataTable>
     </div>
+
+    <!--
+      Stated rather than silently dropped: somebody who expected to see an old phone here needs
+      to know it is gone because its session ended, not because the screen forgot it.
+    -->
+    <p v-if="endedCount > 0" class="session-list__ended">
+      {{ endedCount }} earlier session{{ endedCount === 1 ? '' : 's' }} on this account
+      {{ endedCount === 1 ? 'has' : 'have' }} expired or been revoked and can no longer sign in.
+    </p>
 
     <template #footer>
       <Button
