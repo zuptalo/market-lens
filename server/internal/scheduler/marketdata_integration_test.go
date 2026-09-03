@@ -505,3 +505,40 @@ func TestAQuietRunTriggersNoRecomputation(t *testing.T) {
 		t.Fatalf("a pass over an unchanged source reported %d corrections", revised)
 	}
 }
+
+// TestTheScheduledPassReExaminesAnOpenFinding closes the gap research R-009 recorded.
+//
+// WidenToUnsettled exists so an import reaches back far enough to re-examine a session with an
+// open data-quality finding, and its own comment records why: without it such findings "can
+// never be re-examined and stay open for good. Production held eight of them, all raised by a
+// validation rule that had since been corrected." Only the backfill command applied it. The
+// scheduled pass — the one that runs every night without anybody deciding to — did not, so a
+// finding older than the re-observation window stayed open no matter how many nights passed.
+func TestTheScheduledPassReExaminesAnOpenFinding(t *testing.T) {
+	fixture := newSourceFixture(t, 12)
+	for index := range fixture.sessions {
+		fixture.run(index, 1)
+	}
+
+	// A finding on a session well outside the five-session window.
+	stale := fixture.sessions[2]
+	fixture.exec(`INSERT INTO data_quality_findings
+		(id, instrument_id, session_date, run_id, rule, severity, disposition, detail, status, created_at)
+		SELECT gen_random_uuid(), $1, $2::date, id, 'suspicious_jump', 'warning', 'flagged',
+		       'raised by a rule that has since been corrected', 'open', now()
+		FROM import_runs ORDER BY started_at LIMIT 1`,
+		reobserveInstrument.String(), stale)
+
+	fixture.requests = nil
+	fixture.run(len(fixture.sessions)-1, 5)
+
+	if len(fixture.requests) == 0 {
+		t.Fatalf("the pass asked the source nothing")
+	}
+	for _, request := range fixture.requests {
+		if request.From.String() > stale {
+			t.Fatalf("the pass asked from %s, which never reaches the open finding at %s — so the "+
+				"finding can never be re-examined", request.From, stale)
+		}
+	}
+}
