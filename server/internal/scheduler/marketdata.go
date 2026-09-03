@@ -134,6 +134,11 @@ func (s *MarketData) RunDue(ctx context.Context, now time.Time) error {
 		if start, known := starts[targets[index].InstrumentID]; known && start < date {
 			targets[index].From = start
 		}
+		// And far enough back to re-examine anything still open. Only the backfill command
+		// applied this, so a finding older than the re-observation window could never be
+		// re-examined by the pass that runs every night — the exact trap WidenToUnsettled was
+		// written for, left open on the one path nobody has to remember to run.
+		targets[index].From = marketdata.WidenToUnsettled(targets[index].From, targets[index].EarliestUnsettled)
 	}
 	run, err := s.importer.Import(ctx, marketdata.ImportRequest{
 		Kind: marketdata.ImportDailyUpdate, Provider: s.config.Provider, AppVersion: s.config.AppVersion,
