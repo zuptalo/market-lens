@@ -15,6 +15,28 @@ describe('authentication route guard', () => {
     expect(router.currentRoute.value.query.redirect).toBe('/markets?country=SE');
   });
 
+  // A release rolls a new pod, and for a few seconds nothing answers. Sending somebody to the
+  // login page then is a lie — they are signed in, the server just cannot be reached — and it
+  // cost them their place and created a second session when they signed in again.
+  it('keeps somebody where they are when the server cannot be reached', async () => {
+    const auth = routeAuth('unreachable');
+    const router = createMarketLensRouter(createMemoryHistory(), auth);
+
+    await router.push('/markets?country=SE');
+    await router.isReady();
+
+    expect(router.currentRoute.value.path).toBe('/markets');
+    expect(router.currentRoute.value.query.country).toBe('SE');
+  });
+
+  it('still leaves a signed-out person at the login page', async () => {
+    const auth = routeAuth('anonymous');
+    const router = createMarketLensRouter(createMemoryHistory(), auth);
+    await router.push('/operations');
+    await router.isReady();
+    expect(router.currentRoute.value.path).toBe('/login');
+  });
+
   it('allows authenticated market access and keeps login public', async () => {
     const auth = routeAuth('authenticated');
     const router = createMarketLensRouter(createMemoryHistory(), auth);

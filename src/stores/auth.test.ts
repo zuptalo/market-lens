@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Account, AuthenticationResult, Session } from '@/types/auth';
 import { createAuthStore, type AuthAPI, type AuthEventStream } from './auth';
+import { AuthRequestError } from '@/services/auth';
 
 const account: Account = {
   id: '10000000-0000-4000-8000-000000000001', email: 'owner@example.com', displayName: 'Owner',
@@ -128,13 +129,16 @@ describe('auth store', () => {
     expect(rosterRefreshed).not.toHaveBeenCalled();
   });
 
-  it('reports anonymous restore without leaking server error details', async () => {
+  // An unreadable answer is not the server saying "not signed in" either, so the status is
+  // 'unreachable' rather than 'anonymous'. The claim this test exists for is unchanged: whatever
+  // went wrong, nothing the server said reaches the state a person can read.
+  it('reports a failed restore without leaking server error details', async () => {
     const api = fakeAPI();
     api.account.mockRejectedValueOnce(new Error('cookie=raw-secret'));
     const store = createAuthStore(api, () => fakeStream());
 
     await store.restore();
-    expect(store.state).toMatchObject({ status: 'anonymous', account: null, error: null });
+    expect(store.state).toMatchObject({ status: 'unreachable', account: null, error: null });
     expect(JSON.stringify(store.state)).not.toContain('raw-secret');
   });
 });
@@ -194,3 +198,77 @@ function fakeStream() {
     callbacks: () => captured,
   } satisfies AuthEventStream & { callbacks: () => typeof captured };
 }
+
+describe('auth store when the server is unreachable', () => {
+  // The deployment rolls a new pod on every release. For the seconds the old pod is gone, any
+  // request fails with a network or gateway error — and the store treated that exactly like a
+  // 401, declared itself anonymous, and let the router send a signed-in person to the login
+  // page. They signed in again, which created a second session while the first was still
+  // perfectly valid, which is why the device list accumulated one entry per release.
+  //
+  // A server that cannot be reached has not said anything. Only a server that answers 401 or
+  // 403 has said the caller is not signed in.
+  it('does not sign a person out because it could not reach the server', async () => {
+    const api = fakeAPI();
+    api.account = vi.fn().mockRejectedValue(new AuthRequestError(0, 'network_error', 'unavailable'));
+    const store = createAuthStore(api, () => fakeStream());
+
+    await store.restore();
+
+    expect(store.state.status).not.toBe('anonymous');
+    expect(store.state.status).toBe('unreachable');
+  });
+
+  it('signs a person out only when the server actually says so', async () => {
+    for (const status of [401, 403]) {
+      const api = fakeAPI();
+      api.account = vi.fn().mockRejectedValue(new AuthRequestError(status, 'unauthorized', 'no'));
+      const store = createAuthStore(api, () => fakeStream());
+      await store.restore();
+      expect(store.state.status).toBe('anonymous');
+    }
+  });
+
+  // A gateway error during a rollout is the same class of event as a dropped connection.
+  it('treats a gateway error as unreachable rather than as a sign-out', async () => {
+    for (const status of [500, 502, 503, 504]) {
+      const api = fakeAPI();
+      api.account = vi.fn().mockRejectedValue(new AuthRequestError(status, 'unavailable', 'no'));
+      const store = createAuthStore(api, () => fakeStream());
+      await store.restore();
+      expect(store.state.status).toBe('unreachable');
+    }
+  });
+
+  // The same rule on a refresh triggered by an event, where the person is already signed in and
+  // looking at their data. Losing it to a blip is worse: they were mid-task.
+  it('keeps an established session through a failed refresh', async () => {
+    const api = fakeAPI();
+    const stream = fakeStream();
+    const store = createAuthStore(api, () => stream);
+    await store.restore();
+    expect(store.state.status).toBe('authenticated');
+
+    // The refresh a stream event triggers, which is how it happens in production.
+    api.account = vi.fn().mockRejectedValue(new AuthRequestError(0, 'network_error', 'unavailable'));
+    stream.callbacks().onInvalidate({ id: 'e1', type: 'account.changed.v1', entityType: 'account', entityId: account.id });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(store.state.status).toBe('authenticated');
+    expect(store.state.account).not.toBeNull();
+  });
+
+  it('recovers on its own once the server answers again', async () => {
+    const api = fakeAPI();
+    api.account = vi.fn().mockRejectedValue(new AuthRequestError(0, 'network_error', 'unavailable'));
+    const store = createAuthStore(api, () => fakeStream());
+    await store.restore();
+    expect(store.state.status).toBe('unreachable');
+
+    api.account = vi.fn().mockResolvedValue(account);
+    await store.restore();
+
+    expect(store.state.status).toBe('authenticated');
+  });
+});

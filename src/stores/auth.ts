@@ -1,7 +1,7 @@
 import { reactive } from 'vue';
 import type { AcceptInvitationInput, Account, AccountStatus, AuthenticationResult, AuthState, Invitation, InvitationPage, Member, MemberCodeInput, MemberPage, OwnerLoginInput, OwnerSetupInput, IntegrationSettingsView, IntegrationUpdateInput, Session, IntegrationResults } from '@/types/auth';
 import type { AuthEventCallbacks } from '@/services/events';
-import { AuthClient } from '@/services/auth';
+import { AuthClient, AuthRequestError } from '@/services/auth';
 import { AuthorizedEventStream } from '@/services/events';
 
 export interface AuthAPI {
@@ -40,6 +40,18 @@ export interface AuthEventStream {
 // authorized mutations. It is not a bearer credential: the HttpOnly session cookie authenticates
 // the caller, while this token only proves the request came from this application's own code.
 const CSRF_COOKIE = '__Host-market_lens_csrf';
+
+/**
+ * Whether the server actually said the caller is not signed in.
+ *
+ * Only 401 and 403 are that statement. A network failure, a gateway error while the deployment
+ * rolls a new pod, or an unreadable body are all "no answer" — and treating them as a sign-out
+ * meant a release logged everyone out, left their real session valid and unrevoked, and added
+ * one dead entry to their device list each time.
+ */
+function saidNotSignedIn(cause: unknown): boolean {
+  return cause instanceof AuthRequestError && (cause.status === 401 || cause.status === 403);
+}
 
 function readCSRFCookie(): string | null {
   if (typeof document === 'undefined') return null;
@@ -108,8 +120,14 @@ export function createAuthStore(api: AuthAPI, streamFactory: () => AuthEventStre
     try {
       state.account = await api.account();
       state.status = 'authenticated';
-    } catch {
-      clearAuthentication();
+    } catch (cause) {
+      if (saidNotSignedIn(cause)) {
+        clearAuthentication();
+        return;
+      }
+      // The server did not answer. The person is still signed in as far as anyone knows, and
+      // they are mid-task; the stream's own reconnection reports the outage.
+      state.connection = 'reconnecting';
     }
   }
 
@@ -117,7 +135,8 @@ export function createAuthStore(api: AuthAPI, streamFactory: () => AuthEventStre
     state,
     async setupStatus(): Promise<{ setupRequired: boolean }> { return api.setupStatus(); },
     async restore(): Promise<void> {
-      if (state.status !== 'unknown') return;
+      // 'unreachable' is retried: the server was rolling and may be back.
+      if (state.status !== 'unknown' && state.status !== 'unreachable') return;
       try {
         state.account = await api.account();
         state.status = 'authenticated';
@@ -125,7 +144,12 @@ export function createAuthStore(api: AuthAPI, streamFactory: () => AuthEventStre
         state.error = null;
         stream.setAudience({ userId: state.account.id, role: state.account.role });
         stream.start();
-      } catch {
+      } catch (cause) {
+        if (!saidNotSignedIn(cause)) {
+          state.status = 'unreachable';
+          state.connection = 'reconnecting';
+          return;
+        }
         clearAuthentication();
       }
     },
