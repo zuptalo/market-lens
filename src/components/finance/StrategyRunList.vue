@@ -3,6 +3,7 @@ import Message from 'primevue/message';
 import Tag from 'primevue/tag';
 import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
+import LoadingBlock from './LoadingBlock.vue';
 import type { StrategyRunSummary } from '@/types/marketData';
 
 const props = withDefaults(defineProps<{
@@ -57,7 +58,9 @@ function keptEarlier(run: StrategyRunSummary): string {
 
     <Message v-if="props.error" severity="error" :closable="false">{{ props.error }}</Message>
 
-    <Message v-else-if="!props.loading && props.runs.length === 0" severity="info" :closable="false">
+    <LoadingBlock v-else-if="props.loading && props.runs.length === 0" label="Loading strategy runs…" :rows="3" />
+
+    <Message v-else-if="props.runs.length === 0" severity="info" :closable="false">
       No strategy has run in this deployment. Until one does, the instrument and ranking screens
       have no view to show rather than a stale one.
     </Message>

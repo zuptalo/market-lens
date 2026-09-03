@@ -2,6 +2,7 @@
 import { ref } from 'vue';
 import Button from 'primevue/button';
 import QualityBadge from './QualityBadge.vue';
+import LoadingBlock from './LoadingBlock.vue';
 import LiveConnectionBadge from './LiveConnectionBadge.vue';
 import type { ConnectionState, ImportRunSummary } from '@/types/marketData';
 
@@ -34,7 +35,7 @@ async function copyRetry(runID: string): Promise<void> {
       <LiveConnectionBadge :connection-state="connectionState" />
     </div>
 
-    <p v-if="loading" role="status">Loading market-data status…</p>
+    <LoadingBlock v-if="loading" label="Loading recent imports…" :rows="3" />
     <p v-else-if="error" role="alert" class="status-error">{{ error }}</p>
     <p v-else-if="runs.length === 0" class="empty-state">No market-data imports have run yet.</p>
 

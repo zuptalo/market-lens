@@ -41,7 +41,8 @@ describe('MarketDataStatus', () => {
 
   it('provides explicit loading and failure states', () => {
     const loading = mount(MarketDataStatus, { props: { runs: [], connectionState: 'reconnecting', loading: true } });
-    expect(loading.get('[role="status"]').text()).toContain('Loading market-data status');
+    // The wording follows the panel's own heading; what matters is that it is announced.
+    expect(loading.get('[role="status"]').text()).toContain('Loading recent imports');
     const failed = mount(MarketDataStatus, { props: { runs: [], connectionState: 'offline', error: 'Unable to load market-data status.' } });
     expect(failed.get('[role="alert"]').text()).toBe('Unable to load market-data status.');
   });

@@ -4,6 +4,7 @@ import Message from 'primevue/message';
 import Tag from 'primevue/tag';
 import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
+import LoadingBlock from '@/components/finance/LoadingBlock.vue';
 import { RouterLink } from 'vue-router';
 import {
   MarketDataLive,
@@ -142,8 +143,10 @@ onBeforeUnmount(() => {
 
     <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
 
+    <LoadingBlock v-else-if="loading && items.length === 0" label="Loading the ranking…" :rows="10" />
+
     <Message
-      v-else-if="!loading && items.length === 0"
+      v-else-if="items.length === 0"
       severity="info"
       :closable="false"
     >

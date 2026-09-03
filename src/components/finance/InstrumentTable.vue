@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import Column from 'primevue/column';
+import LoadingBlock from './LoadingBlock.vue';
 import DataTable, { type DataTableSortEvent } from 'primevue/datatable';
 import { formatDecimal, formatDecimalPercent, formatPercent } from '@/utils/decimal';
 import type { InstrumentListingRow, ListingSort } from '@/types/marketData';
@@ -91,7 +92,14 @@ function freshnessLabel(row: InstrumentListingRow): string {
 </script>
 
 <template>
+  <!--
+    A first load stands where the rows will be. The table's own overlay covers the table, and
+    before any rows exist that is just the header row, so the spinner landed on the column
+    headings. A refresh keeps the rows and dims them in place instead.
+  -->
+  <LoadingBlock v-if="props.loading && props.rows.length === 0" label="Loading instruments…" :rows="8" />
   <DataTable
+    v-else
     :value="props.rows"
     :loading="props.loading"
     :sort-field="props.sort"
