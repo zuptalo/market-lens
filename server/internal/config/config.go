@@ -17,12 +17,16 @@ type MarketDataConfig struct {
 	// source about, so a close restated after the fact is noticed. Sessions, not calendar days:
 	// the exchanges keep different holiday calendars.
 	ReobserveSessions int
-	DailyHour         int
-	DailyMinute       int
-	DailyLocation     *time.Location
-	RequestTimeout    time.Duration
-	MaxRetries        int
-	Workers           int
+	// MaxReachSessions caps how far back the scheduled pass may reach on account of an open
+	// data quality finding, whatever that finding's age. Without it, one finding raised on an
+	// old session makes every subsequent nightly pass unbounded.
+	MaxReachSessions int
+	DailyHour        int
+	DailyMinute      int
+	DailyLocation    *time.Location
+	RequestTimeout   time.Duration
+	MaxRetries       int
+	Workers          int
 }
 
 type Config struct {
@@ -106,6 +110,13 @@ func loadMarketData() (MarketDataConfig, error) {
 	if err != nil {
 		return MarketDataConfig{}, err
 	}
+	// About a trading year. The reach exists to re-examine a finding, so a bound shorter than
+	// the interval between an operator's backfills would make the mechanism useless; much
+	// longer and one old finding costs a years-wide request every night.
+	maxReachSessions, err := boundedInt("MARKET_DATA_MAX_REACH_SESSIONS", 260, 1, 2600)
+	if err != nil {
+		return MarketDataConfig{}, err
+	}
 
 	provider := valueOrDefault("MARKET_DATA_PROVIDER", "eodhd")
 	if provider == "" {
@@ -117,6 +128,7 @@ func loadMarketData() (MarketDataConfig, error) {
 		APIToken:          strings.TrimSpace(os.Getenv("EODHD_API_TOKEN")),
 		ScheduleEnabled:   scheduleEnabled,
 		ReobserveSessions: reobserveSessions,
+		MaxReachSessions:  maxReachSessions,
 		DailyHour:         dailyTime.Hour(),
 		DailyMinute:       dailyTime.Minute(),
 		DailyLocation:     dailyLocation,

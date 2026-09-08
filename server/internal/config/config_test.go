@@ -160,3 +160,43 @@ func TestReobserveSessionsIsBoundedAndRefused(t *testing.T) {
 		})
 	}
 }
+
+// TestMaxReachIsBoundedAndRefused covers how far back the scheduled pass may reach on account of
+// a data quality finding. Refused rather than clamped, for the same reason as the re-observation
+// window: an operator who sets a value believing it covers a decade must find out that it does not.
+func TestMaxReachIsBoundedAndRefused(t *testing.T) {
+	t.Run("defaults to about a trading year", func(t *testing.T) {
+		t.Setenv("DATABASE_URL", "postgres://example")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load: %v", err)
+		}
+		if cfg.MarketData.MaxReachSessions != 260 {
+			t.Fatalf("default reach is %d sessions, wanted 260", cfg.MarketData.MaxReachSessions)
+		}
+	})
+	for _, accepted := range []string{"1", "260", "2600"} {
+		t.Run("accepts "+accepted, func(t *testing.T) {
+			t.Setenv("DATABASE_URL", "postgres://example")
+			t.Setenv("MARKET_DATA_MAX_REACH_SESSIONS", accepted)
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("%s was refused: %v", accepted, err)
+			}
+			if got := strconv.Itoa(cfg.MarketData.MaxReachSessions); got != accepted {
+				t.Fatalf("configured %s, read %s", accepted, got)
+			}
+		})
+	}
+	for _, refused := range []string{"0", "-1", "2601", "many", ""} {
+		t.Run("refuses "+refused, func(t *testing.T) {
+			t.Setenv("DATABASE_URL", "postgres://example")
+			t.Setenv("MARKET_DATA_MAX_REACH_SESSIONS", refused)
+			if _, err := Load(); err == nil {
+				t.Fatalf("%q was accepted; an out-of-range reach must be refused, not clamped", refused)
+			} else if !strings.Contains(err.Error(), "MARKET_DATA_MAX_REACH_SESSIONS") {
+				t.Fatalf("the error does not name the setting: %v", err)
+			}
+		})
+	}
+}

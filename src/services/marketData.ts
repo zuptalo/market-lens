@@ -18,6 +18,7 @@ import type {
   StrategyDefinition,
   StrategyFactor,
   StrategyRunSummary,
+  QualityFinding,
 } from '@/types/marketData';
 
 export interface LiveEvent {
@@ -701,4 +702,54 @@ export async function fetchStrategyRuns(fetcher: Fetcher = fetch, signal?: Abort
     triggerFeatureRunId: run.trigger_feature_run_id ?? null,
     appVersion: run.app_version ?? null,
   }));
+}
+
+interface QualityFindingWire {
+  id: string;
+  instrument_id: string;
+  session_date?: string | null;
+  rule: string;
+  severity: 'warning' | 'error';
+  detail: string;
+  status: string;
+  reexamined_at?: string | null;
+  awaiting_decision?: boolean;
+  accepted_at?: string | null;
+}
+
+/** The findings that re-observation has already examined twice, and cannot settle. */
+export async function fetchFindingsAwaitingDecision(
+  fetcher: Fetcher = fetch, signal?: AbortSignal,
+): Promise<QualityFinding[]> {
+  const response = await fetcher('/api/v1/market-data/quality-findings?awaiting_decision=true&limit=100', { signal });
+  if (!response.ok) throw new Error('Unable to load the findings awaiting a decision.');
+  const body = await response.json() as { items?: QualityFindingWire[] };
+  if (!Array.isArray(body.items)) throw new Error('Unable to load the findings awaiting a decision.');
+  return body.items.map((finding) => ({
+    id: finding.id,
+    rule: finding.rule,
+    status: finding.status,
+    sessionDate: finding.session_date ?? null,
+    detail: finding.detail,
+    instrumentId: finding.instrument_id,
+    severity: finding.severity,
+    reexaminedAt: finding.reexamined_at ?? null,
+    awaitingDecision: finding.awaiting_decision ?? false,
+    acceptedAt: finding.accepted_at ?? null,
+  }));
+}
+
+/**
+ * Record that the owner judged a condition a limitation of the data.
+ *
+ * A mutation, so it carries the double-submit token the session cookie alone does not prove.
+ */
+export async function acceptFinding(
+  findingID: string, csrfToken: string, fetcher: Fetcher = fetch,
+): Promise<void> {
+  const response = await fetcher(`/api/v1/market-data/quality-findings/${encodeURIComponent(findingID)}/accept`, {
+    method: 'POST',
+    headers: { 'X-CSRF-Token': csrfToken },
+  });
+  if (!response.ok) throw new Error('Unable to accept this finding.');
 }

@@ -37,6 +37,20 @@ test.beforeEach(async ({ page }) => {
     counts: { processed: 100, accepted: 0, rejected: 0, flagged: 0, revised: 2 },
     error_summary: 'Market-data provider request timed out.',
   }] } }));
+  await page.route('**/api/v1/market-data/quality-findings*', (route) => route.fulfill({ json: { items: [{
+    id: 'ff000000-0000-4000-8000-000000000001',
+    instrument_id: '22000000-0000-4000-8000-000000000001',
+    session_date: '2017-04-13',
+    run_id: importRunID,
+    rule: 'provider_gap',
+    severity: 'warning',
+    disposition: 'rejected',
+    detail: 'Provider returned a bar outside the expected exchange sessions.',
+    status: 'open',
+    created_at: '2026-08-31T00:00:00Z',
+    reexamined_at: '2026-09-08T18:00:00Z',
+    awaiting_decision: true,
+  }] } }));
   await page.route('**/api/v1/feature-runs*', (route) => route.fulfill({ json: { items: [{
     id: 'eeeeeeee-0014-4000-8000-000000000002',
     kind: 'incremental',
@@ -64,6 +78,11 @@ for (const viewport of VIEWPORTS) {
     // The import half, with its sanitized reason and no provider internals.
     await expect(page.getByTestId('run-status')).toContainText('failed', { ignoreCase: true });
     await expect(page.getByText('Market-data provider request timed out.')).toBeVisible();
+
+    // What re-observation could not settle, and whose decision it is.
+    await expect(page.getByRole('heading', { name: 'Awaiting your decision' })).toBeVisible();
+    await expect(page.getByText(/2017-04-13/)).toBeVisible();
+    await expect(page.getByRole('button', { name: /Accept provider_gap on 2017-04-13/ })).toBeVisible();
 
     // A run that corrected sessions it had already stored says so. That is the case worth
     // noticing: every feature and every signal derived from those sessions moved underneath.

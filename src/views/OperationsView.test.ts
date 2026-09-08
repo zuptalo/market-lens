@@ -207,3 +207,36 @@ describe('OperationsView while loading', () => {
     expect(wrapper.text()).not.toContain('has not run in this deployment');
   });
 });
+
+describe('OperationsView findings awaiting a decision', () => {
+  const awaiting = {
+    id: 'f1', instrument_id: '22000000-0000-4000-8000-000000000001', session_date: '2017-04-13',
+    run_id: '22000000-0000-4000-8000-0000000000aa', rule: 'provider_gap', severity: 'warning',
+    disposition: 'rejected', detail: 'Provider returned a bar outside the expected exchange sessions.',
+    status: 'open', created_at: '2026-08-31T00:00:00Z',
+    reexamined_at: '2026-09-08T18:00:00Z', awaiting_decision: true,
+  };
+
+  beforeEach(() => {
+    vi.stubGlobal('EventSource', QuietEventSource);
+  });
+
+  it('shows what re-observation could not settle, and says whose decision it is', async () => {
+    stubFetch({ findings: [awaiting] });
+    const wrapper = mount(OperationsView, { global: { plugins: [PrimeVue] } });
+    await flushPromises();
+    const section = wrapper.find('[aria-labelledby="quality-findings-heading"]').text();
+    expect(section).toContain('2017-04-13');
+    expect(section).toContain('session the exchange calendar does not have');
+    expect(section.toLowerCase()).toContain('the product does not decide that for you');
+  });
+
+  it('says nothing is waiting when nothing is', async () => {
+    stubFetch({ findings: [] });
+    const wrapper = mount(OperationsView, { global: { plugins: [PrimeVue] } });
+    await flushPromises();
+    const section = wrapper.find('[aria-labelledby="quality-findings-heading"]').text().toLowerCase();
+    expect(section).toContain('nothing is waiting for you');
+    expect(wrapper.find('[data-testid="quality-finding-list"]').exists()).toBe(false);
+  });
+});

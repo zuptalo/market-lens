@@ -740,11 +740,29 @@ func TestAPersistingConditionRecordsOneFindingNotOnePerImport(t *testing.T) {
 		t.Errorf("re-observing the same gap added %d findings; rows=%d distinct conditions=%d",
 			afterSecond-afterFirst, afterSecond, distinct)
 	}
-	// Nothing changed, so nothing is published. An event per import for an unchanged condition
-	// is the storm the client had to be taught to coalesce.
-	if eventsAfterSecond != eventsAfterFirst {
-		t.Errorf("re-observing the same gap published %d further events",
-			eventsAfterSecond-eventsAfterFirst)
+	// The second observation does change something, once: the product now knows that asking
+	// again did not change the answer, and the finding is awaiting a person's decision rather
+	// than another run. That is a client-visible state change and is published as one.
+	if eventsAfterSecond != eventsAfterFirst+afterFirst {
+		t.Errorf("the second observation published %d events for %d findings; expected one each,"+
+			" reporting that re-observation examined them", eventsAfterSecond-eventsAfterFirst, afterFirst)
+	}
+
+	// The third must publish nothing. An event per import for an unchanged condition is the
+	// storm the client had to be taught to coalesce, and that claim is unchanged — the state
+	// only moves once.
+	provider.set("NORD.ST", "", page)
+	if _, err := service.Import(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	var eventsAfterThird int
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM client_events
+		WHERE event_type='quality_finding.changed.v1'`).Scan(&eventsAfterThird); err != nil {
+		t.Fatal(err)
+	}
+	if eventsAfterThird != eventsAfterSecond {
+		t.Errorf("re-observing the same gap a third time published %d further events",
+			eventsAfterThird-eventsAfterSecond)
 	}
 }
 

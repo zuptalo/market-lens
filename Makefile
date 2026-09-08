@@ -47,7 +47,7 @@ $(AIR):
 test:
 	$(MAKE) release-policy
 	scripts/dev-ports.test.sh
-	cd $(SERVER_DIR) && go test ./...
+	cd $(SERVER_DIR) && go test -p 3 ./...
 	npm run test:unit
 
 release-policy:
@@ -61,7 +61,7 @@ build:
 verify:
 	$(MAKE) release-policy
 	scripts/dev-ports.test.sh
-	cd $(SERVER_DIR) && test -z "$$(gofmt -l .)" && go vet ./... && go test ./...
+	cd $(SERVER_DIR) && test -z "$$(gofmt -l .)" && go vet ./... && go test -p 3 ./...
 	npm run build
 	npm run test:unit
 
