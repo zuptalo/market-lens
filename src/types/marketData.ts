@@ -215,6 +215,16 @@ export interface QualityFinding {
   status: string;
   sessionDate: string | null;
   detail: string | null;
+  instrumentId?: string;
+  ticker?: string;
+  severity?: 'warning' | 'error';
+  /**
+   * An import covered this session again and raised the same rule, so a further identical request
+   * cannot settle it. `awaitingDecision` is what a reader acts on: open, and already examined.
+   */
+  reexaminedAt?: string | null;
+  awaitingDecision?: boolean;
+  acceptedAt?: string | null;
 }
 
 /** A corporate action or a quality finding, reduced to what the chart needs to mark it. */

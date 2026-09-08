@@ -293,11 +293,21 @@ type QualityFinding struct {
 	CreatedAt      time.Time
 	ResolvedAt     *time.Time
 	ResolvingRunID *instruments.UUID
+	// ReexaminedAt records that an import covered this session again and raised the same rule,
+	// so a further identical request cannot settle it. AwaitingDecision is the state a reader
+	// derives from that: open, and already examined twice.
+	ReexaminedAt     *time.Time
+	AwaitingDecision bool
+	AcceptedAt       *time.Time
+	AcceptedBy       *instruments.UUID
 }
 
 type FindingFilter struct {
 	InstrumentID *instruments.UUID
 	Status       FindingStatus
 	Severity     FindingSeverity
-	Limit        int
+	// AwaitingDecision selects only findings that are open and already re-examined — the ones
+	// waiting for a person rather than for another run.
+	AwaitingDecision bool
+	Limit            int
 }

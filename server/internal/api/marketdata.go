@@ -22,6 +22,13 @@ type MarketDataReader interface {
 	ListQualityFindings(context.Context, FindingFilter) ([]marketdata.QualityFinding, error)
 }
 
+// FindingDecider records an owner's judgement that a condition is a limitation of the data. It is
+// the only mutation this surface has, and it is deliberately separate from the reader: reading
+// findings is for everyone, deciding about them is not.
+type FindingDecider interface {
+	AcceptFinding(ctx context.Context, findingID, userID instruments.UUID, at time.Time) (marketdata.QualityFinding, error)
+}
+
 type importCountsResponse struct {
 	Processed int64 `json:"processed"`
 	Accepted  int64 `json:"accepted"`
@@ -78,6 +85,23 @@ type qualityFindingResponse struct {
 	CreatedAt      time.Time                     `json:"created_at"`
 	ResolvedAt     *time.Time                    `json:"resolved_at,omitempty"`
 	ResolvingRunID *instruments.UUID             `json:"resolving_run_id,omitempty"`
+	// ReexaminedAt says an import covered this session again and raised the same rule, so a
+	// further identical request cannot settle it. AwaitingDecision is what a reader acts on.
+	ReexaminedAt     *time.Time        `json:"reexamined_at"`
+	AwaitingDecision bool              `json:"awaiting_decision"`
+	AcceptedAt       *time.Time        `json:"accepted_at,omitempty"`
+	AcceptedBy       *instruments.UUID `json:"accepted_by,omitempty"`
+}
+
+func qualityFindingDTO(finding marketdata.QualityFinding) qualityFindingResponse {
+	return qualityFindingResponse{
+		ID: finding.ID.String(), InstrumentID: finding.InstrumentID.String(), SessionDate: finding.SessionDate,
+		RunID: finding.RunID.String(), Rule: finding.Rule, Severity: finding.Severity,
+		Disposition: finding.Disposition, Detail: finding.Detail, Status: finding.Status,
+		CreatedAt: finding.CreatedAt, ResolvedAt: finding.ResolvedAt, ResolvingRunID: finding.ResolvingRunID,
+		ReexaminedAt: finding.ReexaminedAt, AwaitingDecision: finding.AwaitingDecision,
+		AcceptedAt: finding.AcceptedAt, AcceptedBy: finding.AcceptedBy,
+	}
 }
 
 func listImportRunsHandler(reader MarketDataReader) http.HandlerFunc {
@@ -134,6 +158,14 @@ func listQualityFindingsHandler(reader MarketDataReader) http.HandlerFunc {
 			Status:   marketdata.FindingStatus(r.URL.Query().Get("status")),
 			Severity: marketdata.FindingSeverity(r.URL.Query().Get("severity")),
 		}
+		if raw := r.URL.Query().Get("awaiting_decision"); raw != "" {
+			awaiting, err := strconv.ParseBool(raw)
+			if err != nil {
+				httpx.Error(w, http.StatusBadRequest, "invalid quality-finding filter")
+				return
+			}
+			filter.AwaitingDecision = awaiting
+		}
 		if !validFindingStatus(filter.Status) || !validFindingSeverity(filter.Severity) {
 			httpx.Error(w, http.StatusBadRequest, "invalid quality-finding filter")
 			return
@@ -159,12 +191,7 @@ func listQualityFindingsHandler(reader MarketDataReader) http.HandlerFunc {
 		}
 		items := make([]qualityFindingResponse, 0, len(findings))
 		for _, finding := range findings {
-			items = append(items, qualityFindingResponse{
-				ID: finding.ID.String(), InstrumentID: finding.InstrumentID.String(), SessionDate: finding.SessionDate,
-				RunID: finding.RunID.String(), Rule: finding.Rule, Severity: finding.Severity,
-				Disposition: finding.Disposition, Detail: finding.Detail, Status: finding.Status,
-				CreatedAt: finding.CreatedAt, ResolvedAt: finding.ResolvedAt, ResolvingRunID: finding.ResolvingRunID,
-			})
+			items = append(items, qualityFindingDTO(finding))
 		}
 		httpx.JSON(w, http.StatusOK, map[string]any{"items": items})
 	}
@@ -237,4 +264,44 @@ func writeMarketDataError(w http.ResponseWriter, err error) {
 		return
 	}
 	httpx.Error(w, http.StatusInternalServerError, "market-data request failed")
+}
+
+// acceptQualityFindingHandler records that the owner has judged a condition a limitation of the
+// data. The product may report that asking the source again did not change the answer; it may not
+// decide from that which conditions are acceptable.
+func acceptQualityFindingHandler(decider FindingDecider) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		principal, ok := httpx.PrincipalFromContext(r)
+		if !ok || principal.Role != "owner" {
+			httpx.Error(w, http.StatusForbidden, "owner authorization is required")
+			return
+		}
+		findingID, err := instruments.ParseUUID(r.PathValue("id"))
+		if err != nil {
+			httpx.Error(w, http.StatusBadRequest, "invalid finding ID")
+			return
+		}
+		userID, err := instruments.ParseUUID(principal.UserID)
+		if err != nil {
+			httpx.Error(w, http.StatusForbidden, "owner authorization is required")
+			return
+		}
+		finding, err := decider.AcceptFinding(r.Context(), findingID, userID, time.Now().UTC())
+		switch {
+		case errors.Is(err, marketdata.ErrFindingNotFound):
+			httpx.Error(w, http.StatusNotFound, "no such finding")
+			return
+		case errors.Is(err, marketdata.ErrFindingNotAwaitingDecision):
+			httpx.Error(w, http.StatusBadRequest,
+				"this finding has not been re-examined, so there is nothing to decide yet")
+			return
+		case errors.Is(err, marketdata.ErrFindingNotOpen):
+			httpx.Error(w, http.StatusConflict, "this finding is no longer open")
+			return
+		case err != nil:
+			writeMarketDataError(w, err)
+			return
+		}
+		httpx.JSON(w, http.StatusOK, qualityFindingDTO(finding))
+	}
 }

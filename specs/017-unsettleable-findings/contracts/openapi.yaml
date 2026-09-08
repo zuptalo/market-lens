@@ -1,0 +1,123 @@
+openapi: 3.1.0
+info:
+  title: Market Lens Data Quality Finding Decisions
+  version: 1.0.0
+  description: >
+    Reading the data quality findings that re-observation has already examined twice, and
+    accepting one as a limitation of the data.
+
+    The product records that asking the source again did not change the answer. It never concludes
+    from that which findings are acceptable — that is a judgement about somebody's own data, and
+    it carries their name.
+servers:
+  - url: /api/v1
+x-market-lens-access-boundary:
+  authenticated:
+    - /market-data/quality-findings
+  owner-only:
+    - /market-data/quality-findings/{id}/accept
+  rule: >
+    Every authenticated user may read findings. Accepting one is an owner action, refused to a
+    member in the backend service rather than only hidden in the interface, and refused to an
+    unauthenticated or deactivated caller.
+x-market-lens-events:
+  - type: quality_finding.changed.v1
+    scope: shared
+    entity: quality_finding
+    description: >
+      Unchanged. Published in the same transaction as the finding it reports, whether the change
+      was a re-examination established by a run or an acceptance made by a person.
+
+paths:
+  /market-data/quality-findings:
+    get:
+      summary: Data quality findings
+      description: >
+        Unchanged, except that each finding now states whether re-observation has examined it
+        again and found the condition still holding, and who accepted it if anybody has.
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [open, resolved, accepted_limitation] }
+        - name: awaiting_decision
+          in: query
+          description: >
+            Only findings that are open and have already been re-examined. These are the ones a
+            further identical request cannot settle.
+          schema: { type: boolean }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        "200":
+          description: The findings
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/QualityFinding" }
+        "401":
+          description: No active session
+
+  /market-data/quality-findings/{id}/accept:
+    post:
+      summary: Accept a finding as a limitation of the data
+      description: >
+        Records that the owner has judged this condition acceptable. Refused unless the finding
+        has been re-examined: nobody should be asked to decide about a condition nothing has
+        checked twice.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: The accepted finding
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QualityFinding" }
+        "400":
+          description: The finding has not been re-examined, so there is nothing to decide yet
+        "401":
+          description: No active session
+        "403":
+          description: Not the owner
+        "404":
+          description: No such finding
+        "409":
+          description: The finding is no longer open
+
+components:
+  schemas:
+    QualityFinding:
+      type: object
+      required: [id, instrument_id, rule, severity, disposition, detail, status, created_at, awaiting_decision]
+      properties:
+        id: { type: string, format: uuid }
+        instrument_id: { type: string, format: uuid }
+        session_date: { type: [string, "null"], format: date }
+        rule: { type: string }
+        severity: { type: string, enum: [warning, error] }
+        disposition: { type: string, enum: [flagged, rejected] }
+        detail: { type: string }
+        status: { type: string, enum: [open, resolved, accepted_limitation] }
+        created_at: { type: string, format: date-time }
+        resolved_at: { type: [string, "null"], format: date-time }
+        reexamined_at:
+          type: [string, "null"]
+          format: date-time
+          description: >
+            When an import last covered this session and raised the same rule again. Null means
+            the condition has been recorded once and not yet re-tested.
+        awaiting_decision:
+          type: boolean
+          description: >
+            Open, and already re-examined. A further identical request cannot settle it, so it is
+            waiting for a person rather than for another run.
+        accepted_at: { type: [string, "null"], format: date-time }
+        accepted_by: { type: [string, "null"], format: uuid }

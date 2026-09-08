@@ -133,6 +133,11 @@ export function createAuthStore(api: AuthAPI, streamFactory: () => AuthEventStre
 
   return {
     state,
+    // Exposed because a mutation outside this store still needs the double-submit token — the
+    // operations screen accepts a data quality finding, which the auth API knows nothing about.
+    // The token is not a bearer credential: the HttpOnly session cookie authenticates the caller,
+    // and this only proves the request came from this application's own code.
+    requireCSRF,
     async setupStatus(): Promise<{ setupRequired: boolean }> { return api.setupStatus(); },
     async restore(): Promise<void> {
       // 'unreachable' is retried: the server was rolling and may be back.

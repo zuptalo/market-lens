@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"market-lens/server/internal/auth"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -189,4 +190,100 @@ func TestImportRunResponseCarriesTheRevisedCount(t *testing.T) {
 	if value != float64(0) {
 		t.Errorf("a quiet run reports revised %#v", value)
 	}
+}
+
+type findingDeciderStub struct {
+	accepted   instruments.UUID
+	acceptedBy instruments.UUID
+	err        error
+}
+
+func (s *findingDeciderStub) AcceptFinding(_ context.Context, findingID, userID instruments.UUID, at time.Time) (marketdata.QualityFinding, error) {
+	if s.err != nil {
+		return marketdata.QualityFinding{}, s.err
+	}
+	s.accepted, s.acceptedBy = findingID, userID
+	return marketdata.QualityFinding{
+		ID: findingID, InstrumentID: instruments.UUID("22000000-0000-4000-8000-000000000001"),
+		RunID: findingID, Rule: "provider_gap", Severity: "warning", Disposition: "rejected",
+		Detail: "the source reports a session the exchange never had", Status: "accepted_limitation",
+		CreatedAt: at, AcceptedAt: &at, AcceptedBy: &userID,
+	}, nil
+}
+
+const findingID = "dd000000-0000-4000-8000-000000000001"
+
+// TestAcceptingAFindingIsOwnerOnly. Refusing in the interface alone would leave the decision one
+// crafted request away from anybody with an account.
+func TestAcceptingAFindingIsOwnerOnly(t *testing.T) {
+	path := "/api/v1/market-data/quality-findings/" + findingID + "/accept"
+
+	t.Run("the owner may decide", func(t *testing.T) {
+		decider := &findingDeciderStub{}
+		router := NewRouter(authenticatedDependencies(Dependencies{FindingDecisions: decider}))
+		response := performPost(router, path)
+		if response.Code != http.StatusOK {
+			t.Fatalf("status %d: %s", response.Code, response.Body.String())
+		}
+		if decider.accepted.String() != findingID {
+			t.Errorf("accepted %s", decider.accepted)
+		}
+		if decider.acceptedBy.String() == "" {
+			t.Errorf("the acceptance carries nobody's name")
+		}
+		body := decodeBody(t, response)
+		if body["status"] != "accepted_limitation" || body["accepted_by"] == nil {
+			t.Errorf("the response is %#v", body)
+		}
+	})
+
+	t.Run("a member may not", func(t *testing.T) {
+		deps := Dependencies{FindingDecisions: &findingDeciderStub{}}
+		deps.Authenticator = sessionAuthenticatorFunc(func(context.Context, string) (auth.Principal, error) {
+			return auth.Principal{
+				UserID: "10000000-0000-4000-8000-000000000002", Role: "member",
+				SessionID: "20000000-0000-4000-8000-000000000002", VerifyCSRF: func(string) bool { return true },
+			}, nil
+		})
+		if response := performPost(NewRouter(deps), path); response.Code != http.StatusForbidden {
+			t.Fatalf("a member got %d", response.Code)
+		}
+	})
+
+	for name, err := range map[string]error{
+		"anonymous":          auth.ErrAuthenticationRequired,
+		"deactivated member": auth.ErrMemberLocked,
+	} {
+		t.Run(name+" may not", func(t *testing.T) {
+			deps := Dependencies{FindingDecisions: &findingDeciderStub{}}
+			deps.Authenticator = sessionAuthenticatorFunc(func(context.Context, string) (auth.Principal, error) {
+				return auth.Principal{}, err
+			})
+			if response := performPost(NewRouter(deps), path); response.Code != http.StatusUnauthorized {
+				t.Fatalf("%s got %d", name, response.Code)
+			}
+		})
+	}
+
+	t.Run("a finding with nothing to decide is refused distinguishably", func(t *testing.T) {
+		decider := &findingDeciderStub{err: marketdata.ErrFindingNotAwaitingDecision}
+		router := NewRouter(authenticatedDependencies(Dependencies{FindingDecisions: decider}))
+		if response := performPost(router, path); response.Code != http.StatusBadRequest {
+			t.Fatalf("an unexamined finding got %d", response.Code)
+		}
+		decider.err = marketdata.ErrFindingNotOpen
+		if response := performPost(router, path); response.Code != http.StatusConflict {
+			t.Fatalf("an already decided finding got %d", response.Code)
+		}
+		decider.err = marketdata.ErrFindingNotFound
+		if response := performPost(router, path); response.Code != http.StatusNotFound {
+			t.Fatalf("an unknown finding got %d", response.Code)
+		}
+	})
+}
+
+func performPost(handler http.Handler, path string) *httptest.ResponseRecorder {
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, authenticatedAPIRequest(http.MethodPost, path))
+	return recorder
 }

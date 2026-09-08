@@ -4,19 +4,24 @@ import Message from 'primevue/message';
 import MarketDataStatus from '@/components/finance/MarketDataStatus.vue';
 import FeatureRunList from '@/components/finance/FeatureRunList.vue';
 import StrategyRunList from '@/components/finance/StrategyRunList.vue';
+import QualityFindingList from '@/components/finance/QualityFindingList.vue';
 import {
   MarketDataLive,
   fetchFeatureRuns,
   fetchRecentImports,
   fetchStrategyRuns,
+  fetchFindingsAwaitingDecision,
+  acceptFinding,
   type LiveEventSource,
 } from '@/services/marketData';
 import { createCoalescer } from '@/services/coalesce';
+import { authStore } from '@/stores/auth';
 import type {
   ConnectionState,
   FeatureRunSummary,
   ImportRunSummary,
   StrategyRunSummary,
+  QualityFinding,
 } from '@/types/marketData';
 
 /**
@@ -30,10 +35,13 @@ import type {
 const imports = ref<ImportRunSummary[]>([]);
 const runs = ref<FeatureRunSummary[]>([]);
 const strategyRuns = ref<StrategyRunSummary[]>([]);
+const findings = ref<QualityFinding[]>([]);
+const findingsBusy = ref(false);
 const loading = ref(true);
 const importError = ref('');
 const runError = ref('');
 const strategyError = ref('');
+const findingError = ref('');
 const connectionState = ref<ConnectionState>(navigator.onLine ? 'reconnecting' : 'offline');
 
 let controller: AbortController | undefined;
@@ -45,10 +53,11 @@ async function load(): Promise<void> {
   loading.value = true;
   // The two reads are independent: one failing must not hide the other, because either alone
   // still answers a question somebody came here to ask.
-  const [importResult, runResult, strategyResult] = await Promise.allSettled([
+  const [importResult, runResult, strategyResult, findingResult] = await Promise.allSettled([
     fetchRecentImports(fetch, signal),
     fetchFeatureRuns(fetch, signal),
     fetchStrategyRuns(fetch, signal),
+    fetchFindingsAwaitingDecision(fetch, signal),
   ]);
   if (signal.aborted) return;
   if (importResult.status === 'fulfilled') {
@@ -69,6 +78,12 @@ async function load(): Promise<void> {
   } else {
     strategyError.value = 'Unable to load recent strategy runs.';
   }
+  if (findingResult.status === 'fulfilled') {
+    findings.value = findingResult.value;
+    findingError.value = '';
+  } else {
+    findingError.value = 'Unable to load the findings awaiting a decision.';
+  }
   loading.value = false;
 }
 
@@ -77,6 +92,22 @@ async function load(): Promise<void> {
  * that finishes while somebody is watching updates here, coalesced because a running import
  * emits one event per instrument.
  */
+/**
+ * Accepting is the owner's judgement, so it needs the double-submit token a mutation carries. The
+ * list is re-read rather than patched: the server decides what is still awaiting a decision.
+ */
+async function accept(findingID: string): Promise<void> {
+  findingsBusy.value = true;
+  try {
+    await acceptFinding(findingID, authStore.requireCSRF('accept a finding'));
+    await load();
+  } catch {
+    findingError.value = 'Unable to accept this finding.';
+  } finally {
+    findingsBusy.value = false;
+  }
+}
+
 const refresh = createCoalescer(async () => { await load(); });
 
 function browserEventSource(url: string, lastEventId: string): LiveEventSource {
@@ -141,6 +172,14 @@ onBeforeUnmount(() => {
     <FeatureRunList :runs="runs" :loading="loading" :error="runError" />
 
     <StrategyRunList :runs="strategyRuns" :loading="loading" :error="strategyError" />
+
+    <QualityFindingList
+      :findings="findings"
+      :loading="loading"
+      :error="findingError"
+      :busy="findingsBusy"
+      @accept="accept"
+    />
   </div>
 </template>
 

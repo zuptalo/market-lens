@@ -1135,6 +1135,7 @@ func run() error {
 			Universe: "nordic-liquid-v1", AppVersion: version,
 			MaxRetries: cfg.MarketData.MaxRetries, Workers: cfg.MarketData.Workers,
 			ReobserveSessions: cfg.MarketData.ReobserveSessions,
+			MaxReachSessions:  cfg.MarketData.MaxReachSessions,
 		}, repository, service)
 		if err != nil {
 			return err
@@ -1179,7 +1180,9 @@ func run() error {
 		Instruments:   instruments.NewQueryService(instruments.NewRepository(pool), marketdata.NewRepository(pool)),
 		Features:      features.NewRepository(pool),
 		Signals:       strategies.NewRepository(pool),
-		Events:        clientevents.NewService(clientevents.NewRepository(pool)),
+		// Reading findings is for every authenticated user; deciding about one is the owner's.
+		FindingDecisions: marketdata.NewRepository(pool),
+		Events:           clientevents.NewService(clientevents.NewRepository(pool)),
 		// An open stream re-reads its session and account on a bound tighter than the product's
 		// five-second promise, so a revocation or deactivation ends it without a reconnect.
 		EventRevalidator:        authenticationService,

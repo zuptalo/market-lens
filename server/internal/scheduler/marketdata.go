@@ -27,6 +27,9 @@ type MarketDataConfig struct {
 	// so a close restated after the fact is noticed. Zero means one — the behaviour before
 	// feature 016 — so a caller that has not been updated keeps working.
 	ReobserveSessions int
+	// MaxReachSessions caps how far back a pass may reach on account of an open data quality
+	// finding, whatever that finding's age. Zero means the production default.
+	MaxReachSessions int
 }
 
 type TargetSource interface {
@@ -69,6 +72,14 @@ func (s *MarketData) reobserveSessions() int {
 		return 1
 	}
 	return s.config.ReobserveSessions
+}
+
+// maxReachSessions is the configured floor, with zero meaning the production default.
+func (s *MarketData) maxReachSessions() int {
+	if s.config.MaxReachSessions < 1 {
+		return 260
+	}
+	return s.config.MaxReachSessions
 }
 
 func NewMarketData(config MarketDataConfig, targets TargetSource, importer Importer) (*MarketData, error) {
@@ -128,6 +139,16 @@ func (s *MarketData) RunDue(ctx context.Context, now time.Time) error {
 	if err != nil {
 		return err
 	}
+	// The floor a finding may not push the request past. The narrowing in feature 017 stops a
+	// finding the product has already examined from widening anything, but a newly raised one on
+	// an old session — or a hundred of them after a backfill — would still make tomorrow night
+	// unbounded. This makes the pass's cost predictable whatever the findings say; reaching
+	// further is an operator's deliberate backfill.
+	floors, err := s.targets.ReobservationStarts(ctx, s.config.Provider, s.config.Universe,
+		s.maxReachSessions(), date)
+	if err != nil {
+		return err
+	}
 	for index := range targets {
 		targets[index].To = date
 		targets[index].From = date
@@ -139,6 +160,9 @@ func (s *MarketData) RunDue(ctx context.Context, now time.Time) error {
 		// re-examined by the pass that runs every night — the exact trap WidenToUnsettled was
 		// written for, left open on the one path nobody has to remember to run.
 		targets[index].From = marketdata.WidenToUnsettled(targets[index].From, targets[index].EarliestUnsettled)
+		if floor, known := floors[targets[index].InstrumentID]; known && targets[index].From < floor {
+			targets[index].From = floor
+		}
 	}
 	run, err := s.importer.Import(ctx, marketdata.ImportRequest{
 		Kind: marketdata.ImportDailyUpdate, Provider: s.config.Provider, AppVersion: s.config.AppVersion,

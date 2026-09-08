@@ -88,7 +88,8 @@ func (r *Repository) TargetsForUniverse(ctx context.Context, provider, universe 
 	// query rather than a hundred, and so no caller can forget to ask for it.
 	rows, err := r.pool.Query(ctx, `SELECT i.id::text,p.provider_symbol,i.currency,
 			coalesce((SELECT min(d.session_date)::text FROM data_quality_findings d
-				WHERE d.instrument_id=i.id AND d.status='open' AND d.session_date IS NOT NULL),'')
+				WHERE d.instrument_id=i.id AND d.status='open' AND d.session_date IS NOT NULL
+				  AND d.reexamined_at IS NULL),'')
 		FROM research_universes u
 		JOIN universe_memberships m ON m.universe_id=u.id AND m.included_to IS NULL
 		JOIN instruments i ON i.id=m.instrument_id AND i.active
@@ -341,11 +342,20 @@ func (s *ImportScope) persist(ctx context.Context, input persistInput) (ImportCo
 	if err := s.resolveSettledFindings(ctx, input); err != nil {
 		return ImportCounts{}, err
 	}
+	// An item's status reports what this import found out, not what the product already knew.
+	// A rejection matching a finding that is open and has already been re-examined is a standing
+	// condition somebody is deciding about — reporting it as trouble every night is how a badge
+	// stops meaning anything. It stays in rejected_count either way: suppressing a status must
+	// never suppress a number.
+	news, err := s.unknownRejections(ctx, input)
+	if err != nil {
+		return ImportCounts{}, err
+	}
 	status := ImportSucceeded
-	if counts.Rejected > 0 {
+	if news > 0 {
 		status = ImportPartial
 	}
-	_, err := s.tx.Exec(ctx, `UPDATE import_items SET status=$3,processed_count=$4,accepted_count=$5,
+	_, err = s.tx.Exec(ctx, `UPDATE import_items SET status=$3,processed_count=$4,accepted_count=$5,
 		rejected_count=$6,flagged_count=$7,revised_count=$8,finished_at=$9
 		WHERE run_id=$1 AND instrument_id=$2 AND status='running'`,
 		input.RunID.String(), input.Target.InstrumentID.String(), status, counts.Processed, counts.Accepted,
@@ -373,6 +383,33 @@ const (
 
 // changed reports whether the stored bar moved, which is what decides a change event.
 func (o barOutcome) changed() bool { return o != barUnchanged }
+
+// unknownRejections counts this import's rejections that do not correspond to a finding already
+// awaiting somebody's decision for the same instrument and session.
+func (s *ImportScope) unknownRejections(ctx context.Context, input persistInput) (int, error) {
+	sessions := make([]string, 0, len(input.Validation.Issues))
+	rules := make([]string, 0, len(input.Validation.Issues))
+	for _, issue := range input.Validation.Issues {
+		if issue.Disposition != DispositionRejected {
+			continue
+		}
+		sessions = append(sessions, issue.SessionDate.String())
+		rules = append(rules, issue.Rule)
+	}
+	if len(sessions) == 0 {
+		return 0, nil
+	}
+	var unknown int
+	if err := s.tx.QueryRow(ctx, `SELECT count(*) FROM unnest($2::text[], $3::text[]) AS raised(session_date, rule)
+		WHERE NOT EXISTS (
+			SELECT 1 FROM data_quality_findings d
+			WHERE d.instrument_id=$1 AND d.status='open' AND d.reexamined_at IS NOT NULL
+			  AND d.session_date::text = raised.session_date AND d.rule = raised.rule
+		)`, input.Target.InstrumentID.String(), sessions, rules).Scan(&unknown); err != nil {
+		return 0, fmt.Errorf("count unknown rejections: %w", err)
+	}
+	return unknown, nil
+}
 
 func (s *ImportScope) upsertBar(ctx context.Context, input persistInput, candidate ProviderBar) (barOutcome, error) {
 	var existing DailyBar
@@ -572,6 +609,65 @@ func (s *ImportScope) resolveSettledFindings(ctx context.Context, input persistI
 			"rule":          entry.rule,
 			"session_date":  entry.session,
 			"status":        "resolved",
+		}, input.ObservedAt); err != nil {
+			return err
+		}
+	}
+	return s.recordReexaminations(ctx, input, sessions, rules)
+}
+
+// recordReexaminations notes the findings this import looked at again and found still true.
+//
+// The resolution rule above is the mirror of this one: it closes a finding whose rule this import
+// did *not* raise again. What it leaves behind is a finding the source is still reporting, and
+// until now that had nowhere to go — it stayed open, indistinguishable from one nobody had
+// checked, and kept pulling the scheduled pass back to its session every night for ever.
+//
+// Recording that it was examined is not a judgement about the condition. It is the narrower claim
+// that asking again produced the same answer, so a further identical request cannot help. What to
+// do about it is a person's decision, which is why nothing here touches status.
+func (s *ImportScope) recordReexaminations(ctx context.Context, input persistInput, sessions, rules []string) error {
+	rows, err := s.tx.Query(ctx, `UPDATE data_quality_findings d SET
+			reexamined_at=$4, reexamining_run_id=$5
+		WHERE d.instrument_id=$1
+		  AND d.status='open'
+		  AND d.reexamined_at IS NULL
+		  AND d.session_date IS NOT NULL
+		  AND d.session_date BETWEEN $2 AND $3
+		  -- Not the findings this very import just raised. A first observation is not a
+		  -- re-examination, and marking one as examined here would retire a condition the
+		  -- product has seen exactly once — the same trap the resolution query above names.
+		  AND d.run_id <> $5
+		  AND EXISTS (
+		      SELECT 1 FROM unnest($6::text[], $7::text[]) AS raised(session_date, rule)
+		      WHERE raised.session_date = d.session_date::text AND raised.rule = d.rule
+		  )
+		RETURNING d.id::text, d.session_date::text, d.rule`,
+		input.Target.InstrumentID.String(), input.Target.From.String(), input.Target.To.String(),
+		input.ObservedAt, input.RunID.String(), sessions, rules)
+	if err != nil {
+		return fmt.Errorf("record re-examined quality findings: %w", err)
+	}
+	type examined struct{ id, session, rule string }
+	seen := make([]examined, 0)
+	for rows.Next() {
+		var entry examined
+		if err := rows.Scan(&entry.id, &entry.session, &entry.rule); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan re-examined quality finding: %w", err)
+		}
+		seen = append(seen, entry)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("record re-examined quality findings: %w", err)
+	}
+	for _, entry := range seen {
+		if err := emitEvent(ctx, s.tx, "quality_finding", entry.id, map[string]any{
+			"instrument_id": input.Target.InstrumentID.String(),
+			"rule":          entry.rule,
+			"session_date":  entry.session,
+			"status":        "awaiting_decision",
 		}, input.ObservedAt); err != nil {
 			return err
 		}
@@ -824,10 +920,13 @@ func (r *Repository) ListQualityFindings(ctx context.Context, filter FindingFilt
 		instrumentID = filter.InstrumentID.String()
 	}
 	rows, err := r.pool.Query(ctx, `SELECT id::text,instrument_id::text,session_date::text,run_id::text,
-		rule,severity,disposition,detail,status,created_at,resolved_at,resolving_run_id::text
+		rule,severity,disposition,detail,status,created_at,resolved_at,resolving_run_id::text,
+		reexamined_at,accepted_at,accepted_by::text
 		FROM data_quality_findings
 		WHERE ($1='' OR instrument_id=NULLIF($1,'')::uuid) AND ($2='' OR status=$2) AND ($3='' OR severity=$3)
-		ORDER BY created_at DESC,id DESC LIMIT $4`, instrumentID, filter.Status, filter.Severity, filter.Limit)
+		  AND (NOT $5 OR (status='open' AND reexamined_at IS NOT NULL))
+		ORDER BY created_at DESC,id DESC LIMIT $4`,
+		instrumentID, filter.Status, filter.Severity, filter.Limit, filter.AwaitingDecision)
 	if err != nil {
 		return nil, fmt.Errorf("list quality findings: %w", err)
 	}
@@ -836,10 +935,11 @@ func (r *Repository) ListQualityFindings(ctx context.Context, filter FindingFilt
 	for rows.Next() {
 		var finding QualityFinding
 		var rawID, rawInstrumentID, rawRunID string
-		var rawSession, rawResolvingRunID *string
+		var rawSession, rawResolvingRunID, rawAcceptedBy *string
 		if err := rows.Scan(&rawID, &rawInstrumentID, &rawSession, &rawRunID, &finding.Rule,
 			&finding.Severity, &finding.Disposition, &finding.Detail, &finding.Status,
-			&finding.CreatedAt, &finding.ResolvedAt, &rawResolvingRunID); err != nil {
+			&finding.CreatedAt, &finding.ResolvedAt, &rawResolvingRunID,
+			&finding.ReexaminedAt, &finding.AcceptedAt, &rawAcceptedBy); err != nil {
 			return nil, err
 		}
 		var parseErr error
@@ -859,6 +959,17 @@ func (r *Repository) ListQualityFindings(ctx context.Context, filter FindingFilt
 			}
 			finding.SessionDate = &value
 		}
+		if rawAcceptedBy != nil {
+			value, parseErr := instruments.ParseUUID(*rawAcceptedBy)
+			if parseErr != nil {
+				return nil, parseErr
+			}
+			finding.AcceptedBy = &value
+		}
+		// Awaiting a decision is a question asked of two columns rather than a fourth status:
+		// status='open' is also the predicate the resolution rule uses, and the condition must
+		// still be able to end.
+		finding.AwaitingDecision = finding.Status == FindingOpen && finding.ReexaminedAt != nil
 		if rawResolvingRunID != nil {
 			value, parseErr := instruments.ParseUUID(*rawResolvingRunID)
 			if parseErr != nil {
@@ -1096,4 +1207,119 @@ func (r *Repository) ReobservationStarts(
 		return nil, fmt.Errorf("read re-observation window: %w", err)
 	}
 	return starts, nil
+}
+
+// ErrFindingNotAwaitingDecision is returned when a caller tries to accept a finding that
+// re-observation has not examined twice. Nobody should be asked to judge a condition the product
+// has seen once and not re-tested — the answer may still change on its own.
+var ErrFindingNotAwaitingDecision = errors.New("finding is not awaiting a decision")
+
+// ErrFindingNotOpen is returned when the finding has already been resolved or accepted.
+var ErrFindingNotOpen = errors.New("finding is no longer open")
+
+// AcceptFinding records that a person judged this condition a limitation of the data.
+//
+// The product may record that asking the source again did not change the answer. It may not
+// conclude from that which conditions are acceptable: that is a judgement about somebody's own
+// data, and it carries their name and the time they made it.
+func (r *Repository) AcceptFinding(ctx context.Context, findingID, userID instruments.UUID, at time.Time) (QualityFinding, error) {
+	if r == nil || r.pool == nil {
+		return QualityFinding{}, errors.New("market-data repository is not configured")
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return QualityFinding{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var status string
+	var reexamined *time.Time
+	var instrumentID, rule string
+	var session *string
+	if err := tx.QueryRow(ctx, `SELECT status, reexamined_at, instrument_id::text, rule, session_date::text
+		FROM data_quality_findings WHERE id=$1 FOR UPDATE`, findingID.String()).
+		Scan(&status, &reexamined, &instrumentID, &rule, &session); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return QualityFinding{}, ErrFindingNotFound
+		}
+		return QualityFinding{}, fmt.Errorf("read quality finding: %w", err)
+	}
+	if status != string(FindingOpen) {
+		return QualityFinding{}, ErrFindingNotOpen
+	}
+	if reexamined == nil {
+		return QualityFinding{}, ErrFindingNotAwaitingDecision
+	}
+	if _, err := tx.Exec(ctx, `UPDATE data_quality_findings
+		SET status='accepted_limitation', accepted_at=$2, accepted_by=$3 WHERE id=$1`,
+		findingID.String(), at, userID.String()); err != nil {
+		return QualityFinding{}, fmt.Errorf("accept quality finding: %w", err)
+	}
+	payload := map[string]any{
+		"instrument_id": instrumentID,
+		"rule":          rule,
+		"status":        "accepted_limitation",
+	}
+	if session != nil {
+		payload["session_date"] = *session
+	}
+	if err := emitEvent(ctx, tx, "quality_finding", findingID.String(), payload, at); err != nil {
+		return QualityFinding{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return QualityFinding{}, err
+	}
+	return r.QualityFindingByID(ctx, findingID)
+}
+
+// ErrFindingNotFound distinguishes an unknown identifier from a refusal.
+var ErrFindingNotFound = errors.New("quality finding not found")
+
+// QualityFindingByID reads one finding, so a caller can report what it became.
+func (r *Repository) QualityFindingByID(ctx context.Context, findingID instruments.UUID) (QualityFinding, error) {
+	if r == nil || r.pool == nil {
+		return QualityFinding{}, errors.New("market-data repository is not configured")
+	}
+	var finding QualityFinding
+	var rawID, rawInstrumentID, rawRunID string
+	var rawSession, rawResolvingRunID, rawAcceptedBy *string
+	err := r.pool.QueryRow(ctx, `SELECT id::text,instrument_id::text,session_date::text,run_id::text,
+		rule,severity,disposition,detail,status,created_at,resolved_at,resolving_run_id::text,
+		reexamined_at,accepted_at,accepted_by::text
+		FROM data_quality_findings WHERE id=$1`, findingID.String()).Scan(
+		&rawID, &rawInstrumentID, &rawSession, &rawRunID, &finding.Rule, &finding.Severity,
+		&finding.Disposition, &finding.Detail, &finding.Status, &finding.CreatedAt,
+		&finding.ResolvedAt, &rawResolvingRunID, &finding.ReexaminedAt, &finding.AcceptedAt,
+		&rawAcceptedBy)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return QualityFinding{}, ErrFindingNotFound
+	}
+	if err != nil {
+		return QualityFinding{}, fmt.Errorf("read quality finding: %w", err)
+	}
+	if finding.ID, err = instruments.ParseUUID(rawID); err != nil {
+		return QualityFinding{}, err
+	}
+	if finding.InstrumentID, err = instruments.ParseUUID(rawInstrumentID); err != nil {
+		return QualityFinding{}, err
+	}
+	if finding.RunID, err = instruments.ParseUUID(rawRunID); err != nil {
+		return QualityFinding{}, err
+	}
+	if rawSession != nil {
+		value, parseErr := ParseSessionDate(*rawSession)
+		if parseErr != nil {
+			return QualityFinding{}, parseErr
+		}
+		finding.SessionDate = &value
+	}
+	if rawAcceptedBy != nil {
+		value, parseErr := instruments.ParseUUID(*rawAcceptedBy)
+		if parseErr != nil {
+			return QualityFinding{}, parseErr
+		}
+		finding.AcceptedBy = &value
+	}
+	finding.AwaitingDecision = finding.Status == FindingOpen && finding.ReexaminedAt != nil
+	return finding, nil
 }
