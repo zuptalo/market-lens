@@ -1172,18 +1172,30 @@ func (r *Repository) ReobservationStarts(
 			WHERE u.code = $1 AND u.active
 		),
 		window_start AS (
-			SELECT e.exchange_id, (
-				SELECT s.session_date FROM exchange_sessions s
-				WHERE s.exchange_id = e.exchange_id AND s.status IN ('open', 'half_day')
-				  AND s.session_date <= $3::date
-				ORDER BY s.session_date DESC OFFSET ($4::int - 1) LIMIT 1
+			SELECT e.exchange_id, coalesce(
+				(
+					SELECT s.session_date FROM exchange_sessions s
+					WHERE s.exchange_id = e.exchange_id AND s.status IN ('open', 'half_day')
+					  AND s.session_date <= $3::date
+					ORDER BY s.session_date DESC OFFSET ($4::int - 1) LIMIT 1
+				),
+				-- More sessions were asked for than the calendar holds. The answer is the oldest
+				-- session there is, not the as-of date. This value is also used as a floor on how
+				-- far a pass may reach, and falling back to today turned "reach back as far as a
+				-- decade" into the tightest possible bound — which collapsed every request to a
+				-- single session.
+				(
+					SELECT min(s.session_date) FROM exchange_sessions s
+					WHERE s.exchange_id = e.exchange_id AND s.status IN ('open', 'half_day')
+					  AND s.session_date <= $3::date
+				)
 			) AS start_date
 			FROM (SELECT DISTINCT exchange_id FROM members) e
 		)
 		SELECT m.instrument_id::text, greatest(
-			coalesce(w.start_date, $3::date),
+			w.start_date,
 			coalesce((SELECT min(b.session_date) FROM daily_price_bars b
-				WHERE b.instrument_id = m.instrument_id), coalesce(w.start_date, $3::date))
+				WHERE b.instrument_id = m.instrument_id), w.start_date)
 		)::text
 		FROM members m JOIN window_start w ON w.exchange_id = m.exchange_id`,
 		universe, provider, asOf.String(), sessions)

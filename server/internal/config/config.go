@@ -110,10 +110,19 @@ func loadMarketData() (MarketDataConfig, error) {
 	if err != nil {
 		return MarketDataConfig{}, err
 	}
-	// About a trading year. The reach exists to re-examine a finding, so a bound shorter than
-	// the interval between an operator's backfills would make the mechanism useless; much
-	// longer and one old finding costs a years-wide request every night.
-	maxReachSessions, err := boundedInt("MARKET_DATA_MAX_REACH_SESSIONS", 260, 1, 2600)
+	// About a decade — the depth of history this product stores.
+	//
+	// The first instinct was a year, on the reasoning that one old finding would otherwise cost a
+	// years-wide request every night. That reasoning was wrong, and production showed it: a
+	// finding drives the reach exactly *once*, because the pass that examines it is also the last
+	// pass that widens for it. A bound too short to reach the real ones does not save a wide
+	// night; it spends a narrower one every night for ever and never settles anything. Fifteen
+	// instruments re-requested a full year nightly to chase findings from 2016 they could never
+	// arrive at.
+	//
+	// So the bound is a backstop against a pathological range, not a budget. Reaching far costs
+	// one heavy night, and then the pass collapses back to its ordinary window.
+	maxReachSessions, err := boundedInt("MARKET_DATA_MAX_REACH_SESSIONS", 2600, 1, 2600)
 	if err != nil {
 		return MarketDataConfig{}, err
 	}
