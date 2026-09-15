@@ -855,3 +855,87 @@ func (f *sourceFixture) someUser() instruments.UUID {
 	}
 	return instruments.UUID(id)
 }
+
+// TestAFindingBeyondTheReachIsNeverExamined records the trade the bound makes, and why its
+// default is a decade rather than a year.
+//
+// A finding older than the reach can never be examined by the scheduled pass — so it never stops
+// driving it either. The pass requests up to the floor every night, never arrives, and settles
+// nothing. Production ran this for a week: fifteen instruments re-requesting a full year nightly
+// to chase findings from 2016, while the operator's list of what needed deciding stayed empty.
+//
+// The bound is a backstop against a pathological range, not a budget. Reaching far enough costs
+// one heavy night, because the pass that examines a finding is the last one that widens for it.
+func TestAFindingBeyondTheReachIsNeverExamined(t *testing.T) {
+	fixture := newSourceFixture(t, 12)
+	fixture.bootstrap()
+	phantom := fixture.phantomDate()
+	fixture.answerFor(phantom, 12345)
+	fixture.run(len(fixture.sessions)-1, len(fixture.sessions))
+
+	// A reach too short to arrive at the finding.
+	fixture.maxReach = 2
+	for pass := 0; pass < 3; pass++ {
+		fixture.requests = nil
+		fixture.run(len(fixture.sessions)-1, 5)
+		if fixture.reachedBack(phantom) {
+			t.Fatalf("pass %d reached the finding under a bound that should have stopped it", pass)
+		}
+	}
+	if examined, _ := fixture.findingState(phantom); examined {
+		t.Fatalf("a finding beyond the reach was recorded as examined, which would be a claim " +
+			"nothing made")
+	}
+
+	// With a reach that can arrive, one pass settles it for good.
+	fixture.maxReach = 2600
+	fixture.run(len(fixture.sessions)-1, 5)
+	if examined, _ := fixture.findingState(phantom); !examined {
+		t.Fatalf("a reach that covers the finding did not examine it")
+	}
+	fixture.requests = nil
+	fixture.run(len(fixture.sessions)-1, 5)
+	if fixture.reachedBack(phantom) {
+		t.Fatalf("the pass widened for a finding it had already examined")
+	}
+}
+
+// TestTheWindowStartIsCorrectAtEveryWidth asks the query directly, at widths on either side of
+// what the calendar can answer.
+//
+// It exists because a fallback in it was wrong for a year without any test noticing: asked for
+// more sessions than the calendar holds, it returned the as-of date. That was harmless while the
+// reach was one year and the calendar held ten — and catastrophic the moment the reach grew past
+// the calendar, because the same value is used as a floor on how far a pass may look. "Reach back
+// as far as a decade" became the tightest possible bound, and every request collapsed to a single
+// session. Every test above this one asserts on behaviour several layers away from the query, and
+// all of them failed at once with no indication of which layer was lying.
+func TestTheWindowStartIsCorrectAtEveryWidth(t *testing.T) {
+	fixture := newSourceFixture(t, 12)
+	fixture.bootstrap()
+
+	repository := marketdata.NewRepository(fixture.pool)
+	asOf := marketdata.SessionDate(fixture.sessions[len(fixture.sessions)-1])
+
+	for _, width := range []struct {
+		sessions int
+		want     string
+		why      string
+	}{
+		{1, fixture.sessions[len(fixture.sessions)-1], "one session is the session itself"},
+		{5, fixture.sessions[len(fixture.sessions)-5], "five reaches the fifth most recent session"},
+		{12, fixture.sessions[0], "twelve reaches the whole stored history"},
+		{2600, fixture.sessions[0], "more than the instrument has stops at its first stored session, " +
+			"not at today"},
+	} {
+		starts, err := repository.ReobservationStarts(fixture.ctx, "fixture", reobserveUniverse,
+			width.sessions, asOf)
+		if err != nil {
+			t.Fatalf("width %d: %v", width.sessions, err)
+		}
+		if got := starts[reobserveInstrument].String(); got != width.want {
+			t.Errorf("a %d-session window starts at %s, wanted %s — %s",
+				width.sessions, got, width.want, width.why)
+		}
+	}
+}

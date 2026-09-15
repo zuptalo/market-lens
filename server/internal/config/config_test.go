@@ -165,14 +165,21 @@ func TestReobserveSessionsIsBoundedAndRefused(t *testing.T) {
 // a data quality finding. Refused rather than clamped, for the same reason as the re-observation
 // window: an operator who sets a value believing it covers a decade must find out that it does not.
 func TestMaxReachIsBoundedAndRefused(t *testing.T) {
-	t.Run("defaults to about a trading year", func(t *testing.T) {
+	// The default has to be able to reach a finding raised against the oldest history the
+	// product stores, because a finding drives the reach exactly once: the pass that examines it
+	// is also the last pass that widens for it. A bound that cannot reach the real ones does not
+	// save a wide night — it spends a narrower one every night for ever and never settles
+	// anything, which is what a year-long default did in production for fifteen instruments.
+	t.Run("reaches as far as the stored history goes", func(t *testing.T) {
 		t.Setenv("DATABASE_URL", "postgres://example")
 		cfg, err := Load()
 		if err != nil {
 			t.Fatalf("load: %v", err)
 		}
-		if cfg.MarketData.MaxReachSessions != 260 {
-			t.Fatalf("default reach is %d sessions, wanted 260", cfg.MarketData.MaxReachSessions)
+		if cfg.MarketData.MaxReachSessions < 2500 {
+			t.Fatalf("default reach is %d sessions; a decade of stored history is about 2,500, "+
+				"and a finding older than the reach can never be examined",
+				cfg.MarketData.MaxReachSessions)
 		}
 	})
 	for _, accepted := range []string{"1", "260", "2600"} {

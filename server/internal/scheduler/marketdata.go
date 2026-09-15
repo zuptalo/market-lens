@@ -77,7 +77,7 @@ func (s *MarketData) reobserveSessions() int {
 // maxReachSessions is the configured floor, with zero meaning the production default.
 func (s *MarketData) maxReachSessions() int {
 	if s.config.MaxReachSessions < 1 {
-		return 260
+		return 2600
 	}
 	return s.config.MaxReachSessions
 }
