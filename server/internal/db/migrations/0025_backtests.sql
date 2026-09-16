@@ -66,6 +66,11 @@ COMMENT ON TABLE backtest_configurations IS
 CREATE TABLE backtest_runs (
     id uuid PRIMARY KEY,
     configuration_id uuid NOT NULL REFERENCES backtest_configurations(id),
+    -- A run is written once, when it is finished. A half-written backtest is not a smaller
+    -- result, it is a wrong one — a reader who found the trades without the equity, or the equity
+    -- without the costs, would draw a conclusion the simulation never reached. 'running' and
+    -- 'failed' are therefore unused today; they exist for an implementation that streams a long
+    -- run's progress, which this one deliberately does not.
     status text NOT NULL CHECK (status IN ('running', 'succeeded', 'failed')),
     from_session date NOT NULL,
     to_session date NOT NULL,
