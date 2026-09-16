@@ -678,3 +678,47 @@ func TestSignalsComputeAcceptsItsRunKinds(t *testing.T) {
 		t.Errorf("strategy request = %#v", received)
 	}
 }
+
+// TestResolveCanReportHistoryCoverage. Identity is not history: a plan can list a benchmark and
+// serve nothing for it, and a benchmark with no history is useless to a backtest. Finding that out
+// before writing a specification against it is the whole point of this diagnostic.
+func TestResolveCanReportHistoryCoverage(t *testing.T) {
+	command, err := parseMarketDataCommand([]string{"marketdata", "resolve", "--history", "OMXS30.INDX"}, time.Now())
+	if err != nil || command.History != "OMXS30.INDX" {
+		t.Fatalf("--history: command = %#v, err = %v", command, err)
+	}
+	if _, err := parseMarketDataCommand([]string{"marketdata", "resolve", "--history", ""}, time.Now()); err == nil {
+		t.Errorf("an empty symbol was accepted")
+	}
+
+	var output bytes.Buffer
+	from, _ := marketdata.ParseSessionDate("2016-01-04")
+	to, _ := marketdata.ParseSessionDate("2026-09-15")
+	if err := reportHistoryCoverage(&output, "OMXS30.INDX", marketdata.DailyPage{Bars: []marketdata.ProviderBar{
+		barWithoutTestHelper("2016-01-04"), barWithoutTestHelper("2021-06-01"), barWithoutTestHelper("2026-09-15"),
+	}}, from, to); err != nil {
+		t.Fatal(err)
+	}
+	printed := output.String()
+	for _, want := range []string{"OMXS30.INDX", "sessions=3", "2016-01-04", "2026-09-15"} {
+		if !strings.Contains(printed, want) {
+			t.Errorf("the report does not state %q: %s", want, printed)
+		}
+	}
+
+	// A symbol the plan lists but does not serve must read as empty, not as success.
+	output.Reset()
+	if err := reportHistoryCoverage(&output, "NOTHING.INDX", marketdata.DailyPage{}, from, to); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "sessions=0") {
+		t.Errorf("an empty history did not say so: %s", output.String())
+	}
+}
+
+func barWithoutTestHelper(date string) marketdata.ProviderBar {
+	session, _ := marketdata.ParseSessionDate(date)
+	value, _ := marketdata.ParseDecimal("100")
+	return marketdata.ProviderBar{SessionDate: session, Open: value, High: value, Low: value,
+		Close: value, Volume: 1, SourceHash: date}
+}
