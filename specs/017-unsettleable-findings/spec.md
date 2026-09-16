@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-08
 
-**Status**: planned
+**Status**: shipped
 <!-- Market Lens spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: User description: "A data quality finding that re-observation cannot settle. The

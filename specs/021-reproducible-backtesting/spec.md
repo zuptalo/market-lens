@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-16
 
-**Status**: planned
+**Status**: shipped
 <!-- Market Lens spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: User description: "Reproducible backtesting (Milestone 5). Feature 015's caveat says
