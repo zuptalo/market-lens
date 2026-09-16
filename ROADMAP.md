@@ -32,7 +32,7 @@ without a reviewed feature spec and valid red test.
 | 2 | Instrument exploration and financial charts | Shipped | [`005-instrument-exploration`](specs/005-instrument-exploration/spec.md) | Milestone 1 | Search/browse, instrument detail, responsive candlestick/volume history, overlays, and basic statistics. |
 | 3 | Reusable feature engine | Shipped | [`013-feature-engine`](specs/013-feature-engine/spec.md) and [plan](specs/013-feature-engine/plan.md) | Milestone 1 | Deterministic, versioned, point-in-time returns, trend, momentum, relative strength, volatility, ATR, RSI/MACD, drawdown, volume and regime features over stored sessions, with leakage proven by test. Relative strength is measured against an equal-weighted composite of the curated universe, which needed no new data. Markets reads its three statistics from the engine. |
 | 4 | Deterministic strategies and signals | Shipped | [015](specs/015-strategies-and-signals/spec.md) | Milestone 3 | Versioned momentum/trend strategy, parameters, immutable actions/scores/confidence/explanations and reproducibility. |
-| 5 | Reproducible backtesting | Backlog | Not yet specified | Milestone 4; benchmark data | Historical simulation, accounting, brokerage/FX/slippage, benchmarks, metrics, curves, and traceable trades/signals. |
+| 5 | Reproducible backtesting | Shipped | [021](specs/021-reproducible-backtesting/spec.md) | Milestone 4; benchmark data | Historical simulation, accounting, brokerage/FX/slippage, benchmarks, metrics, curves, and traceable trades/signals. |
 | 6 | Personal tracking, portfolio, and risk engine | Backlog | Not yet specified | Security-A; Milestone 4; preferably Milestone 5 evidence | User-owned holdings/trades/tracking rules, positions, cash/P&L/exposures, independent limits/rejections/modifications, and order intents. |
 | 7 | Paper trading | Backlog | Not yet specified | Milestones 1, 4, and 6 | Permanent simulated orders/trades and forward performance using shared strategy/risk/accounting. |
 | Notifications-A | Email and Web Push alerts | Backlog | Not yet specified | Security-A; Experience-A; explainable signals and user tracking | Granular consented alerts, quiet/frequency controls, per-device revocation, minimum private payloads, and provider-outage resilience. |
@@ -97,9 +97,46 @@ tested, and unreachable — the nightly pass asked the source about exactly one 
 gave it a chance to change its mind. The pass now re-observes the last five trading sessions, and a
 run states how many it corrected.
 
-**The next product feature is Milestone 5, reproducible backtesting**, which reads these signals.
+Feature 017 followed that, fixing what 016 exposed. A finding the source keeps reporting can never
+satisfy the resolution rule, so once the nightly pass began reaching back to re-examine open
+findings it did so every night for ever, leaving every run permanently amber. A re-examined finding
+now records that it was examined and stops driving the reach-back, while staying open so it can
+still resolve — and what the product cannot settle waits for an owner to accept as a limitation,
+because deciding that a data source is simply like this is not a judgement software should make on
+somebody's behalf.
 
-Milestone 5 is the next planning sequence. Create separate feature specs so their
+**Milestone 5, reproducible backtesting, is shipped.** Feature 021 replays stored signals over
+stored sessions under a stated, immutable configuration and records what would have happened:
+trades that name the signal behind them, cash and positions at every session, an equity curve, and
+six measures beside each market's benchmark over the identical range. It answers the question
+feature 015 explicitly deferred — whether the method is any good — and it is the first thing this
+product produces that somebody might act on, which is why the bar for honesty is higher here and
+not lower.
+
+Four decisions carry that. Execution happens at the **open of the next session the instrument
+actually traded**, because a signal computed from a close cannot honestly be acted on at that
+close; a trade that executed on its own signal's session is the single easiest way to flatter a
+backtest and it is invisible in the resulting chart, so the database refuses the row rather than
+trusting the simulation. Benchmarks and rates are **their own tables, not instruments** — an index
+stored as an instrument would appear on Markets, be computed over by the feature engine, and end
+up scored by the very strategy it exists to judge. **Costs are stated and non-zero by default**,
+because a default of zero would make the first result anybody runs the most flattering one. And a
+measure set reports **all six figures or states why it reports none**: maximum drawdown and the
+cost of trading are exactly the two a result would otherwise leave out.
+
+The Danish gap is stated rather than papered over. `OMXC25.INDX` begins 2016-12-19, 110 days after
+this product's stored history, so a full-range backtest reports the Danish comparison as
+unavailable for that window. Splicing in `OMXC20`, the index it replaced, would join two different
+things and present them as one series.
+
+It also introduced the product's first currency conversion, confined to backtesting: a portfolio
+spanning four markets cannot avoid the question, and everything else still states each price in
+its own listing currency.
+
+**The next product feature is Milestone 6**, personal tracking, portfolio and risk — the first
+milestone with user-owned records, which is why backtesting deliberately introduced none.
+
+Milestone 6 is the next planning sequence. Create separate feature specs so their
 acceptance criteria, data ownership, responsive behavior, and test-first proof can be
 reviewed independently. Do not combine them into one implementation batch.
 

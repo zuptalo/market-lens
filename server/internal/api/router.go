@@ -102,6 +102,7 @@ type Dependencies struct {
 	Instruments             InstrumentReader
 	Features                FeatureReader
 	Signals                 SignalReader
+	Backtests               BacktestReader
 	FindingDecisions        FindingDecider
 	Events                  EventReader
 	EventHeartbeat          time.Duration
@@ -170,6 +171,12 @@ func NewRouter(deps Dependencies) http.Handler {
 		protected.HandleFunc("GET /api/v1/signals", listSignalsHandler(deps.Signals))
 		protected.HandleFunc("GET /api/v1/strategies", listStrategiesHandler(deps.Signals))
 		protected.HandleFunc("GET /api/v1/strategy-runs", listStrategyRunsHandler(deps.Signals))
+	}
+	if deps.Backtests != nil {
+		protected.HandleFunc("GET /api/v1/backtests", listBacktestsHandler(deps.Backtests))
+		protected.HandleFunc("GET /api/v1/backtests/{id}", getBacktestHandler(deps.Backtests))
+		protected.HandleFunc("GET /api/v1/backtests/{id}/trades", listBacktestTradesHandler(deps.Backtests))
+		protected.HandleFunc("GET /api/v1/backtests/{id}/equity", getBacktestEquityHandler(deps.Backtests))
 	}
 	if deps.Events != nil {
 		protected.HandleFunc("GET /api/v1/events", eventsHandler(deps.Events, deps.EventHeartbeat,

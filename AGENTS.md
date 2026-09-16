@@ -117,6 +117,39 @@ triggering a recomputation cascade — the incremental feature scope is derived 
 symptom but a slower pass. And a run reports how many sessions it corrected, distinctly from how
 many it stored, because only a correction means every derived value moved underneath.
 
+Feature 017 (`specs/017-unsettleable-findings/`) shipped in `v0.14.0`, fixing what 016 exposed. A
+finding the source keeps reporting can never satisfy the resolution rule, so the nightly reach-back
+ran for ever and every run stayed amber. The fix is one predicate, not a mechanism: a re-examined
+finding records that it was examined and stops driving the reach-back, while staying `open` —
+because `status='open'` is also the *resolution* rule's predicate, so a fourth status would have
+made every re-examined finding permanent. What the product cannot settle waits for an owner to
+accept as a limitation, and a rejection matching a finding already awaiting a decision stops
+deciding an item's status while still being counted, so a suppressed badge never suppresses a
+number.
+
+Feature 021 (`server/internal/backtest`, `server/internal/series`,
+`specs/021-reproducible-backtesting/`) shipped after that: Milestone 5, reproducible backtesting.
+It replays stored signals — never recomputes them — under a stated, immutable configuration and
+records trades, positions, an equity curve and six measures beside each market's benchmark. Five
+rules it leaves behind, four of them enforced by the database rather than by the simulation,
+because each is a way to make a result look better than it was and each is invisible in a chart:
+
+- a trade may not execute on the session whose close produced its signal, and executes at the
+  **open** of the next session the instrument actually traded;
+- a trade names a signal by foreign key, so it cannot exist without its reason;
+- an equity point carries a value or a stated absence, never yesterday's number carried forward,
+  and a position records which session its price actually came from;
+- a measure set reports all six figures or states why it reports none — a subset would be the
+  flattering half;
+- a published configuration is superseded, never edited, enforced by a trigger.
+
+Two further things it settled. The simulation reads stored data only and the `backtest` package
+cannot import a provider client, HTTP, or `marketdata` — a test parses its imports and fails if one
+appears, because mocking a provider would prove only that one path did not call it today. And
+currency conversion is new behaviour confined to backtesting: rates are stored in one direction
+with the accounting currency as the base, converting divides, and nothing else in the product
+converts anything.
+
 Two constraints that outlive any single feature:
 
 - `AUTH_SECRET` is self-provisioned and database-resident, while `EXTERNAL_CREDENTIAL_KEY`

@@ -17,6 +17,13 @@ import (
 // exactly rather than ignoring whole files: the relative strength index, which is the
 // published name of a definition; a database index; and a sentence that denies the label,
 // which is how the rule itself is written down.
+//
+// Feature 021 added a fourth, and it is a whole surface rather than a phrase. A backtest is
+// compared against a real, published market index — OMXS30, OMXH25, OBX, OMXC25 — which is a
+// benchmark in the ordinary sense of the word, bought and sold by other people and stored in its
+// own tables precisely so it is never confused with the composite. Those files are exempted by
+// name, and the exemption is paid for below: each one is checked never to mention the composite
+// at all, so it cannot become the place the composite quietly acquires the label.
 var (
 	forbiddenVocabulary = regexp.MustCompile(`(?i)\b(index|indexes|indices|benchmark|benchmarks|benchmarked)\b`)
 	relativeStrength    = regexp.MustCompile(`(?i)relative strength index`)
@@ -82,6 +89,16 @@ func TestNoSurfaceCallsTheCompositeAnIndexOrABenchmark(t *testing.T) {
 		"src",
 		filepath.Join("specs", "013-feature-engine"),
 	}
+	// Where the words name a real published market index rather than the composite. Each is
+	// asserted below to say nothing about the composite whatsoever.
+	realBenchmarks := map[string]bool{
+		filepath.Join("src", "components", "finance", "MeasureTable.vue"):     true,
+		filepath.Join("src", "components", "finance", "MeasureTable.test.ts"): true,
+		filepath.Join("src", "views", "BacktestsView.vue"):                    true,
+		filepath.Join("src", "services", "marketData.ts"):                     true,
+		filepath.Join("src", "types", "marketData.ts"):                        true,
+	}
+	exempted := 0
 	scanned := 0
 	for _, surface := range surfaces {
 		err := filepath.WalkDir(filepath.Join(root, surface), func(path string, entry os.DirEntry, err error) error {
@@ -95,6 +112,22 @@ func TestNoSurfaceCallsTheCompositeAnIndexOrABenchmark(t *testing.T) {
 			}
 			fragments, ok := userFacingText(t, path)
 			if !ok {
+				return nil
+			}
+			relative, relErr := filepath.Rel(root, path)
+			if relErr != nil {
+				return relErr
+			}
+			if realBenchmarks[relative] {
+				exempted++
+				// The price of the exemption: a file allowed to say "benchmark" may not be the
+				// place the composite acquires the word.
+				for number, fragment := range fragments {
+					if regexp.MustCompile(`(?i)\bcomposite\b`).MatchString(fragment) {
+						t.Errorf("%s:%d mentions the composite in a file exempted for real market indices: %q",
+							path, number+1, strings.TrimSpace(fragment))
+					}
+				}
 				return nil
 			}
 			scanned++
@@ -111,6 +144,12 @@ func TestNoSurfaceCallsTheCompositeAnIndexOrABenchmark(t *testing.T) {
 	}
 	if scanned < 30 {
 		t.Fatalf("scanned only %d files; the surfaces are not being read", scanned)
+	}
+	// The exemption list is exhaustive, so a renamed or deleted file makes it visibly stale
+	// rather than silently widening what the rule permits.
+	if exempted != len(realBenchmarks) {
+		t.Errorf("%d of %d exempted files were found; the list names something that no longer exists",
+			exempted, len(realBenchmarks))
 	}
 }
 
