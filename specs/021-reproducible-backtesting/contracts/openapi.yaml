@@ -1,0 +1,285 @@
+openapi: 3.1.0
+info:
+  title: Market Lens Backtesting API
+  version: 1.0.0
+  description: >
+    Reading what a strategy would have done. Every operation is shared reference data behind the
+    authenticated boundary, and nothing here writes: a backtest is run by an owner at the command
+    line, so no request can make the product produce a result.
+
+    Every response carries the statement that a result is a simulation over past data and not a
+    prediction, on the same reasoning that puts a strategy's caveat on every signal — a claim a
+    client can forget to fetch is one that will eventually not be shown.
+servers:
+  - url: /api/v1
+x-market-lens-access-boundary:
+  authenticated:
+    - /backtests
+    - /backtests/{id}
+    - /backtests/{id}/trades
+    - /backtests/{id}/equity
+  rule: >
+    Every operation requires an active session and is refused to a deactivated account. Nothing
+    here is private to a user; Milestone 6 owns user-owned records.
+x-market-lens-events:
+  - type: backtest.completed.v1
+    scope: shared
+    entity: backtest_run
+    description: >
+      Published in the same transaction that commits a completed run. Carries the run and its
+      configuration, never the result — a client re-reads that through the authorized path.
+
+paths:
+  /backtests:
+    get:
+      summary: Completed backtests, newest first
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+      responses:
+        "200":
+          description: The runs
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/BacktestSummary" }
+        "401": { description: No active session }
+
+  /backtests/{id}:
+    get:
+      summary: One backtest, its configuration and its measures
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: The result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Backtest" }
+        "401": { description: No active session }
+        "404": { description: No such backtest }
+
+  /backtests/{id}/trades:
+    get:
+      summary: What the simulation did, and why
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: cursor
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        "200":
+          description: One page of trades
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor, total]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Trade" }
+                  next_cursor: { type: [string, "null"] }
+                  total:
+                    type: [integer, "null"]
+                    description: Present on a cursor-less request.
+        "401": { description: No active session }
+
+  /backtests/{id}/equity:
+    get:
+      summary: The equity curve, as figures
+      description: >
+        The same information the chart draws. A reader who cannot see a canvas is not reading a
+        different, poorer version of the result.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: The curve
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, currency]
+                properties:
+                  currency: { type: string }
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/EquityPoint" }
+        "401": { description: No active session }
+
+components:
+  schemas:
+    Money:
+      type: string
+      description: Decimal string in the accounting currency. Never a JSON number.
+
+    Configuration:
+      type: object
+      required:
+        [name, version, strategy, universe, from_session, to_session, starting_capital,
+         accounting_currency, sizing, rebalance, costs]
+      properties:
+        name: { type: string }
+        version: { type: integer }
+        strategy:
+          type: object
+          required: [name, version]
+          properties:
+            name: { type: string }
+            version: { type: integer }
+        universe: { type: string }
+        from_session: { type: string, format: date }
+        to_session: { type: string, format: date }
+        starting_capital: { $ref: "#/components/schemas/Money" }
+        accounting_currency: { type: string }
+        sizing:
+          type: object
+          required: [rule, holdings]
+          properties:
+            rule: { type: string, enum: [equal_weight_top_n] }
+            holdings: { type: integer }
+        rebalance:
+          type: object
+          required: [schedule]
+          properties:
+            schedule: { type: string, enum: [weekly, monthly, quarterly] }
+        costs:
+          type: object
+          required: [brokerage_bps, brokerage_minimum, slippage_bps, currency_spread_bps]
+          properties:
+            brokerage_bps: { type: string }
+            brokerage_minimum: { $ref: "#/components/schemas/Money" }
+            slippage_bps: { type: string }
+            currency_spread_bps: { type: string }
+
+    Measures:
+      type: object
+      required:
+        [total_return, annualised_return, volatility, maximum_drawdown, trade_count, total_costs]
+      description: >
+        All six, always. A result may not report only the flattering ones, so none of these is
+        optional and each carries an absence reason instead of being omitted.
+      properties:
+        total_return: { type: [string, "null"] }
+        annualised_return: { type: [string, "null"] }
+        volatility: { type: [string, "null"] }
+        maximum_drawdown: { type: [string, "null"] }
+        trade_count: { type: integer }
+        total_costs: { $ref: "#/components/schemas/Money" }
+        absence_reason: { type: [string, "null"] }
+
+    BenchmarkComparison:
+      type: object
+      required: [mic, series, measures]
+      properties:
+        mic: { type: string }
+        series: { type: string }
+        measures: { $ref: "#/components/schemas/Measures" }
+        absence_reason:
+          type: [string, "null"]
+          description: >
+            Why the comparison is unavailable, when it is. The Danish index begins after this
+            product's stored history, so a full-range backtest states that rather than truncating
+            the window or splicing in the index it replaced.
+
+    BacktestSummary:
+      type: object
+      required: [id, configuration, status, started_at, finished_at, is_simulation]
+      properties:
+        id: { type: string, format: uuid }
+        configuration: { $ref: "#/components/schemas/Configuration" }
+        status: { type: string, enum: [running, succeeded, partial, failed] }
+        started_at: { type: string, format: date-time }
+        finished_at: { type: [string, "null"], format: date-time }
+        is_simulation:
+          type: boolean
+          description: >
+            Always true, and always present. A result is a simulation over past data and not a
+            prediction; every surface showing one has to say so, and a field a client must
+            remember to add is one that will eventually be missing.
+
+    Backtest:
+      allOf:
+        - $ref: "#/components/schemas/BacktestSummary"
+        - type: object
+          required: [measures, benchmarks, skipped]
+          properties:
+            measures: { $ref: "#/components/schemas/Measures" }
+            benchmarks:
+              type: array
+              items: { $ref: "#/components/schemas/BenchmarkComparison" }
+            skipped:
+              type: array
+              description: Why signals produced no trade, counted by reason.
+              items:
+                type: object
+                required: [reason, count]
+                properties:
+                  reason:
+                    type: string
+                    enum: [no_cash, already_held, not_selected, not_executable, no_price]
+                  count: { type: integer }
+
+    Trade:
+      type: object
+      required:
+        [id, instrument_id, ticker, signal_session, execution_session, direction, quantity,
+         price, currency, brokerage, slippage, signal_id]
+      properties:
+        id: { type: string, format: uuid }
+        instrument_id: { type: string, format: uuid }
+        ticker: { type: string }
+        signal_session:
+          type: string
+          format: date
+          description: The session whose signal caused this trade.
+        execution_session:
+          type: string
+          format: date
+          description: >
+            Strictly later than signal_session, and a session this instrument actually traded.
+        direction: { type: string, enum: [buy, sell] }
+        quantity: { type: string }
+        price: { type: string, description: The execution session's open, in the listing currency. }
+        currency: { type: string }
+        conversion_rate: { type: [string, "null"] }
+        brokerage: { $ref: "#/components/schemas/Money" }
+        slippage: { $ref: "#/components/schemas/Money" }
+        signal_id:
+          type: string
+          description: >
+            The signal this trade acted on, so a reader reaches the strategy's own contributions
+            from any trade rather than being asked to take it on trust.
+
+    EquityPoint:
+      type: object
+      required: [session_date, cash, positions_value, total, absence_reason]
+      properties:
+        session_date: { type: string, format: date }
+        cash: { $ref: "#/components/schemas/Money" }
+        positions_value: { type: [string, "null"] }
+        total: { type: [string, "null"] }
+        absence_reason:
+          type: [string, "null"]
+          description: >
+            Set exactly when the session could not be valued. Repeating the previous total would
+            be a claim the data does not support.
