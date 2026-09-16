@@ -1264,6 +1264,7 @@ func run() error {
 		Instruments:   instruments.NewQueryService(instruments.NewRepository(pool), marketdata.NewRepository(pool)),
 		Features:      features.NewRepository(pool),
 		Signals:       strategies.NewRepository(pool),
+		Backtests:     backtest.NewRepository(pool),
 		// Reading findings is for every authenticated user; deciding about one is the owner's.
 		FindingDecisions: marketdata.NewRepository(pool),
 		Events:           clientevents.NewService(clientevents.NewRepository(pool)),

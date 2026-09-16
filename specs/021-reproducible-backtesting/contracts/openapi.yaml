@@ -147,8 +147,14 @@ components:
             name: { type: string }
             version: { type: integer }
         universe: { type: string }
-        from_session: { type: string, format: date }
-        to_session: { type: string, format: date }
+        from_session:
+          type: [string, "null"]
+          format: date
+          description: >
+            The range the configuration states. Null means the whole of stored history, which each
+            run resolves to actual sessions and records on itself — so "all of it" is still a
+            stated range once a result exists.
+        to_session: { type: [string, "null"], format: date }
         starting_capital: { $ref: "#/components/schemas/Money" }
         accounting_currency: { type: string }
         sizing:
@@ -161,7 +167,7 @@ components:
           type: object
           required: [schedule]
           properties:
-            schedule: { type: string, enum: [weekly, monthly, quarterly] }
+            schedule: { type: string, enum: [daily, weekly, monthly] }
         costs:
           type: object
           required: [brokerage_bps, brokerage_minimum, slippage_bps, currency_spread_bps]
@@ -179,12 +185,26 @@ components:
         All six, always. A result may not report only the flattering ones, so none of these is
         optional and each carries an absence reason instead of being omitted.
       properties:
+        from_session: { type: [string, "null"], format: date }
+        to_session:
+          type: [string, "null"]
+          format: date
+          description: >
+            The sessions actually measured. A benchmark whose market was shut on the range's
+            first session is measured from its own next one and says so, rather than printing the
+            strategy's dates over figures computed from different ones.
         total_return: { type: [string, "null"] }
         annualised_return: { type: [string, "null"] }
-        volatility: { type: [string, "null"] }
-        maximum_drawdown: { type: [string, "null"] }
-        trade_count: { type: integer }
-        total_costs: { $ref: "#/components/schemas/Money" }
+        volatility:
+          type: [string, "null"]
+          description: Sample standard deviation of session returns, annualised by 252 sessions.
+        maximum_drawdown:
+          type: [string, "null"]
+          description: >
+            The worst peak-to-trough fall, stated as a loss. A positive value is a sign error,
+            not good news.
+        trade_count: { type: [integer, "null"] }
+        total_costs: { type: [string, "null"] }
         absence_reason: { type: [string, "null"] }
 
     BenchmarkComparison:
@@ -207,7 +227,12 @@ components:
       properties:
         id: { type: string, format: uuid }
         configuration: { $ref: "#/components/schemas/Configuration" }
-        status: { type: string, enum: [running, succeeded, partial, failed] }
+        status:
+          type: string
+          enum: [running, succeeded, failed]
+          description: >
+            There is no partial. A half-simulated portfolio is not a smaller result, it is a
+            wrong one.
         started_at: { type: string, format: date-time }
         finished_at: { type: [string, "null"], format: date-time }
         is_simulation:
@@ -236,14 +261,16 @@ components:
                 properties:
                   reason:
                     type: string
-                    enum: [no_cash, already_held, not_selected, not_executable, no_price]
+                    enum:
+                      [no_cash, already_held, not_selected, not_executable, no_price, no_rate,
+                       no_next_session]
                   count: { type: integer }
 
     Trade:
       type: object
       required:
         [id, instrument_id, ticker, signal_session, execution_session, direction, quantity,
-         price, currency, brokerage, slippage, signal_id]
+         price, currency, brokerage, slippage, currency_spread, cash_effect, signal_id]
       properties:
         id: { type: string, format: uuid }
         instrument_id: { type: string, format: uuid }
@@ -264,6 +291,12 @@ components:
         conversion_rate: { type: [string, "null"] }
         brokerage: { $ref: "#/components/schemas/Money" }
         slippage: { $ref: "#/components/schemas/Money" }
+        currency_spread: { $ref: "#/components/schemas/Money" }
+        cash_effect:
+          $ref: "#/components/schemas/Money"
+          description: >
+            What this trade did to cash in the accounting currency, costs included. Negative for
+            a purchase.
         signal_id:
           type: string
           description: >
