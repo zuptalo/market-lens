@@ -201,3 +201,55 @@ A few things worth remembering when the first curve appears:
   cleverer is Milestone 6, which has its own specification.
 - No fitting, tuning or search of any parameter.
 - No order, order intent, or anything a broker could act on.
+
+---
+
+## Recorded evidence
+
+The first production run, `v0.17.0` on k3s, 2026-09-16.
+
+**The series the provider actually served**, imported through the product's own command:
+
+| Series | Sessions | From | To |
+|---|---|---|---|
+| `OMXS30.INDX` | 6,711 | 2000-01-03 | 2026-09-16 |
+| `OMXH25.INDX` | 6,340 | 2001-03-09 | 2026-09-16 |
+| `OBX.INDX` | 6,319 | 2000-01-03 | 2026-09-16 |
+| `OMXC25.INDX` | **2,435** | **2016-12-19** | 2026-09-16 |
+| `EURSEK` / `EURNOK` | 7,036 each | 2000-01-03 | 2026-09-16 |
+| `EURDKK` | 7,035 | 2000-01-03 | 2026-09-16 |
+
+The Danish gap is exactly as specified: `OMXC25.INDX` begins 110 days after stored history does,
+and the comparison for a full-range backtest is reported unavailable with that reason.
+
+**The run**: 100 instruments, 2,557 sessions from 2016-08-31 to 2026-09-16, 122 monthly
+rebalances. 1,392 trades, 9,743 considered signals that produced none, 23,678 position rows.
+Six seconds of wall clock including process start and migration check; 217 ms of simulation.
+
+**What it found**, and this is the point of the feature:
+
+| | Total return | Annualised | Volatility | Max drawdown | Trades | Costs |
+|---|---|---|---|---|---|---|
+| **momentum_trend v1** | 119.97% | 8.17% | 22.36% | **-39.31%** | 1,392 | €458,954 |
+| `OBX.INDX` | 271.54% | 13.96% | 16.33% | -33.51% | 0 | — |
+| `OMXS30.INDX` | 129.22% | 8.61% | 17.03% | -32.00% | 0 | — |
+| `OMXH25.INDX` | 92.88% | 6.76% | 16.90% | -36.58% | 0 | — |
+| `OMXC25.INDX` | *unavailable — series starts after the range* |
+
+The strategy underperformed two of the three available benchmarks, with higher volatility and a
+deeper drawdown than any of them, after costs of 46% of starting capital over ten years of monthly
+rebalancing. Feature 015's caveat said its weights were stated rather than fitted and had never
+been tested against outcomes. They have been now, and this is the answer. Producing it is the
+feature working, not the feature failing.
+
+**Every check above, run against that result**: zero trades on or before their signal session;
+zero trades on a session the instrument did not trade; zero positions valued at a price from an
+untraded session; zero sessions where cash plus positions did not equal the stored equity; zero
+sessions with negative cash; 2,557 equity points, none unvalued.
+
+**Reproducibility (SC-001)**: the configuration was run a second time and diffed field by field —
+0 trades differing, 0 trades present in one run and not the other, 0 equity points differing,
+0 positions differing, 0 measure sets differing, 0 skipped signals differing.
+
+**The skips** were `not_selected` 9,334, `already_held` 362, `no_cash` 47 — no signal in the range
+went unaccounted for. **Conversion** applied to 1,056 of the 1,392 trades, the non-euro ones.
