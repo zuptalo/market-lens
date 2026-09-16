@@ -23,6 +23,7 @@ import (
 
 	"market-lens/server/internal/api"
 	"market-lens/server/internal/auth"
+	"market-lens/server/internal/backtest"
 	"market-lens/server/internal/config"
 	"market-lens/server/internal/credentials"
 	"market-lens/server/internal/db"
@@ -34,6 +35,7 @@ import (
 	"market-lens/server/internal/marketdata"
 	"market-lens/server/internal/marketdata/eodhd"
 	"market-lens/server/internal/scheduler"
+	"market-lens/server/internal/series"
 	"market-lens/server/internal/strategies"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -1084,6 +1086,33 @@ func run() error {
 				features.NewRepository(pool), slog.Default())
 			return executeSignalsCommand(ctx, command, service, os.Stdout, version, cfg.MarketData.Workers)
 		}
+		if os.Args[1] == "series" {
+			command, err := parseSeriesCommand(os.Args[1:])
+			if err != nil {
+				return err
+			}
+			if cfg.MarketData.Provider != "eodhd" {
+				return errors.New("configured market-data provider is not supported")
+			}
+			provider, err := eodhd.New(eodhd.Config{
+				TokenSource: marketDataTokenSource(pool, cfg.ExternalCredentials, cfg.MarketData.APIToken),
+				HTTPClient:  &http.Client{Timeout: cfg.MarketData.RequestTimeout},
+			})
+			if err != nil {
+				return err
+			}
+			return executeSeriesCommand(ctx, command,
+				series.NewService(series.NewRepository(pool), provider, slog.Default()), os.Stdout)
+		}
+		if os.Args[1] == "backtest" {
+			command, err := parseBacktestCommand(os.Args[1:])
+			if err != nil {
+				return err
+			}
+			// No provider is constructed, and none is needed: a backtest reads stored data only.
+			return executeBacktestCommand(ctx, command,
+				backtest.NewService(backtest.NewRepository(pool), slog.Default()), os.Stdout, version)
+		}
 		if os.Args[1] != "marketdata" {
 			return errors.New("unknown command")
 		}
@@ -1279,4 +1308,129 @@ func configureLogging(production bool) {
 	} else {
 		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, options)))
 	}
+}
+
+// The two commands feature 021 adds.
+//
+// Both are owner actions at the command line and neither is reachable over HTTP. Running a
+// backtest is deliberate work an operator does, not something a request can trigger: no reader
+// should be able to make the product compute a result, and nothing on a schedule should decide to.
+
+type seriesCommand struct {
+	// Benchmark names a published index series by the provider's own code; Base and Quote name a
+	// currency pair. Exactly one of the two is set.
+	Benchmark string
+	Base      string
+	Quote     string
+}
+
+const seriesUsage = "expected series import (--benchmark CODE | --rate PAIR)"
+
+func parseSeriesCommand(args []string) (seriesCommand, error) {
+	if len(args) < 2 || args[0] != "series" || args[1] != "import" {
+		return seriesCommand{}, errors.New(seriesUsage)
+	}
+	flags := flag.NewFlagSet("series import", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	benchmark := flags.String("benchmark", "", "published benchmark series code, such as OMXS30.INDX")
+	rate := flags.String("rate", "", "currency pair, such as EURSEK")
+	if err := flags.Parse(args[2:]); err != nil || flags.NArg() != 0 {
+		return seriesCommand{}, errors.New(seriesUsage)
+	}
+	code, pair := strings.TrimSpace(*benchmark), strings.ToUpper(strings.TrimSpace(*rate))
+	if (code == "") == (pair == "") {
+		return seriesCommand{}, errors.New(seriesUsage)
+	}
+	if code != "" {
+		return seriesCommand{Benchmark: code}, nil
+	}
+	if len(pair) != 6 {
+		return seriesCommand{}, errors.New("a currency pair is six letters, such as EURSEK")
+	}
+	return seriesCommand{Base: pair[:3], Quote: pair[3:]}, nil
+}
+
+type seriesImporter interface {
+	ImportBenchmark(context.Context, string) (series.ImportOutcome, error)
+	ImportRate(context.Context, string, string) (series.ImportOutcome, error)
+}
+
+func executeSeriesCommand(ctx context.Context, command seriesCommand, importer seriesImporter,
+	output io.Writer) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	var outcome series.ImportOutcome
+	var err error
+	if command.Benchmark != "" {
+		outcome, err = importer.ImportBenchmark(ctx, command.Benchmark)
+	} else {
+		outcome, err = importer.ImportRate(ctx, command.Base, command.Quote)
+	}
+	if err != nil {
+		return err
+	}
+	// The coverage is printed because it is the fact a backtest's comparison depends on: a series
+	// that begins after the range it is asked about reports an unavailable comparison, and this is
+	// where an operator finds that out before running anything.
+	_, err = fmt.Fprintf(output, "series=%s stored=%d revised=%d unchanged=%d sessions=%d first=%s last=%s\n",
+		outcome.Code, outcome.Stored, outcome.Revised, outcome.Unchanged, outcome.Coverage.Count,
+		dashIfEmpty(outcome.Coverage.FirstSession.String()), dashIfEmpty(outcome.Coverage.LastSession.String()))
+	return err
+}
+
+type backtestCommand struct {
+	Configuration string
+	Version       int
+}
+
+const backtestUsage = "expected backtest run --configuration NAME [--version N]"
+
+func parseBacktestCommand(args []string) (backtestCommand, error) {
+	if len(args) < 2 || args[0] != "backtest" || args[1] != "run" {
+		return backtestCommand{}, errors.New(backtestUsage)
+	}
+	command := backtestCommand{}
+	flags := flag.NewFlagSet("backtest run", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	flags.StringVar(&command.Configuration, "configuration", "", "published configuration name")
+	flags.IntVar(&command.Version, "version", 0, "a specific configuration version")
+	if err := flags.Parse(args[2:]); err != nil || flags.NArg() != 0 {
+		return backtestCommand{}, errors.New(backtestUsage)
+	}
+	command.Configuration = strings.TrimSpace(command.Configuration)
+	if command.Configuration == "" {
+		return backtestCommand{}, errors.New(backtestUsage)
+	}
+	if isFlagSet(flags, "version") && command.Version < 1 {
+		return backtestCommand{}, errors.New(backtestUsage)
+	}
+	return command, nil
+}
+
+type backtestRunner interface {
+	Run(context.Context, backtest.RunRequest) (backtest.Run, error)
+}
+
+func executeBacktestCommand(ctx context.Context, command backtestCommand, runner backtestRunner,
+	output io.Writer, appVersion string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	run, err := runner.Run(ctx, backtest.RunRequest{
+		Configuration: command.Configuration, Version: command.Version, AppVersion: appVersion,
+	})
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(output, "run_id=%s status=%s from=%s to=%s trades=%d skipped=%d rebalances=%d\n",
+		run.ID, run.Status, run.From, run.To, run.TradeCount, run.SkipCount, run.RebalanceCount)
+	return err
+}
+
+func dashIfEmpty(value string) string {
+	if value == "" {
+		return "-"
+	}
+	return value
 }

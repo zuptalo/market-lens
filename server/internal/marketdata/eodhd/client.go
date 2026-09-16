@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"market-lens/server/internal/marketdata"
+	"market-lens/server/internal/series"
 )
 
 const (
@@ -416,3 +417,33 @@ func decimalPointer(value *marketdata.Decimal) string {
 }
 
 var _ marketdata.Provider = (*Client)(nil)
+
+// DailySeries answers the one question the series importer asks: a symbol's daily closes over a
+// range.
+//
+// Narrower than Daily on purpose. An index has no splits and no dividends, and a currency pair has
+// neither, so asking for them would turn one request that cannot fail into three that can — and a
+// benchmark import would start failing for reasons that have nothing to do with benchmarks.
+func (c *Client) DailySeries(ctx context.Context, symbol string, from, to series.SessionDate) ([]series.Point, error) {
+	if strings.TrimSpace(symbol) == "" || from == "" || to == "" || from > to {
+		return nil, providerError("provider_request", "Market-data provider request is invalid.", false, 0)
+	}
+	query := url.Values{"from": {from.String()}, "to": {to.String()}, "period": {"d"}}
+	var rows []barResponse
+	if err := c.getJSON(ctx, "/eod/"+url.PathEscape(symbol), query, &rows); err != nil {
+		return nil, err
+	}
+	points := make([]series.Point, 0, len(rows))
+	for _, row := range rows {
+		date, err := marketdata.ParseSessionDate(row.Date)
+		if err != nil {
+			return nil, providerError("provider_payload", "Market-data provider returned an invalid session date.", false, 0)
+		}
+		closeValue, err := marketdata.ParseDecimal(row.Close.String())
+		if err != nil {
+			return nil, providerError("provider_payload", "Market-data provider returned an invalid close.", false, 0)
+		}
+		points = append(points, series.Point{SessionDate: series.SessionDate(date), Close: closeValue.String()})
+	}
+	return points, nil
+}

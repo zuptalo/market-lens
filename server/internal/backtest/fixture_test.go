@@ -317,6 +317,15 @@ func (f *backtestFixture) session(n int) string {
 	return value
 }
 
+// confineToCurrency narrows the universe to the listings in one currency, so a run can be asked
+// the single-currency question without a second fixture.
+func (f *backtestFixture) confineToCurrency(currency string) {
+	f.t.Helper()
+	f.exec(`DELETE FROM universe_memberships m USING instruments i
+		WHERE i.id = m.instrument_id AND m.universe_id = $1 AND i.currency <> $2`,
+		backtestUnivID.String(), currency)
+}
+
 func (f *backtestFixture) runExpectingError() error {
 	f.t.Helper()
 	_, err := f.service().Run(f.ctx, backtest.RunRequest{
