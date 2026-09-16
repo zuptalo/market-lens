@@ -176,6 +176,7 @@ type Position struct {
 	InstrumentID  UUID
 	Quantity      string
 	Price         *string
+	PriceSession  *SessionDate
 	FXRate        *string
 	Value         *string
 	AbsenceReason *PositionAbsence

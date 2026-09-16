@@ -138,13 +138,21 @@ CREATE TABLE backtest_positions (
     -- The close of this session, in the listing currency, and the value it converts to. Absent
     -- together, with a reason, when the instrument did not trade or no rate was stored.
     price numeric(24,12) CHECK (price IS NULL OR price > 0),
+    -- The session the price actually came from. On a market holiday it is an earlier session,
+    -- which is why it is recorded: SC-009 forbids valuing a position at a price from a session
+    -- its instrument did not trade, and this is the column that makes that checkable rather than
+    -- asserted. Beyond the configuration's give-up window the instrument has stopped trading and
+    -- the position is unvalued instead, because carrying a stale price forward indefinitely is
+    -- the product asserting something it stopped knowing.
+    price_session date,
     fx_rate numeric(24,12) CHECK (fx_rate IS NULL OR fx_rate > 0),
     value numeric(24,12),
     absence_reason text CHECK (absence_reason IS NULL OR absence_reason IN
         ('no_price', 'no_rate')),
     PRIMARY KEY (run_id, session_date, instrument_id),
-    CHECK ((value IS NOT NULL AND price IS NOT NULL AND absence_reason IS NULL)
-        OR (value IS NULL AND price IS NULL AND absence_reason IS NOT NULL))
+    CHECK ((value IS NOT NULL AND price IS NOT NULL AND price_session IS NOT NULL AND absence_reason IS NULL)
+        OR (value IS NULL AND price IS NULL AND price_session IS NULL AND absence_reason IS NOT NULL)),
+    CHECK (price_session IS NULL OR price_session <= session_date)
 );
 
 CREATE TABLE backtest_equity (
