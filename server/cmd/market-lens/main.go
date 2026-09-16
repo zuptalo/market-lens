@@ -57,6 +57,11 @@ type marketDataCommand struct {
 	From     marketdata.SessionDate
 	To       marketdata.SessionDate
 	RunID    instruments.UUID
+	// Exchange asks resolve to read one exchange's catalog by the provider's own code rather
+	// than the universe's stored exchanges. It is how an owner finds out what a market-data
+	// plan actually covers — index series, another market — before anything is specified
+	// against it. Read-only: nothing here imports.
+	Exchange string
 	// Search asks resolve to print the provider's own catalog rows matching a term instead of
 	// auditing what is stored. It is how a suspected replacement symbol is confirmed before a
 	// migration is written against it.
@@ -924,11 +929,13 @@ func parseMarketDataCommand(args []string, now time.Time) (marketDataCommand, er
 	switch args[1] {
 	case "resolve":
 		search := flags.String("search", "", "print provider catalog rows matching this term")
+		exchange := flags.String("exchange", "", "read this provider exchange code instead of the stored ones")
 		if err := flags.Parse(args[2:]); err != nil || flags.NArg() != 0 ||
 			strings.TrimSpace(command.Universe) == "" {
 			return marketDataCommand{}, errors.New("resolve takes only a universe and an optional search term")
 		}
 		command.Search = strings.TrimSpace(*search)
+		command.Exchange = strings.TrimSpace(*exchange)
 		command.Kind = marketDataResolve
 		return command, nil
 	case "backfill":
@@ -1079,6 +1086,16 @@ func run() error {
 			// One catalog fetch per exchange, not per instrument: the whole universe is
 			// audited with four requests.
 			catalog := map[string][]marketdata.CatalogEntry{}
+			// One named exchange, by the provider's own code, instead of the universe's. This
+			// is the only way to see what the plan covers beyond what is already stored.
+			if command.Exchange != "" {
+				listed, err := provider.ListInstruments(ctx, command.Exchange)
+				if err != nil {
+					return err
+				}
+				catalog[command.Exchange] = listed
+				return reportCatalogSearch(os.Stdout, command.Search, catalog)
+			}
 			for _, entry := range entries {
 				if _, done := catalog[entry.MIC]; done {
 					continue

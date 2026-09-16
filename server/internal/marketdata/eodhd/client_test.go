@@ -308,14 +308,74 @@ func TestListInstrumentsReturnsTheExchangeCatalogWithISINs(t *testing.T) {
 	}
 }
 
-func TestListInstrumentsRejectsAnExchangeItDoesNotCover(t *testing.T) {
+// TestImportsCannotReachAnExchangeTheProductDoesNotStore.
+//
+// This used to be asserted on the catalog read as well. That was defence in depth on a read-only
+// diagnostic, and it cost more than it protected: it made the one tool for asking what a plan
+// covers unable to ask about anything the product did not already have. The risk it guarded
+// against — importing bars from a market with no stored calendar, where a session cannot be told
+// from a closure — lives on the paths that import, and is asserted here.
+func TestImportsCannotReachAnExchangeTheProductDoesNotStore(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		t.Error("an unsupported exchange must not reach the provider")
+		t.Error("an unsupported exchange must not reach the provider on an import path")
 	}))
 	defer server.Close()
+	client := newTestClient(t, server, "token", time.Second)
 
-	if _, err := newTestClient(t, server, "token", time.Second).
-		ListInstruments(context.Background(), "XNYS"); err == nil {
-		t.Fatal("an unsupported exchange was accepted")
+	if _, err := client.Resolve(context.Background(), marketdata.ResolveRequest{
+		ProviderSymbol: "AAPL.US", MIC: "XNYS",
+	}); err == nil {
+		t.Fatal("resolving against an exchange the product does not store was accepted")
+	}
+}
+
+// TestTheCatalogCanBeAskedAboutAnExchangeTheProductDoesNotStore.
+//
+// The catalog read is a diagnostic: it is how an owner checks whether a symbol still exists, and
+// it is the only way to find out what a market-data plan actually entitles this deployment to
+// before committing a specification to it. Scoped to the four exchanges the product stores, it
+// could not answer that question at all — which is a strange limit for a tool whose purpose is
+// looking at what the product does not yet have.
+//
+// Imports are untouched: they resolve through the exchanges the product knows, and an unknown one
+// is still refused there.
+func TestTheCatalogCanBeAskedAboutAnExchangeTheProductDoesNotStore(t *testing.T) {
+	const token = "test-provider-secret"
+	var requested string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requested = r.URL.Path
+		assertCommonQuery(t, r, token)
+		_, _ = w.Write([]byte(`[
+			{"Code":"GSPC","Name":"S&P 500 Index","Currency":"USD","Type":"INDEX","Isin":null}
+		]`))
+	}))
+	defer server.Close()
+	client := newTestClient(t, server, token, time.Second)
+
+	listed, err := client.ListInstruments(context.Background(), "INDX")
+	if err != nil {
+		t.Fatalf("listing an exchange the product does not store: %v", err)
+	}
+	if requested != "/exchange-symbol-list/INDX" {
+		t.Fatalf("asked for %q", requested)
+	}
+	if len(listed) != 1 || listed[0].ProviderSymbol != "GSPC.INDX" || listed[0].Name != "S&P 500 Index" {
+		t.Fatalf("listed = %#v", listed)
+	}
+
+	// A known MIC still maps through the exchange the product knows, not through its own name.
+	requested = ""
+	if _, err := client.ListInstruments(context.Background(), "XSTO"); err != nil {
+		t.Fatalf("listing a stored exchange: %v", err)
+	}
+	if requested != "/exchange-symbol-list/ST" {
+		t.Fatalf("a stored exchange asked for %q", requested)
+	}
+
+	// Resolving, which imports depend on, still refuses an exchange the product does not store.
+	if _, err := client.Resolve(context.Background(), marketdata.ResolveRequest{
+		ProviderSymbol: "GSPC.INDX", MIC: "INDX",
+	}); err == nil {
+		t.Fatalf("resolve accepted an exchange the product does not store")
 	}
 }

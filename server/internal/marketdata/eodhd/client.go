@@ -275,10 +275,26 @@ func mapBar(row barResponse) (marketdata.ProviderBar, error) {
 // which is the question worth asking when a stored ticker has gone stale. Each entry carries
 // its ISIN, so an instrument that has been renamed can be found again by the identifier that
 // did not change.
+// ListInstruments reads one exchange's catalog.
+//
+// It accepts either a MIC the product stores or, for anything else, the provider's own exchange
+// code. That is deliberate and confined to this method: reading a catalog is a diagnostic — how an
+// owner checks whether a symbol still exists, and the only way to find out what a market-data plan
+// actually entitles this deployment to before a specification is written against it. Scoped to the
+// exchanges already stored, it could not answer a question about anything the product does not
+// have, which is most of what anyone would ask it.
+//
+// Resolve is not widened. Imports still map through the exchanges the product knows, and an
+// unknown one is refused there, so nothing can be imported from a market this deployment has no
+// calendar for.
 func (c *Client) ListInstruments(ctx context.Context, mic string) ([]marketdata.CatalogEntry, error) {
-	exchange, ok := nordicExchange(mic)
-	if !ok {
+	code := strings.ToUpper(strings.TrimSpace(mic))
+	if code == "" {
 		return nil, providerError("provider_request", "Market-data provider request is invalid.", false, 0)
+	}
+	exchange := exchangeDetails{code: code}
+	if known, ok := nordicExchange(mic); ok {
+		exchange = known
 	}
 
 	var rows []symbolResponse
