@@ -212,7 +212,11 @@ one trade to the signal that caused it and the contributions behind that.
 
 - **FR-014**: Every trade MUST name the signal that caused it, so a reader can reach the strategy's
   own contributions from any trade.
-- **FR-015**: Every signal that produced no trade MUST record a reason from a stated vocabulary.
+- **FR-015**: Every signal the simulation considered that produced no trade MUST record a reason
+  from a stated vocabulary.
+- **FR-015a**: A configuration's rebalance schedule MUST be stated on the result, so a signal the
+  simulation never considered is accounted for by the schedule rather than by silence. Between
+  the two, every signal in the range has an answer.
 
 **Reproducibility**
 
@@ -314,7 +318,8 @@ one trade to the signal that caused it and the contributions behind that.
   range, or states plainly why the comparison is unavailable.
 - **SC-005**: Total costs are reported on every result, and a result with costs configured to zero
   says so rather than omitting the figure.
-- **SC-006**: Every signal in the range either produced a trade or recorded a reason it did not.
+- **SC-006**: Every signal in the range is accounted for: on a rebalance session it produced a
+  trade or a recorded reason it did not, and off one it falls outside the stated schedule.
 - **SC-007**: A backtest over the curated universe and its stored history completes within a
   stated time budget on the deployment's own hardware.
 - **SC-008**: Every surface showing a result states that it is a simulation over past data and not
@@ -336,6 +341,12 @@ one trade to the signal that caused it and the contributions behind that.
   stored history. A backtest covering that window reports the Danish comparison as unavailable for
   it. Back-filling with `OMXC20`, which the index replaced, would splice two different things and
   call the result one series.
+- **A signal off the rebalance schedule is not considered, and no row is written for it.** Under
+  a monthly schedule, 95% of stored signals fall on sessions the configuration does not trade on.
+  Writing a quarter of a million rows saying "it was a Tuesday" would cost more than the stored
+  signals themselves and bury the twelve thousand rows that record an actual decision. The
+  schedule is stored on the result instead, which answers the same question in one fact rather
+  than in rows.
 - **Equal-weight the top N by score, rebalanced on a stated schedule.** The simplest rule that
   uses the strategy's output and nothing else. Anything cleverer is position sizing, which is
   Milestone 6's subject and needs its own specification.
