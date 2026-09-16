@@ -1,4 +1,10 @@
 import type {
+  BacktestConfiguration,
+  BacktestDetail,
+  BacktestEquityCurve,
+  BacktestMeasures,
+  BacktestSummary,
+  BacktestTradePage,
   ConnectionState,
   DailyBarSummary,
   FeatureRunSummary,
@@ -418,6 +424,9 @@ export const MARKET_DATA_EVENT_TYPES = [
   // A strategy's recomputed views. The event names the instrument and the session range, never
   // the signals themselves: an open ranking re-reads them through the authorized path.
   'signals.changed.v1',
+  // A completed backtest. The event carries the run and its configuration, never the result: an
+  // open page re-reads that through the authorized path.
+  'backtest.completed.v1',
 ] as const;
 
 /** What a market-data event says about the change it reports. */
@@ -752,4 +761,193 @@ export async function acceptFinding(
     headers: { 'X-CSRF-Token': csrfToken },
   });
   if (!response.ok) throw new Error('Unable to accept this finding.');
+}
+
+/* Backtesting (feature 021). Four reads and nothing that writes: running a backtest is an owner
+ * action at the command line, so there is no client call that could make the product produce a
+ * result. */
+
+interface BacktestConfigurationWire {
+  name: string;
+  version: number;
+  title: string;
+  intent: string;
+  caveat: string;
+  strategy: { name: string; version: number };
+  universe: string;
+  from_session: string | null;
+  to_session: string | null;
+  starting_capital: string;
+  accounting_currency: string;
+  sizing: { rule: string; holdings: number };
+  rebalance: { schedule: string };
+  costs: {
+    brokerage_bps: string;
+    brokerage_minimum: string;
+    slippage_bps: string;
+    currency_spread_bps: string;
+  };
+}
+
+interface BacktestMeasuresWire {
+  from_session: string | null;
+  to_session: string | null;
+  total_return: string | null;
+  annualised_return: string | null;
+  volatility: string | null;
+  maximum_drawdown: string | null;
+  trade_count: number | null;
+  total_costs: string | null;
+  absence_reason: string | null;
+}
+
+interface BacktestSummaryWire {
+  id: string;
+  configuration: BacktestConfigurationWire;
+  status: BacktestSummary['status'];
+  from_session: string;
+  to_session: string;
+  started_at: string;
+  finished_at: string | null;
+  trade_count: number;
+  skipped_count: number;
+  rebalance_count: number;
+  is_simulation: boolean;
+}
+
+interface BacktestDetailWire extends BacktestSummaryWire {
+  measures: BacktestMeasuresWire;
+  benchmarks: { mic: string; series: string; measures: BacktestMeasuresWire; absence_reason: string | null }[];
+  skipped: { reason: string; count: number }[];
+}
+
+function toBacktestConfiguration(wire: BacktestConfigurationWire): BacktestConfiguration {
+  return {
+    name: wire.name, version: wire.version, title: wire.title, intent: wire.intent,
+    caveat: wire.caveat, strategy: { ...wire.strategy }, universe: wire.universe,
+    fromSession: wire.from_session ?? null, toSession: wire.to_session ?? null,
+    startingCapital: wire.starting_capital, accountingCurrency: wire.accounting_currency,
+    sizing: { ...wire.sizing }, rebalance: { ...wire.rebalance },
+    costs: {
+      brokerageBps: wire.costs.brokerage_bps,
+      brokerageMinimum: wire.costs.brokerage_minimum,
+      slippageBps: wire.costs.slippage_bps,
+      currencySpreadBps: wire.costs.currency_spread_bps,
+    },
+  };
+}
+
+function toBacktestMeasures(wire: BacktestMeasuresWire): BacktestMeasures {
+  return {
+    fromSession: wire.from_session ?? null, toSession: wire.to_session ?? null,
+    totalReturn: wire.total_return ?? null, annualisedReturn: wire.annualised_return ?? null,
+    volatility: wire.volatility ?? null, maximumDrawdown: wire.maximum_drawdown ?? null,
+    tradeCount: wire.trade_count ?? null, totalCosts: wire.total_costs ?? null,
+    absenceReason: wire.absence_reason ?? null,
+  };
+}
+
+function toBacktestSummary(wire: BacktestSummaryWire): BacktestSummary {
+  return {
+    id: wire.id, configuration: toBacktestConfiguration(wire.configuration), status: wire.status,
+    fromSession: wire.from_session, toSession: wire.to_session, startedAt: wire.started_at,
+    finishedAt: wire.finished_at ?? null, tradeCount: wire.trade_count,
+    skippedCount: wire.skipped_count, rebalanceCount: wire.rebalance_count,
+    isSimulation: wire.is_simulation !== false,
+  };
+}
+
+/** Completed backtests, newest first. */
+export async function fetchBacktests(fetcher: Fetcher = fetch, signal?: AbortSignal): Promise<BacktestSummary[]> {
+  const response = await fetcher('/api/v1/backtests?limit=20', { signal });
+  if (!response.ok) throw new Error('Unable to load the recorded backtests.');
+  const body = await response.json() as { items?: BacktestSummaryWire[] };
+  if (!Array.isArray(body.items)) throw new Error('Unable to load the recorded backtests.');
+  return body.items.map(toBacktestSummary);
+}
+
+/** One backtest, its configuration, its measures and the benchmarks it is compared against. */
+export async function fetchBacktest(
+  id: string,
+  fetcher: Fetcher = fetch,
+  signal?: AbortSignal,
+): Promise<BacktestDetail | null> {
+  const response = await fetcher(`/api/v1/backtests/${encodeURIComponent(id)}`, { signal });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error('Unable to load this backtest.');
+  const wire = await response.json() as BacktestDetailWire;
+  return {
+    ...toBacktestSummary(wire),
+    measures: toBacktestMeasures(wire.measures),
+    benchmarks: (wire.benchmarks ?? []).map((item) => ({
+      mic: item.mic, series: item.series, measures: toBacktestMeasures(item.measures),
+      absenceReason: item.absence_reason ?? null,
+    })),
+    skipped: (wire.skipped ?? []).map((item) => ({ reason: item.reason, count: item.count })),
+  };
+}
+
+/** One page of what the simulation did, and the signal behind each of them. */
+export async function fetchBacktestTrades(
+  id: string,
+  options: { cursor?: string; limit?: number } = {},
+  fetcher: Fetcher = fetch,
+  signal?: AbortSignal,
+): Promise<BacktestTradePage> {
+  const query = new URLSearchParams();
+  if (options.cursor) query.set('cursor', options.cursor);
+  query.set('limit', String(options.limit ?? 50));
+  const response = await fetcher(`/api/v1/backtests/${encodeURIComponent(id)}/trades?${query.toString()}`, { signal });
+  if (!response.ok) throw new Error('Unable to load this backtest\'s trades.');
+  const body = await response.json() as {
+    items?: {
+      id: string; instrument_id: string; ticker: string; name: string; signal_session: string;
+      execution_session: string; direction: 'buy' | 'sell'; quantity: string; price: string;
+      currency: string; conversion_rate: string | null; brokerage: string; slippage: string;
+      currency_spread: string; cash_effect: string; signal_id: string;
+    }[];
+    next_cursor?: string | null;
+    total?: number | null;
+  };
+  if (!Array.isArray(body.items)) throw new Error('Unable to load this backtest\'s trades.');
+  return {
+    items: body.items.map((item) => ({
+      id: item.id, instrumentId: item.instrument_id, ticker: item.ticker, name: item.name,
+      signalSession: item.signal_session, executionSession: item.execution_session,
+      direction: item.direction, quantity: item.quantity, price: item.price,
+      currency: item.currency, conversionRate: item.conversion_rate ?? null,
+      brokerage: item.brokerage, slippage: item.slippage, currencySpread: item.currency_spread,
+      cashEffect: item.cash_effect, signalId: item.signal_id,
+    })),
+    nextCursor: body.next_cursor ?? null,
+    total: body.total ?? null,
+  };
+}
+
+/**
+ * The equity curve as figures.
+ *
+ * The same information the chart draws, and the reason the chart is allowed to exist: a reader who
+ * cannot see a canvas receives the result, not a poorer version of it.
+ */
+export async function fetchBacktestEquity(
+  id: string,
+  fetcher: Fetcher = fetch,
+  signal?: AbortSignal,
+): Promise<BacktestEquityCurve> {
+  const response = await fetcher(`/api/v1/backtests/${encodeURIComponent(id)}/equity`, { signal });
+  if (!response.ok) throw new Error('Unable to load this backtest\'s equity curve.');
+  const body = await response.json() as {
+    currency?: string;
+    items?: { session_date: string; cash: string; positions_value: string | null; total: string | null; absence_reason: string | null }[];
+  };
+  if (!Array.isArray(body.items)) throw new Error('Unable to load this backtest\'s equity curve.');
+  return {
+    currency: body.currency ?? '',
+    items: body.items.map((item) => ({
+      sessionDate: item.session_date, cash: item.cash,
+      positionsValue: item.positions_value ?? null, total: item.total ?? null,
+      absenceReason: item.absence_reason ?? null,
+    })),
+  };
 }

@@ -364,3 +364,135 @@ export interface StrategyRunSummary {
   triggerFeatureRunId: string | null;
   appVersion: string | null;
 }
+
+/**
+ * Backtesting (feature 021).
+ *
+ * A backtest replays stored signals over stored sessions under a stated, immutable configuration.
+ * Every type here carries the same discipline the signal types do: decimals stay strings, because
+ * the stored columns are numeric(24,12) and a JavaScript number would round them; and an absence
+ * is a stated reason, never a zero standing in for one.
+ */
+
+export interface BacktestStrategyRef {
+  name: string;
+  version: number;
+}
+
+export interface BacktestCosts {
+  brokerageBps: string;
+  brokerageMinimum: string;
+  slippageBps: string;
+  currencySpreadBps: string;
+}
+
+export interface BacktestConfiguration {
+  name: string;
+  version: number;
+  title: string;
+  intent: string;
+  /** Why a result under these rules is not a prediction. Never optional: no surface may omit it. */
+  caveat: string;
+  strategy: BacktestStrategyRef;
+  universe: string;
+  fromSession: string | null;
+  toSession: string | null;
+  startingCapital: string;
+  accountingCurrency: string;
+  sizing: { rule: string; holdings: number };
+  rebalance: { schedule: string };
+  costs: BacktestCosts;
+}
+
+/**
+ * All six figures, always. A result free to report a subset would report the flattering one, and
+ * maximum drawdown and total costs are exactly the two that go missing — so each is nullable with
+ * a stated reason rather than absent from the shape.
+ */
+export interface BacktestMeasures {
+  fromSession: string | null;
+  toSession: string | null;
+  totalReturn: string | null;
+  annualisedReturn: string | null;
+  volatility: string | null;
+  /** Stated as a loss. A positive value would be a sign error, not good news. */
+  maximumDrawdown: string | null;
+  tradeCount: number | null;
+  totalCosts: string | null;
+  absenceReason: string | null;
+}
+
+export interface BacktestBenchmark {
+  mic: string;
+  series: string;
+  measures: BacktestMeasures;
+  /** Why the comparison is unavailable, when it is. Never truncated and never back-filled. */
+  absenceReason: string | null;
+}
+
+export interface BacktestSkipTally {
+  reason: string;
+  count: number;
+}
+
+export interface BacktestSummary {
+  id: string;
+  configuration: BacktestConfiguration;
+  status: 'running' | 'succeeded' | 'failed';
+  fromSession: string;
+  toSession: string;
+  startedAt: string;
+  finishedAt: string | null;
+  tradeCount: number;
+  skippedCount: number;
+  rebalanceCount: number;
+  /** Always true. Every surface showing a result has to say it is a simulation over past data. */
+  isSimulation: boolean;
+}
+
+export interface BacktestDetail extends BacktestSummary {
+  measures: BacktestMeasures;
+  benchmarks: BacktestBenchmark[];
+  skipped: BacktestSkipTally[];
+}
+
+export interface BacktestTrade {
+  id: string;
+  instrumentId: string;
+  ticker: string;
+  name: string;
+  signalSession: string;
+  /** Strictly later than signalSession, and a session this instrument actually traded. */
+  executionSession: string;
+  direction: 'buy' | 'sell';
+  quantity: string;
+  price: string;
+  currency: string;
+  conversionRate: string | null;
+  brokerage: string;
+  slippage: string;
+  currencySpread: string;
+  cashEffect: string;
+  /** The signal behind the trade, so a reader reaches the strategy's own contributions. */
+  signalId: string;
+}
+
+export interface BacktestTradePage {
+  items: BacktestTrade[];
+  nextCursor: string | null;
+  total: number | null;
+}
+
+export interface BacktestEquityPoint {
+  sessionDate: string;
+  cash: string;
+  positionsValue: string | null;
+  total: string | null;
+  /** Set exactly when the session could not be valued. Never yesterday's number repeated. */
+  absenceReason: string | null;
+}
+
+export interface BacktestEquityCurve {
+  currency: string;
+  items: BacktestEquityPoint[];
+}

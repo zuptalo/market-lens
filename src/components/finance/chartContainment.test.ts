@@ -3,14 +3,22 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 /**
- * The charting library is confined to PriceChart.vue.
+ * The charting library is confined to the chart components, and the list is exhaustive.
  *
- * That containment is the entire mitigation for adopting a third-party library at the centre
- * of the feature: if the licence becomes unacceptable, or the library is abandoned, or its
- * API changes, exactly one file has to change. The moment a second file imports it, that
- * promise is gone — and it would go quietly, in a commit that looked like a small convenience.
+ * That containment is the entire mitigation for adopting a third-party library at the centre of a
+ * feature: if the licence becomes unacceptable, or the library is abandoned, or its API changes,
+ * a known, short list of files has to change. The list is what makes that true — an import that
+ * drifted into a view or a service would go quietly, in a commit that looked like a small
+ * convenience, and the promise would be gone before anybody noticed.
+ *
+ * Feature 021 added the second entry. A backtest's equity curve is a second chart, not a chart
+ * drawn somewhere new, and adding it here was a deliberate decision rather than a side effect —
+ * which is the whole reason this list is asserted instead of described.
  */
-const ALLOWED = ['src/components/finance/PriceChart.vue'];
+const ALLOWED = [
+  'src/components/finance/EquityCurve.vue',
+  'src/components/finance/PriceChart.vue',
+];
 
 function sourceFiles(directory: string, found: string[] = []): string[] {
   for (const entry of readdirSync(directory)) {
@@ -35,10 +43,12 @@ describe('charting library containment', () => {
     expect(importers.sort()).toEqual(ALLOWED);
   });
 
-  it('keeps the licence-required attribution in that file', () => {
-    const source = readFileSync('src/components/finance/PriceChart.vue', 'utf8');
+  it('keeps the licence-required attribution in every file that draws one', () => {
     // Apache-2.0 with an attribution requirement. Removing this is a licence breach, not a
-    // styling choice, so it is asserted rather than left to review.
-    expect(source).toContain('attributionLogo: true');
+    // styling choice, so it is asserted rather than left to review — on every chart, because the
+    // requirement attaches to the chart and not to the first file that happened to draw one.
+    for (const path of ALLOWED) {
+      expect(readFileSync(path, 'utf8')).toContain('attributionLogo: true');
+    }
   });
 });

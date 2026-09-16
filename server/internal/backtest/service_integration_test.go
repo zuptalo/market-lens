@@ -116,3 +116,47 @@ func TestTheSameConfigurationProducesTheIdenticalResult(t *testing.T) {
 		t.Errorf("the two runs report different totals: %+v then %+v", first, second)
 	}
 }
+
+// TestACompletedBacktestPublishesItsEvent is the live-update contract at the only point where it
+// can be guaranteed: the event is written in the transaction that commits the run, so a reader
+// cannot be told about a result that is not there, and a result cannot exist that nobody was told
+// about.
+func TestACompletedBacktestPublishesItsEvent(t *testing.T) {
+	f := newBacktestFixture(t)
+	before := f.count(`SELECT count(*) FROM client_events WHERE event_type = 'backtest.completed.v1'`)
+	run := f.run()
+
+	var scope, entityType, entityID string
+	var version int
+	var payload []byte
+	if err := f.pool.QueryRow(f.ctx, `SELECT scope, version, entity_type, entity_id, payload
+		FROM client_events WHERE event_type = 'backtest.completed.v1'
+		ORDER BY id DESC LIMIT 1`).Scan(&scope, &version, &entityType, &entityID, &payload); err != nil {
+		t.Fatalf("read the completion event: %v", err)
+	}
+	if scope != "shared" || version != 1 || entityType != "backtest_run" || entityID != run.ID.String() {
+		t.Errorf("the event reads scope=%s version=%d entity=%s/%s", scope, version, entityType, entityID)
+	}
+	if after := f.count(`SELECT count(*) FROM client_events WHERE event_type = 'backtest.completed.v1'`); after != before+1 {
+		t.Errorf("one run published %d events", after-before)
+	}
+	// It carries the run, never the result. A payload big enough to be useful on its own would be
+	// a second, unauthorized copy of the answer.
+	for _, absent := range []string{"total_return", "equity", "trades\":["} {
+		if contains(string(payload), absent) {
+			t.Errorf("the event payload carries %q; the result is loaded over the authorized path", absent)
+		}
+	}
+}
+
+func contains(haystack, needle string) bool {
+	return len(needle) > 0 && len(haystack) >= len(needle) &&
+		func() bool {
+			for i := 0; i+len(needle) <= len(haystack); i++ {
+				if haystack[i:i+len(needle)] == needle {
+					return true
+				}
+			}
+			return false
+		}()
+}
