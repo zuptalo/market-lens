@@ -62,6 +62,10 @@ type marketDataCommand struct {
 	// plan actually covers — index series, another market — before anything is specified
 	// against it. Read-only: nothing here imports.
 	Exchange string
+	// History asks resolve to report what the provider actually serves for one symbol, without
+	// storing any of it. Identity is not history: a plan can list a benchmark and serve nothing
+	// for it, and finding that out before a specification is written against it is the point.
+	History string
 	// Search asks resolve to print the provider's own catalog rows matching a term instead of
 	// auditing what is stored. It is how a suspected replacement symbol is confirmed before a
 	// migration is written against it.
@@ -286,6 +290,20 @@ func executeSignalsCommand(ctx context.Context, command signalsCommand, computer
 	}
 	_, err = fmt.Fprintf(output, "run_id=%s status=%s instruments=%d signals=%d failed=%d\n",
 		run.ID, run.Status, run.InstrumentCount, run.SignalCount, run.FailedCount)
+	return err
+}
+
+// reportHistoryCoverage states what the provider served, and says plainly when that is nothing.
+// A symbol a plan lists but does not serve must not read as a success.
+func reportHistoryCoverage(output io.Writer, symbol string, page marketdata.DailyPage,
+	from, to marketdata.SessionDate) error {
+	first, last := "-", "-"
+	if len(page.Bars) > 0 {
+		first = page.Bars[0].SessionDate.String()
+		last = page.Bars[len(page.Bars)-1].SessionDate.String()
+	}
+	_, err := fmt.Fprintf(output, "symbol=%s requested=%s..%s sessions=%d first=%s last=%s actions=%d\n",
+		symbol, from, to, len(page.Bars), first, last, len(page.Actions))
 	return err
 }
 
@@ -930,12 +948,18 @@ func parseMarketDataCommand(args []string, now time.Time) (marketDataCommand, er
 	case "resolve":
 		search := flags.String("search", "", "print provider catalog rows matching this term")
 		exchange := flags.String("exchange", "", "read this provider exchange code instead of the stored ones")
+		history := flags.String("history", "", "report what the provider serves for this symbol, storing nothing")
 		if err := flags.Parse(args[2:]); err != nil || flags.NArg() != 0 ||
 			strings.TrimSpace(command.Universe) == "" {
 			return marketDataCommand{}, errors.New("resolve takes only a universe and an optional search term")
 		}
 		command.Search = strings.TrimSpace(*search)
 		command.Exchange = strings.TrimSpace(*exchange)
+		command.History = strings.TrimSpace(*history)
+		if isFlagSet(flags, "history") && command.History == "" {
+			return marketDataCommand{}, errors.New(
+				"expected marketdata backfill, marketdata update, marketdata retry, or marketdata resolve")
+		}
 		command.Kind = marketDataResolve
 		return command, nil
 	case "backfill":
@@ -1085,6 +1109,20 @@ func run() error {
 			}
 			// One catalog fetch per exchange, not per instrument: the whole universe is
 			// audited with four requests.
+			// What the provider actually serves for one symbol. Nothing is stored: this asks a
+			// question about the plan, it does not bring anything into the product.
+			if command.History != "" {
+				asOf := time.Now().UTC()
+				to := marketdata.SessionDate(asOf.Format("2006-01-02"))
+				from := marketdata.SessionDate(asOf.AddDate(-15, 0, 0).Format("2006-01-02"))
+				page, err := provider.Daily(ctx, marketdata.DailyRequest{
+					ProviderSymbol: command.History, From: from, To: to,
+				})
+				if err != nil {
+					return err
+				}
+				return reportHistoryCoverage(os.Stdout, command.History, page, from, to)
+			}
 			catalog := map[string][]marketdata.CatalogEntry{}
 			// One named exchange, by the provider's own code, instead of the universe's. This
 			// is the only way to see what the plan covers beyond what is already stored.
