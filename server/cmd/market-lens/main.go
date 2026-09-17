@@ -34,6 +34,7 @@ import (
 	"market-lens/server/internal/mail"
 	"market-lens/server/internal/marketdata"
 	"market-lens/server/internal/marketdata/eodhd"
+	"market-lens/server/internal/portfolio"
 	"market-lens/server/internal/scheduler"
 	"market-lens/server/internal/series"
 	"market-lens/server/internal/strategies"
@@ -1265,6 +1266,7 @@ func run() error {
 		Features:      features.NewRepository(pool),
 		Signals:       strategies.NewRepository(pool),
 		Backtests:     backtest.NewRepository(pool),
+		Portfolio:     portfolio.NewService(portfolio.NewRepository(pool), slog.Default()),
 		// Reading findings is for every authenticated user; deciding about one is the owner's.
 		FindingDecisions: marketdata.NewRepository(pool),
 		Events:           clientevents.NewService(clientevents.NewRepository(pool)),
