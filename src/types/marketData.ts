@@ -496,3 +496,120 @@ export interface BacktestEquityCurve {
   currency: string;
   items: BacktestEquityPoint[];
 }
+
+/**
+ * Personal portfolio (feature 022).
+ *
+ * The first user-owned records in this product. Two things the shapes below encode deliberately:
+ * every figure that could be absent is nullable *with* a stated reason rather than optional, and
+ * there is no portfolio return field at all — the product does not know what was paid in, and
+ * `returnAbsence` says so rather than leaving a gap a reader would take for an oversight.
+ */
+
+export type TradeDirection = 'buy' | 'sell';
+export type TradeStatus = 'current' | 'superseded' | 'withdrawn';
+
+export interface PortfolioValuation {
+  value: string | null;
+  /** The session the price came from. Stated per holding: a multi-market portfolio is valued at
+   *  slightly different sessions, and hiding that inside one total would be dishonest. */
+  session: string | null;
+  conversionRate: string | null;
+  absenceReason: string | null;
+}
+
+export interface PortfolioComparison {
+  series: string;
+  fromSession: string | null;
+  toSession: string | null;
+  holdingReturn: string | null;
+  benchmarkReturn: string | null;
+  absenceReason: string | null;
+}
+
+export interface PortfolioHolding {
+  instrumentId: string;
+  ticker: string;
+  name: string;
+  currency: string;
+  quantity: string;
+  /** What the shares still held cost, first-in-first-out, including the trades' own costs. */
+  cost: string;
+  valuation: PortfolioValuation;
+  unrealised: string | null;
+  comparison: PortfolioComparison;
+}
+
+export interface PortfolioRealised {
+  instrumentId: string;
+  ticker: string;
+  name: string;
+  quantity: string;
+  proceeds: string;
+  cost: string;
+  realised: string;
+  /** Stated on every realised figure. A realised number without its basis is not checkable. */
+  costBasis: string;
+}
+
+export interface PortfolioTotals {
+  value: string | null;
+  cost: string;
+  unrealised: string | null;
+  realised: string;
+  complete: boolean;
+  incompleteReason: string | null;
+  /** Why there is no portfolio return. Always present; never a missing field. */
+  returnAbsence: string;
+}
+
+export interface Portfolio {
+  accountingCurrency: string;
+  holdings: PortfolioHolding[];
+  realised: PortfolioRealised[];
+  totals: PortfolioTotals;
+  /** Always true. The product records what a person entered and offers no advice. */
+  recordsWhatYouEntered: boolean;
+}
+
+export interface PortfolioTrade {
+  id: string;
+  instrumentId: string;
+  ticker: string;
+  name: string;
+  direction: TradeDirection;
+  quantity: string;
+  price: string;
+  currency: string;
+  costs: string;
+  tradeDate: string;
+  /** The order this trade was recorded in; first-in-first-out consumes by it. */
+  sequence: number;
+  status: TradeStatus;
+  supersedes: string | null;
+  recordedAt: string;
+  changedAt: string | null;
+}
+
+export interface PortfolioTradePage {
+  items: PortfolioTrade[];
+  nextCursor: string | null;
+  total: number | null;
+}
+
+export interface TradeInput {
+  instrumentId: string;
+  direction: TradeDirection;
+  quantity: string;
+  price: string;
+  costs: string;
+  tradeDate: string;
+}
+
+/** A recording the product declined, with what to do about it. */
+export interface TradeRefusal {
+  code: string;
+  message: string;
+  /** Set when a sale exceeds the position, so the refusal names what is actually held. */
+  heldQuantity: string | null;
+}

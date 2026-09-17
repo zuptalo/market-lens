@@ -6,6 +6,13 @@ import type {
   BacktestSummary,
   BacktestTradePage,
   ConnectionState,
+  Portfolio,
+  PortfolioTrade,
+  PortfolioTradePage,
+  TradeDirection,
+  TradeInput,
+  TradeRefusal,
+  TradeStatus,
   DailyBarSummary,
   FeatureRunSummary,
   ImportRunSummary,
@@ -427,6 +434,9 @@ export const MARKET_DATA_EVENT_TYPES = [
   // A completed backtest. The event carries the run and its configuration, never the result: an
   // open page re-reads that through the authorized path.
   'backtest.completed.v1',
+  // A person's own portfolio. Scoped to its owner on the server, so a second person connected to
+  // the same stream never receives it — the subscription here is the same either way.
+  'portfolio.changed.v1',
 ] as const;
 
 /** What a market-data event says about the change it reports. */
@@ -950,4 +960,204 @@ export async function fetchBacktestEquity(
       absenceReason: item.absence_reason ?? null,
     })),
   };
+}
+
+/* Personal portfolio (feature 022). Every call is private to the authenticated caller: there is no
+ * user identifier in any path, because there is no such thing as reading "the" portfolio. */
+
+interface PortfolioWire {
+  accounting_currency: string;
+  holdings: {
+    instrument_id: string; ticker: string; name: string; currency: string; quantity: string;
+    cost: string; unrealised: string | null;
+    valuation: { value: string | null; session: string | null; conversion_rate: string | null; absence_reason: string | null };
+    comparison: {
+      series: string; from_session: string | null; to_session: string | null;
+      holding_return: string | null; benchmark_return: string | null; absence_reason: string | null;
+    };
+  }[];
+  realised: {
+    instrument_id: string; ticker: string; name: string; quantity: string;
+    proceeds: string; cost: string; realised: string; cost_basis: string;
+  }[];
+  total: {
+    value: string | null; cost: string; unrealised: string | null; realised: string;
+    complete: boolean; incomplete_reason: string | null; return_absence: string;
+  };
+  records_what_you_entered: boolean;
+}
+
+interface PortfolioTradeWire {
+  id: string; instrument_id: string; ticker: string; name: string;
+  direction: TradeDirection; quantity: string; price: string; currency: string;
+  costs: string; trade_date: string; sequence: number; status: TradeStatus;
+  supersedes: string | null; recorded_at: string; changed_at: string | null;
+}
+
+function toPortfolioTrade(wire: PortfolioTradeWire): PortfolioTrade {
+  return {
+    id: wire.id, instrumentId: wire.instrument_id, ticker: wire.ticker, name: wire.name,
+    direction: wire.direction, quantity: wire.quantity, price: wire.price,
+    currency: wire.currency, costs: wire.costs, tradeDate: wire.trade_date,
+    sequence: wire.sequence, status: wire.status, supersedes: wire.supersedes ?? null,
+    recordedAt: wire.recorded_at, changedAt: wire.changed_at ?? null,
+  };
+}
+
+function toPortfolio(wire: PortfolioWire): Portfolio {
+  return {
+    accountingCurrency: wire.accounting_currency,
+    holdings: (wire.holdings ?? []).map((holding) => ({
+      instrumentId: holding.instrument_id, ticker: holding.ticker, name: holding.name,
+      currency: holding.currency, quantity: holding.quantity, cost: holding.cost,
+      unrealised: holding.unrealised ?? null,
+      valuation: {
+        value: holding.valuation.value ?? null, session: holding.valuation.session ?? null,
+        conversionRate: holding.valuation.conversion_rate ?? null,
+        absenceReason: holding.valuation.absence_reason ?? null,
+      },
+      comparison: {
+        series: holding.comparison.series,
+        fromSession: holding.comparison.from_session ?? null,
+        toSession: holding.comparison.to_session ?? null,
+        holdingReturn: holding.comparison.holding_return ?? null,
+        benchmarkReturn: holding.comparison.benchmark_return ?? null,
+        absenceReason: holding.comparison.absence_reason ?? null,
+      },
+    })),
+    realised: (wire.realised ?? []).map((item) => ({
+      instrumentId: item.instrument_id, ticker: item.ticker, name: item.name,
+      quantity: item.quantity, proceeds: item.proceeds, cost: item.cost,
+      realised: item.realised, costBasis: item.cost_basis,
+    })),
+    totals: {
+      value: wire.total.value ?? null, cost: wire.total.cost,
+      unrealised: wire.total.unrealised ?? null, realised: wire.total.realised,
+      complete: wire.total.complete, incompleteReason: wire.total.incomplete_reason ?? null,
+      returnAbsence: wire.total.return_absence,
+    },
+    recordsWhatYouEntered: wire.records_what_you_entered !== false,
+  };
+}
+
+/** What a person holds, what it is worth, and what it has made or lost. */
+export async function fetchPortfolio(fetcher: Fetcher = fetch, signal?: AbortSignal): Promise<Portfolio> {
+  const response = await fetcher('/api/v1/portfolio', { signal });
+  if (!response.ok) throw new Error('Unable to load your portfolio.');
+  return toPortfolio(await response.json() as PortfolioWire);
+}
+
+export async function setAccountingCurrency(
+  currency: string,
+  csrfToken: string,
+  fetcher: Fetcher = fetch,
+): Promise<Portfolio> {
+  const response = await fetcher('/api/v1/portfolio', {
+    method: 'PUT', headers: writeHeaders(csrfToken),
+    body: JSON.stringify({ accounting_currency: currency }),
+  });
+  if (!response.ok) throw await toTradeRefusal(response);
+  return toPortfolio(await response.json() as PortfolioWire);
+}
+
+/** Every trade the person recorded, newest first. */
+export async function fetchPortfolioTrades(
+  options: { cursor?: string; limit?: number; includeWithdrawn?: boolean } = {},
+  fetcher: Fetcher = fetch,
+  signal?: AbortSignal,
+): Promise<PortfolioTradePage> {
+  const query = new URLSearchParams();
+  if (options.cursor) query.set('cursor', options.cursor);
+  if (options.includeWithdrawn) query.set('include_withdrawn', 'true');
+  query.set('limit', String(options.limit ?? 50));
+  const response = await fetcher(`/api/v1/portfolio/trades?${query.toString()}`, { signal });
+  if (!response.ok) throw new Error('Unable to load your recorded trades.');
+  const body = await response.json() as {
+    items?: PortfolioTradeWire[]; next_cursor?: string | null; total?: number | null;
+  };
+  if (!Array.isArray(body.items)) throw new Error('Unable to load your recorded trades.');
+  return {
+    items: body.items.map(toPortfolioTrade),
+    nextCursor: body.next_cursor ?? null,
+    total: body.total ?? null,
+  };
+}
+
+/** The token is passed in rather than read from anywhere global, matching how every other
+ *  mutation in this client is written: a caller that has no session cannot accidentally send one. */
+function writeHeaders(csrfToken: string): Record<string, string> {
+  return { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken };
+}
+
+function tradeBody(input: TradeInput): string {
+  return JSON.stringify({
+    instrument_id: input.instrumentId, direction: input.direction, quantity: input.quantity,
+    price: input.price, costs: input.costs, trade_date: input.tradeDate,
+  });
+}
+
+export async function recordTrade(
+  input: TradeInput,
+  csrfToken: string,
+  fetcher: Fetcher = fetch,
+): Promise<PortfolioTrade> {
+  const response = await fetcher('/api/v1/portfolio/trades', {
+    method: 'POST', headers: writeHeaders(csrfToken), body: tradeBody(input),
+  });
+  if (!response.ok) throw await toTradeRefusal(response);
+  return toPortfolioTrade(await response.json() as PortfolioTradeWire);
+}
+
+/** A correction supersedes; the earlier version stays readable. */
+export async function correctTrade(
+  id: string,
+  input: TradeInput,
+  csrfToken: string,
+  fetcher: Fetcher = fetch,
+): Promise<PortfolioTrade> {
+  const response = await fetcher(`/api/v1/portfolio/trades/${encodeURIComponent(id)}`, {
+    method: 'PATCH', headers: writeHeaders(csrfToken), body: tradeBody(input),
+  });
+  if (!response.ok) throw await toTradeRefusal(response);
+  return toPortfolioTrade(await response.json() as PortfolioTradeWire);
+}
+
+export async function withdrawTrade(
+  id: string,
+  csrfToken: string,
+  fetcher: Fetcher = fetch,
+): Promise<void> {
+  const response = await fetcher(`/api/v1/portfolio/trades/${encodeURIComponent(id)}`, {
+    method: 'DELETE', headers: writeHeaders(csrfToken),
+  });
+  if (!response.ok) throw await toTradeRefusal(response);
+}
+
+/**
+ * A refusal carries what to do about it, so the interface can say "you hold 100" rather than
+ * "something went wrong". Anything that is not a stated refusal becomes a plain error.
+ */
+export class PortfolioRefusalError extends Error {
+  constructor(public readonly refusal: TradeRefusal) {
+    super(refusal.message);
+    this.name = 'PortfolioRefusalError';
+  }
+}
+
+// The narrow shape this needs, rather than the whole Response type: the module's own Fetcher
+// returns a subset, and demanding the full interface would make every caller fabricate headers it
+// never reads.
+async function toTradeRefusal(response: Pick<Response, 'json'>): Promise<Error> {
+  try {
+    const body = await response.json() as { error?: { code?: string; message?: string; held_quantity?: string } };
+    if (body.error?.code && body.error.message) {
+      return new PortfolioRefusalError({
+        code: body.error.code, message: body.error.message,
+        heldQuantity: body.error.held_quantity ?? null,
+      });
+    }
+  } catch {
+    // Falls through to the generic message below.
+  }
+  return new Error('That could not be recorded.');
 }

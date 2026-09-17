@@ -6,6 +6,7 @@ import InstrumentMarketDataView from '@/views/InstrumentMarketDataView.vue';
 import OperationsView from '@/views/OperationsView.vue';
 import SignalsView from '@/views/SignalsView.vue';
 import BacktestsView from '@/views/BacktestsView.vue';
+import PortfolioView from '@/views/PortfolioView.vue';
 import LoginView from '@/views/LoginView.vue';
 import OwnerSetupView from '@/views/OwnerSetupView.vue';
 import AcceptInvitationView from '@/views/AcceptInvitationView.vue';
@@ -30,6 +31,7 @@ export function createMarketLensRouter(history: RouterHistory, auth: RouteAuthSt
       { path: '/markets/:instrumentId', name: 'instrument-market-data', component: InstrumentMarketDataView },
       { path: '/signals', name: 'signals', component: SignalsView },
       { path: '/backtests', name: 'backtests', component: BacktestsView },
+      { path: '/portfolio', name: 'portfolio', component: PortfolioView },
       { path: '/operations', name: 'operations', component: OperationsView },
       { path: '/account', name: 'account-settings', component: AccountSettingsView },
     ],
