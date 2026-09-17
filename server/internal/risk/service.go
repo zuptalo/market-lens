@@ -135,16 +135,12 @@ func (s *Service) Report(ctx context.Context, userID string) (Report, error) {
 		return Report{}, err
 	}
 
-	report := Report{AccountingCurrency: view.Portfolio.AccountingCurrency,
-		Limits: make([]Evaluation, 0, len(limits)), LimitsAreYourOwn: true}
-	for _, limit := range limits {
-		evaluation, err := evaluate(limit, view)
-		if err != nil {
-			return Report{}, fmt.Errorf("evaluate %s: %w", limit.Kind, err)
-		}
-		report.Limits = append(report.Limits, evaluation)
+	evaluations, err := EvaluateAgainst(limits, view)
+	if err != nil {
+		return Report{}, fmt.Errorf("evaluate limits: %w", err)
 	}
-	return report, nil
+	return Report{AccountingCurrency: view.Portfolio.AccountingCurrency,
+		Limits: evaluations, LimitsAreYourOwn: true}, nil
 }
 
 func known(kind Kind) bool {
@@ -154,4 +150,13 @@ func known(kind Kind) bool {
 		}
 	}
 	return false
+}
+
+// Limits reads one person's stated limits, for a caller that will evaluate them against a portfolio
+// of its own construction. Exported for feature 025, which measures what a proposed trade would do.
+func (s *Service) Limits(ctx context.Context, userID string) ([]Limit, error) {
+	if err := s.ready(userID); err != nil {
+		return nil, err
+	}
+	return s.repository.Limits(ctx, userID)
 }

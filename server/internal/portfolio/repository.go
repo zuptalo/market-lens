@@ -454,3 +454,20 @@ func (r *Repository) ratesOn(ctx context.Context, session SessionDate) (rates, e
 	}
 	return quoted, rows.Err()
 }
+
+// InstrumentCurrency is the listing currency of one instrument, or empty when the product does not
+// carry it.
+func (r *Repository) InstrumentCurrency(ctx context.Context, instrumentID string) (string, error) {
+	if err := r.ready(); err != nil {
+		return "", err
+	}
+	var currency string
+	if err := r.pool.QueryRow(ctx, `SELECT currency FROM instruments WHERE id = $1 AND active`,
+		instrumentID).Scan(&currency); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		return "", fmt.Errorf("read the instrument currency: %w", err)
+	}
+	return currency, nil
+}
