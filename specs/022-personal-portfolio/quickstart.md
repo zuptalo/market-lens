@@ -157,3 +157,38 @@ curl -s '.../api/v1/portfolio/trades?include_withdrawn=true' | jq '.items[] | {i
 - No tax calculation and no tax report.
 - No dividend or corporate-action adjustment to your cost basis.
 - No advice.
+
+---
+
+## Recorded evidence
+
+`v0.18.0` on k3s, 2026-09-17. Schema at version 26.
+
+**The tables are live and the ownership constraints are enforced.**
+
+| Check | Result |
+|---|---|
+| `user_id` nullable on either table | No, on both |
+| Trades whose owner differs from their portfolio's owner | 0 — and the composite foreign key `portfolio_trades_portfolio_id_user_id_fkey` means it can only ever be 0 |
+| Trades for instruments the product does not carry | 0 |
+| Trades dated in the future | 0 |
+| Rows both superseded and withdrawn | 0 |
+
+Every constraint the migration defines is present in production: the composite owner key, the
+instrument reference, the direction, quantity, price and cost checks, the trade-date check, and the
+deferred self-reference that lets a correction supersede before it inserts.
+
+**The boundary refuses without a session.** `/api/v1/portfolio` and `/api/v1/portfolio/trades` both
+answer 401 unauthenticated, as do the administrative paths that do not exist — the authentication
+middleware runs before routing, so an unauthenticated caller cannot even learn which routes are
+real.
+
+**No trade was recorded to produce this evidence.** The tables are empty because nobody has entered
+anything, and seeding somebody's real portfolio to demonstrate a feature would be putting fiction
+into the one place in this product that is supposed to hold only what its owner actually asserted.
+The checks above are the ones that can be made without doing that.
+
+**What to check after recording your first trades**, from the section above: that every figure
+reconciles with the trades behind it, that each holding names the session that priced it, that a
+correction leaves the superseded version readable, and that every realised figure carries
+`cost_basis: fifo`.
