@@ -1,0 +1,201 @@
+openapi: 3.1.0
+info:
+  title: Market Lens Order Intents API
+  version: 1.0.0
+  description: >
+    What a person is considering, and what it would do. Every operation is private to the
+    authenticated caller.
+
+    Nothing here is an order. There is no operation that creates an intent from a signal, no field a
+    broker could act on, and no response that says whether to act. The product records what somebody
+    is considering and reports the consequence; the decision is theirs.
+servers:
+  - url: /api/v1
+x-market-lens-access-boundary:
+  user_private:
+    - /order-intents
+    - /order-intents/{id}
+  rule: >
+    Every operation requires an active session, is scoped to the caller's own user, and is refused
+    to a deactivated account. No role widens access to another person's intents.
+x-market-lens-events:
+  - type: order_intents.changed.v1
+    scope: user
+    entity: order_intent
+    description: >
+      Published in the same transaction that records, withdraws or settles an intent, scoped to its
+      owner alone. Carries the intent's identity, never its consequence — that is computed on read.
+
+paths:
+  /order-intents:
+    get:
+      summary: What the person is considering, and what each would do
+      parameters:
+        - name: include_settled
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: The intents and their current consequences
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IntentReport" }
+        "401": { description: No active session }
+    post:
+      summary: Write down something you are considering
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/IntentInput" }
+      responses:
+        "201":
+          description: The intents and their current consequences
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IntentReport" }
+        "400":
+          description: Refused, with a reason a person can act on
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Refusal" }
+        "401": { description: No active session }
+
+  /order-intents/{id}:
+    patch:
+      summary: Withdraw an intent, or record that you acted on it
+      description: >
+        Marking an intent acted on records that the person acted. It does not create a trade: what
+        they actually paid is a fact only they can assert, and the portfolio is where they assert it.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [withdrawn, acted_on] }
+      responses:
+        "200":
+          description: The intents and their current consequences
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IntentReport" }
+        "400": { description: An intent that is already settled cannot be settled again }
+        "401": { description: No active session }
+        "404": { description: No such intent for this person }
+
+components:
+  schemas:
+    Refusal:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum:
+                [instrument_not_carried, invalid_quantity, invalid_price, already_settled,
+                 unknown_status]
+            message: { type: string }
+
+    IntentInput:
+      type: object
+      required: [instrument_id, direction, quantity, price]
+      description: >
+        No venue, no order type, no time in force, no destination. The absence is the safeguard: an
+        intent that carried an order type would be one field away from being transmissible.
+      properties:
+        instrument_id: { type: string, format: uuid }
+        direction: { type: string, enum: [buy, sell] }
+        quantity: { type: string }
+        price:
+          type: string
+          description: What the person expects to pay, per share, in the instrument's own currency.
+        costs: { type: string }
+
+    LimitConsequence:
+      type: object
+      required: [kind, threshold, state, would_reach, absence_reason]
+      properties:
+        kind: { type: string }
+        threshold: { type: string }
+        state:
+          type: string
+          enum: [within, exceeded, unevaluable]
+          description: >
+            What this limit would say afterwards. Never "within" because something could not be
+            measured — the same three states feature 023 established.
+        would_reach: { type: [string, "null"] }
+        absence_reason: { type: [string, "null"] }
+
+    Consequence:
+      type: object
+      required:
+        [resulting_quantity, resulting_value, resulting_share, denominator, absence_reason, limits]
+      properties:
+        resulting_quantity:
+          type: string
+          description: >
+            What would be held afterwards. Negative when an intent proposes selling more than is
+            held, which is reported rather than refused: an intent is a thought.
+        resulting_value: { type: [string, "null"] }
+        resulting_share: { type: [string, "null"] }
+        denominator:
+          type: [string, "null"]
+          description: The portfolio total the share was measured against, so it can be checked.
+        absence_reason: { type: [string, "null"] }
+        limits:
+          type: array
+          items: { $ref: "#/components/schemas/LimitConsequence" }
+
+    Intent:
+      type: object
+      required:
+        [id, instrument_id, ticker, name, currency, direction, quantity, price, costs, status,
+         recorded_at, settled_at, consequence]
+      properties:
+        id: { type: string, format: uuid }
+        instrument_id: { type: string, format: uuid }
+        ticker: { type: string }
+        name: { type: string }
+        currency: { type: string }
+        direction: { type: string, enum: [buy, sell] }
+        quantity: { type: string }
+        price: { type: string }
+        costs: { type: string }
+        status: { type: string, enum: [considering, withdrawn, acted_on] }
+        recorded_at: { type: string, format: date-time }
+        settled_at: { type: [string, "null"], format: date-time }
+        consequence:
+          oneOf:
+            - $ref: "#/components/schemas/Consequence"
+            - type: "null"
+          description: Computed for intents still under consideration; null once settled.
+
+    IntentReport:
+      type: object
+      required: [intents, evaluated_independently, records_what_you_are_considering]
+      properties:
+        intents:
+          type: array
+          items: { $ref: "#/components/schemas/Intent" }
+        evaluated_independently:
+          type: boolean
+          description: >
+            Always true. Each intent is measured against the portfolio as it stands, never against
+            another intent — combining them would need an order of application nobody stated.
+        records_what_you_are_considering:
+          type: boolean
+          description: >
+            Always true, and always present. The product records what somebody is considering and
+            offers no advice.
