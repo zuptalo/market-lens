@@ -204,6 +204,23 @@ Four rules it leaves behind, and the first is the one the rest follow from:
 There is no drawdown limit, and the reason is structural: feature 022 values holdings only at their
 latest stored session and tracks no cash, so there is no portfolio value over time to measure.
 
+Feature 024 (`src/views/DashboardView.vue`, `specs/024-overview/`) replaced the Overview, which was
+still a foundation-stage stub asserting that shipped features were unimplemented. It answers what
+needs a person and what changed, and it is the one screen in the product that adds **no backend at
+all** — no migration, no endpoint, no event — composing six existing reads, each of which already
+enforces its own ownership boundary. An aggregating endpoint would have re-derived two private and
+four shared distinctions in a second place.
+
+Three rules it leaves behind:
+
+- **Counts and dates, never values.** No monetary figure, percentage or return appears on it, at any
+  viewport, asserted by unit and end-to-end tests. Every such figure would be a second copy of one
+  another screen owns, and a dashboard is where that erodes first.
+- **A failed read is not an all-clear.** A source that could not be loaded says so, and the "nothing
+  needs you" message is suppressed. The screen's entire value is that message being trustworthy.
+- **An empty section is absent, not empty.** A heading that always reads "nothing missing" teaches a
+  reader to skip the region, including on the day it says otherwise.
+
 One thing enforced by test since: `e2e/tab-consistency.spec.ts` clicks **every** primary navigation
 destination at 1440, 1024, 768, 390 and 320. Adding a destination has broken the header twice — a
 fixed height with `flex-wrap` laid the wrapped row out and then clipped it, leaving a link present,

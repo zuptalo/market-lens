@@ -178,7 +178,25 @@ matters more than the reasons feature 022 gave for not tracking cash.
 
 **Order intents are what remains of Milestone 6**, and they are what the vision's risk engine
 actually rejects or modifies — this feature built the half that measures, and that half needed
-nothing proposed to measure against. Create separate feature specs so their
+nothing proposed to measure against.
+
+Feature 024 then replaced the Overview, which had been a foundation-stage stub telling signed-in
+owners that shipped features "will be implemented from future specifications". It now answers the
+two questions nothing else did: what needs a person, and what changed. The first matters most,
+because this product had accumulated decisions only a person can make — findings it refuses to
+settle, limits it refuses to advise on — and left them on three different screens.
+
+It departs from the vision's Overview deliberately, and the departure is recorded in its checklist.
+The vision planned portfolio value, daily and total change, cash and invested amounts, drawdown,
+allocation and performance. Four of those cannot be produced honestly now: feature 022 tracks no
+cash and keeps no equity history, which is the same reason feature 023 offers no drawdown limit. The
+rest are better on the screens that derive them.
+
+Its defining constraint is that it states **no value, no percentage and no return** — counts and
+dates only, every item linking to the screen that owns its figures. A dashboard is where duplicated
+numbers hide, and this codebase has refused second copies at every turn. It adds no migration, no
+endpoint and no event type: it composes six reads that already existed, each already enforcing its
+own ownership boundary. Create separate feature specs so their
 acceptance criteria, data ownership, responsive behavior, and test-first proof can be
 reviewed independently. Do not combine them into one implementation batch.
 
