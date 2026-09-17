@@ -1,0 +1,172 @@
+openapi: 3.1.0
+info:
+  title: Market Lens Risk Limits API
+  version: 1.0.0
+  description: >
+    A person's own limits, and where they stand against them. Every operation is private to the
+    authenticated caller: there is no administrative read, because these are somebody's own rules
+    and no role makes them anybody else's business.
+
+    The product publishes no default limits and suggests no thresholds. Every response carries the
+    statement that the limits are the person's own and that the product offers no advice — a claim
+    a client can forget to fetch is one that will eventually not be shown.
+servers:
+  - url: /api/v1
+x-market-lens-access-boundary:
+  user_private:
+    - /risk-limits
+    - /risk-limits/{kind}
+  rule: >
+    Every operation requires an active session, is scoped to the caller's own user, and is refused
+    to a deactivated account. No role widens access to another person's limits.
+x-market-lens-events:
+  - type: risk_limits.changed.v1
+    scope: user
+    entity: risk_limit
+    description: >
+      Published in the same transaction that states, changes or removes a limit, scoped to its owner
+      alone. Carries the kind that changed, never an evaluation — those are computed on read.
+
+paths:
+  /risk-limits:
+    get:
+      summary: Every limit the person stated, and where they stand against each
+      responses:
+        "200":
+          description: The limits and their current evaluations
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RiskReport" }
+        "401": { description: No active session }
+
+  /risk-limits/{kind}:
+    put:
+      summary: State or change one limit
+      description: >
+        One limit of each kind per person, so this is an upsert. Stating a limit that already exists
+        replaces its threshold.
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema: { $ref: "#/components/schemas/LimitKind" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [threshold]
+              properties:
+                threshold:
+                  type: string
+                  description: >
+                    A decimal string. A share between 0 and 1 for the three share kinds; a positive
+                    whole number for holding_count.
+      responses:
+        "200":
+          description: The limits and their current evaluations
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RiskReport" }
+        "400":
+          description: A threshold that cannot mean anything for its kind
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Refusal" }
+        "401": { description: No active session }
+    delete:
+      summary: Remove one limit
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema: { $ref: "#/components/schemas/LimitKind" }
+      responses:
+        "200":
+          description: The remaining limits and their evaluations
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RiskReport" }
+        "401": { description: No active session }
+        "404": { description: No such limit for this person }
+
+components:
+  schemas:
+    LimitKind:
+      type: string
+      enum: [instrument_share, sector_share, market_share, holding_count]
+
+    Refusal:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [threshold_out_of_range, threshold_not_a_number, unknown_limit_kind]
+            message:
+              type: string
+              description: >
+                Says what a threshold of that kind can be. "A share is between 0 and 100 per cent"
+                is an answer; "invalid" is not.
+
+    Contribution:
+      type: object
+      required: [label, value, share]
+      description: >
+        One group that made up the measurement — an instrument, a sector or a market. The whole
+        breakdown is returned in descending order rather than only the largest, so a reader sees
+        where their money is instead of being pointed at one holding to sell.
+      properties:
+        label: { type: string }
+        value: { type: string }
+        share: { type: string }
+
+    Evaluation:
+      type: object
+      required: [kind, threshold, state, measured, denominator, absence_reason, contributions]
+      properties:
+        kind: { $ref: "#/components/schemas/LimitKind" }
+        threshold: { type: string }
+        state:
+          type: string
+          enum: [within, exceeded, unevaluable]
+          description: >
+            Exactly one of three, always present. A limit is never reported within because
+            something could not be measured.
+        measured:
+          type: [string, "null"]
+          description: The figure compared against the threshold. Null exactly when unevaluable.
+        denominator:
+          type: [string, "null"]
+          description: >
+            What a share was measured against, so the percentage can be checked. Null for
+            holding_count, which divides by nothing.
+        absence_reason:
+          type: [string, "null"]
+          enum: [portfolio_incomplete, nothing_held, null]
+          description: Set exactly when the state is unevaluable.
+        contributions:
+          type: array
+          items: { $ref: "#/components/schemas/Contribution" }
+
+    RiskReport:
+      type: object
+      required: [limits, accounting_currency, limits_are_your_own]
+      properties:
+        accounting_currency: { type: string }
+        limits:
+          type: array
+          description: >
+            One entry per limit the person stated. An empty array means they have stated none, which
+            is what everybody starts with — the product supplies no defaults.
+          items: { $ref: "#/components/schemas/Evaluation" }
+        limits_are_your_own:
+          type: boolean
+          description: >
+            Always true, and always present. These are the person's own rules; the product neither
+            sets them nor advises on them.
