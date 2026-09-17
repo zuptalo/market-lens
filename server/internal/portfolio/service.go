@@ -235,15 +235,18 @@ func (s *Service) write(ctx context.Context, userID string, request RecordReques
 		Quantity: quantity.String(), Price: price.String(), Costs: costs.String(),
 		TradeDate: request.TradeDate}
 
-	written, err := s.repository.WriteTrade(ctx, writeRequest{
-		PortfolioID: held.ID, UserID: userID, Insert: &trade, Supersede: supersede})
-	if err != nil {
+	if _, err := s.repository.WriteTrade(ctx, writeRequest{
+		PortfolioID: held.ID, UserID: userID, Insert: &trade, Supersede: supersede}); err != nil {
 		return Trade{}, err
 	}
 	s.logger.Info("portfolio trade recorded", "user", userID, "instrument",
 		request.InstrumentID.String(), "direction", string(request.Direction),
 		"change", describeChange(writeRequest{Supersede: supersede}))
-	return written, nil
+	// Read it back rather than returning what was sent. The stored row carries the sequence the
+	// database allocated and the instrument's own ticker and currency, and a caller that received a
+	// struct assembled from the request would be looking at a slightly different thing from the one
+	// every later read returns.
+	return s.repository.Trade(ctx, userID, trade.ID.String())
 }
 
 // refusesForPosition rejects anything that would make a position negative.

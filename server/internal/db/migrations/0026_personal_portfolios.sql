@@ -62,7 +62,10 @@ CREATE TABLE portfolio_trades (
     -- UUID nobody can see. A correction does not change it: the person is fixing what a trade
     -- said, not when they told us about it.
     sequence bigint NOT NULL CHECK (sequence > 0),
-    superseded_by uuid REFERENCES portfolio_trades(id),
+    -- Deferred to commit time: a correction supersedes the old version before inserting the new
+    -- one, so that only one of them is ever live against the partial unique index below — and at
+    -- the moment of the update the row it points at does not exist yet.
+    superseded_by uuid REFERENCES portfolio_trades(id) DEFERRABLE INITIALLY DEFERRED,
     withdrawn_at timestamptz,
     recorded_at timestamptz NOT NULL DEFAULT now(),
     changed_at timestamptz,

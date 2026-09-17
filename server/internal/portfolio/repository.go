@@ -271,6 +271,18 @@ func (r *Repository) WriteTrade(ctx context.Context, request writeRequest) (Trad
 				Scan(&sequence); err != nil {
 				return Trade{}, fmt.Errorf("read the superseded sequence: %w", err)
 			}
+			// Supersede *before* inserting, so the two versions are never both live against the
+			// partial unique index on the sequence. The self-reference is deferred to commit time,
+			// which is what lets this point at a row that does not exist yet.
+			tag, err := tx.Exec(ctx, `UPDATE portfolio_trades SET superseded_by = $3
+				WHERE id = $1 AND user_id = $2 AND superseded_by IS NULL AND withdrawn_at IS NULL`,
+				request.Supersede, request.UserID, trade.ID.String())
+			if err != nil {
+				return Trade{}, fmt.Errorf("supersede the trade: %w", err)
+			}
+			if tag.RowsAffected() == 0 {
+				return Trade{}, ErrNotFound
+			}
 		}
 		trade.Sequence = sequence
 
@@ -288,21 +300,6 @@ func (r *Repository) WriteTrade(ctx context.Context, request writeRequest) (Trad
 			return Trade{}, fmt.Errorf("record the trade: %w", err)
 		}
 		written = trade
-	}
-
-	if request.Supersede != "" {
-		// The superseded row keeps its sequence. The live-sequence index is partial, so two rows
-		// may claim the same number as long as only one of them still counts — which is exactly
-		// what a correction produces.
-		tag, err := tx.Exec(ctx, `UPDATE portfolio_trades SET superseded_by = $3
-			WHERE id = $1 AND user_id = $2 AND superseded_by IS NULL AND withdrawn_at IS NULL`,
-			request.Supersede, request.UserID, written.ID.String())
-		if err != nil {
-			return Trade{}, fmt.Errorf("supersede the trade: %w", err)
-		}
-		if tag.RowsAffected() == 0 {
-			return Trade{}, ErrNotFound
-		}
 	}
 
 	if request.Withdraw != "" {
