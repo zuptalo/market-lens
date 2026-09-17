@@ -176,6 +176,38 @@ Five things it leaves behind:
 The decimal arithmetic moved to `server/internal/decimal` when this feature needed it too. One
 implementation, because two would eventually disagree about the same trade.
 
+Feature 023 (`server/internal/risk`, `specs/023-personal-risk-limits/`) shipped after it: a person's
+own limits, measured against what they hold. Four kinds — concentration by instrument, by sector and
+by market, plus the number of holdings — each reported as within, exceeded or unevaluable.
+
+It is the half of the vision's risk engine that needs nothing proposed. The engine that *rejects or
+modifies* a recommendation needs order intents to exist first; this measures, and measuring needed
+only holdings.
+
+Four rules it leaves behind, and the first is the one the rest follow from:
+
+- **The line between a limit and advice.** "You should hold no more than 25% in one company" is
+  advice; "you said 25%, you are at 41%" is somebody's own rule applied. So: no default limits (the
+  migration seeds nothing and the test asserts the emptiness), no suggested thresholds, no statement
+  of what would close a gap, and no softening because a strategy likes the position.
+- **Three states, and `within` is never the default.** An evaluation is built from an explicit
+  branch, not a boolean. Reporting compliance because something could not be measured is the failure
+  that matters most and shows least.
+- **A share goes unevaluable when a holding cannot be priced; a count does not.** The denominator is
+  a total feature 022 itself declines to state, and dividing by it anyway is wrong in the flattering
+  direction. Counting needs no price, so silencing that too would be its own dishonesty.
+- **Nothing derived is stored**, as in feature 022 — no breach row and no history, so a changed limit
+  changes every figure at once. The accepted cost is that a resolved breach leaves no trace.
+
+There is no drawdown limit, and the reason is structural: feature 022 values holdings only at their
+latest stored session and tracks no cash, so there is no portfolio value over time to measure.
+
+One thing enforced by test since: `e2e/tab-consistency.spec.ts` clicks **every** primary navigation
+destination at 1440, 1024, 768, 390 and 320. Adding a destination has broken the header twice — a
+fixed height with `flex-wrap` laid the wrapped row out and then clipped it, leaving a link present,
+focusable and unclickable — and the second time only CI caught it, because Linux renders the font
+fractionally wider than macOS.
+
 Two constraints that outlive any single feature:
 
 - `AUTH_SECRET` is self-provisioned and database-resident, while `EXTERNAL_CREDENTIAL_KEY`

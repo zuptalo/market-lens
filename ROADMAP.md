@@ -33,7 +33,7 @@ without a reviewed feature spec and valid red test.
 | 3 | Reusable feature engine | Shipped | [`013-feature-engine`](specs/013-feature-engine/spec.md) and [plan](specs/013-feature-engine/plan.md) | Milestone 1 | Deterministic, versioned, point-in-time returns, trend, momentum, relative strength, volatility, ATR, RSI/MACD, drawdown, volume and regime features over stored sessions, with leakage proven by test. Relative strength is measured against an equal-weighted composite of the curated universe, which needed no new data. Markets reads its three statistics from the engine. |
 | 4 | Deterministic strategies and signals | Shipped | [015](specs/015-strategies-and-signals/spec.md) | Milestone 3 | Versioned momentum/trend strategy, parameters, immutable actions/scores/confidence/explanations and reproducibility. |
 | 5 | Reproducible backtesting | Shipped | [021](specs/021-reproducible-backtesting/spec.md) | Milestone 4; benchmark data | Historical simulation, accounting, brokerage/FX/slippage, benchmarks, metrics, curves, and traceable trades/signals. |
-| 6 | Personal tracking, portfolio, and risk engine | In progress | [022](specs/022-personal-portfolio/spec.md) (holdings, shipped); risk limits and order intents not yet specified | Security-A; Milestone 4; preferably Milestone 5 evidence | User-owned holdings/trades/tracking rules, positions, cash/P&L/exposures, independent limits/rejections/modifications, and order intents. |
+| 6 | Personal tracking, portfolio, and risk engine | In progress | [022](specs/022-personal-portfolio/spec.md) (holdings) and [023](specs/023-personal-risk-limits/spec.md) (limits) shipped; order intents not yet specified | Security-A; Milestone 4; preferably Milestone 5 evidence | User-owned holdings/trades/tracking rules, positions, cash/P&L/exposures, independent limits/rejections/modifications, and order intents. |
 | 7 | Paper trading | Backlog | Not yet specified | Milestones 1, 4, and 6 | Permanent simulated orders/trades and forward performance using shared strategy/risk/accounting. |
 | Notifications-A | Email and Web Push alerts | Backlog | Not yet specified | Security-A; Experience-A; explainable signals and user tracking | Granular consented alerts, quiet/frequency controls, per-device revocation, minimum private payloads, and provider-outage resilience. |
 | 8 | Advanced analysis | Deferred | Not yet specified | Trusted Milestones 1–7 | Hourly data, more markets/strategies, comparisons, richer costs, fundamentals, news, notifications. |
@@ -149,8 +149,33 @@ That narrowed the benchmark comparison from portfolio-level to per-holding, whic
 holding a handful of names is both honest and more informative. Adding deposits later should be a
 deliberate decision, not a drift.
 
-The rest of Milestone 6 — risk limits that reject or modify, and order intents — each needs its own
-specification. Create separate feature specs so their
+Feature 023 followed it with the half of the risk engine that needs nothing proposed: **a person's
+own limits, evaluated against what they actually hold**. Concentration by instrument, by sector and
+by market, plus the number of holdings — each reported as within, exceeded or unevaluable, with the
+figure, the threshold and the values behind them.
+
+The line it is built on is worth restating, because the rest of Milestone 6 sits on the same one.
+*"You should hold no more than 25% in one company"* is advice, and this product does not give
+advice. *"You said 25%, you are at 41%, here is the sum"* is somebody's own rule, applied. So the
+product publishes no default limits, suggests no thresholds, states the gap without saying what
+would close it, and never softens a limit because a strategy likes the position. It also never
+blocks a recorded trade: a recorded trade is a fact its owner asserted, and the breach is reported
+afterwards.
+
+Two things it settled. A limit is reported **unevaluable** rather than satisfied when a holding
+cannot be priced — the denominator is a total feature 022 itself declines to state, and dividing by
+it anyway would be wrong in the flattering direction. And a holding-count limit still reports
+normally in that case, because counting needs no price; silencing every limit would be its own
+dishonesty.
+
+What it deliberately cannot offer is a **drawdown** limit, the most conventional control there is.
+Feature 022 values holdings only at their latest stored session and tracks no cash, so a portfolio
+value over time does not exist to measure against. That is the decision to revisit if drawdown
+matters more than the reasons feature 022 gave for not tracking cash.
+
+**Order intents are what remains of Milestone 6**, and they are what the vision's risk engine
+actually rejects or modifies — this feature built the half that measures, and that half needed
+nothing proposed to measure against. Create separate feature specs so their
 acceptance criteria, data ownership, responsive behavior, and test-first proof can be
 reviewed independently. Do not combine them into one implementation batch.
 
