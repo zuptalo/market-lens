@@ -144,7 +144,7 @@ func (e *engine) readCosts() error {
 			return fmt.Errorf("configuration %s states an invalid %s: %w",
 				e.configuration.Name, field.name, err)
 		}
-		if value.sign() < 0 {
+		if value.Sign() < 0 {
 			return fmt.Errorf("configuration %s states a negative %s", e.configuration.Name, field.name)
 		}
 		if field.factor {
@@ -179,7 +179,7 @@ func (e *engine) simulate(ctx context.Context) (simulation, error) {
 		return simulation{}, fmt.Errorf("configuration %s states an invalid starting capital: %w",
 			e.configuration.Name, err)
 	}
-	if capital.sign() <= 0 {
+	if capital.Sign() <= 0 {
 		return simulation{}, fmt.Errorf("configuration %s starts with no capital", e.configuration.Name)
 	}
 	book := newPortfolio(capital)
@@ -296,7 +296,7 @@ func (e *engine) plan(book *portfolio, session SessionDate, valued valuation,
 	// the number available would concentrate the whole portfolio into two names on a session when
 	// only one market was open — the spec's own edge case, and a rule that would quietly make a
 	// thin day the most leveraged day in the result. The shortfall stays in cash.
-	target := valued.investable.div(decFromInt(bigFromInt(e.configuration.SizingN)))
+	target := valued.investable.Div(decFromInt(bigFromInt(e.configuration.SizingN)))
 
 	schedule := func(member *instrument, direction Direction, attribution SessionDate, budget dec) {
 		execution, reason, ok := e.nextTradedSession(member, session)
@@ -373,11 +373,11 @@ func (e *engine) execute(book *portfolio, item pending, session SessionDate, out
 		quantity = held.quantity
 	case DirectionBuy:
 		budget := item.budget
-		if book.cash.cmp(budget) < 0 {
+		if book.cash.Cmp(budget) < 0 {
 			budget = book.cash
 		}
 		quantity = e.affordableQuantity(budget, price, rate, converted)
-		if quantity.sign() <= 0 {
+		if quantity.Sign() <= 0 {
 			skip(SkipNoCash)
 			return
 		}
@@ -388,11 +388,11 @@ func (e *engine) execute(book *portfolio, item pending, session SessionDate, out
 		// The estimate that sized the order is conservative, so this should never fire. It is
 		// here because "should never" is not a guarantee, and a portfolio that spent money it did
 		// not have would produce a curve nobody could have achieved.
-		for quantity.sign() > 0 && book.cash.add(costs.cashEffect).sign() < 0 {
-			quantity = quantity.sub(decOne)
+		for quantity.Sign() > 0 && book.cash.Add(costs.cashEffect).Sign() < 0 {
+			quantity = quantity.Sub(decOne)
 			costs = e.costsOf(item.direction, quantity, price, rate, converted)
 		}
-		if quantity.sign() <= 0 {
+		if quantity.Sign() <= 0 {
 			skip(SkipNoCash)
 			return
 		}
@@ -416,7 +416,7 @@ func (e *engine) execute(book *portfolio, item pending, session SessionDate, out
 	}
 	trade.ID = id
 
-	book.cash = book.cash.add(costs.cashEffect)
+	book.cash = book.cash.Add(costs.cashEffect)
 	switch item.direction {
 	case DirectionBuy:
 		book.holdings[item.member.id] = &holding{quantity: quantity, signalSession: item.signalSession}

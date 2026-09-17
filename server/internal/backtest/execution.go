@@ -77,7 +77,7 @@ func toAccounting(amount, rate dec, converted bool) dec {
 	if !converted {
 		return amount
 	}
-	return amount.div(rate)
+	return amount.Div(rate)
 }
 
 // costsOf prices one execution. Every intermediate is rounded to the stored precision before the
@@ -91,8 +91,8 @@ type executionCosts struct {
 }
 
 func (e *engine) costsOf(direction Direction, quantity, price, rate dec, converted bool) executionCosts {
-	grossListing := price.mul(quantity)
-	slippageListing := grossListing.mul(e.slippage)
+	grossListing := price.Mul(quantity)
+	slippageListing := grossListing.Mul(e.slippage)
 	gross := toAccounting(grossListing, rate, converted)
 	slippage := toAccounting(slippageListing, rate, converted)
 
@@ -100,21 +100,21 @@ func (e *engine) costsOf(direction Direction, quantity, price, rate dec, convert
 	if converted {
 		// The spread is charged on what actually crossed the currency, which is the consideration
 		// plus or minus the slippage rather than the headline amount.
-		base := gross.add(slippage)
+		base := gross.Add(slippage)
 		if direction == DirectionSell {
-			base = gross.sub(slippage)
+			base = gross.Sub(slippage)
 		}
-		spread = base.mul(e.spread)
+		spread = base.Mul(e.spread)
 	} else {
 		spread = decZero
 	}
-	brokerage := gross.mul(e.brokerageRate).max(e.brokerageMinimum)
+	brokerage := gross.Mul(e.brokerageRate).Max(e.brokerageMinimum)
 
 	costs := executionCosts{grossAccounting: gross, slippage: slippage, spread: spread, brokerage: brokerage}
 	if direction == DirectionBuy {
-		costs.cashEffect = gross.add(slippage).add(spread).add(brokerage).neg()
+		costs.cashEffect = gross.Add(slippage).Add(spread).Add(brokerage).Neg()
 	} else {
-		costs.cashEffect = gross.sub(slippage).sub(spread).sub(brokerage)
+		costs.cashEffect = gross.Sub(slippage).Sub(spread).Sub(brokerage)
 	}
 	return costs
 }
@@ -126,18 +126,18 @@ func (e *engine) costsOf(direction Direction, quantity, price, rate dec, convert
 // is deliberately conservative — it charges the brokerage rate per share *and* reserves the
 // minimum — so the exact costs computed afterwards can only come in under the budget.
 func (e *engine) affordableQuantity(budget, price, rate dec, converted bool) dec {
-	perShare := price.add(price.mul(e.slippage))
+	perShare := price.Add(price.Mul(e.slippage))
 	perShare = toAccounting(perShare, rate, converted)
 	if converted {
-		perShare = perShare.add(perShare.mul(e.spread))
+		perShare = perShare.Add(perShare.Mul(e.spread))
 	}
-	perShare = perShare.add(perShare.mul(e.brokerageRate))
-	if perShare.sign() <= 0 {
+	perShare = perShare.Add(perShare.Mul(e.brokerageRate))
+	if perShare.Sign() <= 0 {
 		return decZero
 	}
-	available := budget.sub(e.brokerageMinimum)
-	if available.sign() <= 0 {
+	available := budget.Sub(e.brokerageMinimum)
+	if available.Sign() <= 0 {
 		return decZero
 	}
-	return decFromInt(available.div(perShare).floor())
+	return decFromInt(available.Div(perShare).Floor())
 }
