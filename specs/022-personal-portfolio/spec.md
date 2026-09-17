@@ -298,10 +298,13 @@ carries its caveat.
 ### Live Update Behavior *(mandatory for client-visible data; otherwise state N/A)*
 
 - **Snapshot and events**: A recorded, corrected or withdrawn trade is a committed domain change and
-  publishes a versioned, resumable event **scoped to its owner alone** — the first privately scoped
-  event in this product. A new stored price changes what a portfolio is worth, so the existing
-  market-data event is what prompts a re-read; the product does not publish a private event for a
-  change every user can already see.
+  publishes a versioned, resumable event **scoped to its owner alone**. The mechanism already
+  exists and is already enforced: feature 004 built user-scoped events for sessions and account
+  changes, and the replay query filters them by subject, refusing a deactivated account even with
+  a cursor it held while active. What is new is that this is the first *domain* record to use it,
+  so the scoping is inherited rather than invented. A new stored price changes what a portfolio is
+  worth, so the existing market-data event is what prompts a re-read; the product does not publish
+  a private event for a change every user can already see.
 - **Reliability**: Ordering, event identifiers, resumption from the last delivered event,
   duplicate-safe consumption and bounded coalescing follow the existing contracts exactly.
 - **Test evidence**: A reader watching their own portfolio sees their own change arrive without

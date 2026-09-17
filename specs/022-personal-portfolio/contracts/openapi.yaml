@@ -1,0 +1,348 @@
+openapi: 3.1.0
+info:
+  title: Market Lens Portfolio API
+  version: 1.0.0
+  description: >
+    One person's record of what they hold. Every operation in this contract is private to the
+    authenticated caller: there is no administrative read, because ownership here is not
+    administrative and the owner role grants no access to anybody else's holdings.
+
+    Every response carries the statement that the product records what a person entered and offers
+    no advice, on the same reasoning that puts a strategy's caveat on every signal — a claim a
+    client can forget to fetch is one that will eventually not be shown.
+servers:
+  - url: /api/v1
+x-market-lens-access-boundary:
+  user_private:
+    - /portfolio
+    - /portfolio/trades
+    - /portfolio/trades/{id}
+  rule: >
+    Every operation requires an active session, is scoped to the caller's own user, and is refused
+    to a deactivated account. No role widens access to another person's portfolio.
+x-market-lens-events:
+  - type: portfolio.changed.v1
+    scope: user
+    entity: portfolio
+    description: >
+      Published in the same transaction that records, corrects or withdraws a trade, scoped to the
+      owner alone. Carries what changed, never the figures — a client re-reads those through the
+      authorized path.
+
+paths:
+  /portfolio:
+    get:
+      summary: What is held, what it is worth, and what it has made or lost
+      responses:
+        "200":
+          description: The portfolio
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Portfolio" }
+        "401": { description: No active session }
+    put:
+      summary: Set the accounting currency
+      description: >
+        Creates the portfolio on first use. The currency may be changed; every figure is derived,
+        so changing it re-reports rather than rewriting anything.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [accounting_currency]
+              properties:
+                accounting_currency:
+                  type: string
+                  description: One of the currencies the curated universe trades in.
+      responses:
+        "200":
+          description: The portfolio
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Portfolio" }
+        "400": { description: Not a currency this product can convert into }
+        "401": { description: No active session }
+
+  /portfolio/trades:
+    get:
+      summary: Every trade the person recorded, newest first
+      parameters:
+        - name: cursor
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: include_withdrawn
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: One page of trades
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor, total]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Trade" }
+                  next_cursor: { type: [string, "null"] }
+                  total:
+                    type: [integer, "null"]
+                    description: Present on a cursor-less request.
+        "401": { description: No active session }
+    post:
+      summary: Record a purchase or a sale
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TradeInput" }
+      responses:
+        "201":
+          description: The recorded trade
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Trade" }
+        "400":
+          description: >
+            Refused, with a reason a person can act on — an instrument this product does not carry,
+            a sale larger than the position, or a date in the future.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Refusal" }
+        "401": { description: No active session }
+
+  /portfolio/trades/{id}:
+    patch:
+      summary: Correct a recorded trade
+      description: >
+        Supersedes the previous version rather than overwriting it. The earlier version stays
+        readable, because a portfolio whose history changes silently cannot be reconciled against a
+        broker statement.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TradeInput" }
+      responses:
+        "200":
+          description: The superseding version
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Trade" }
+        "400":
+          description: Refused, including a correction that would make a position negative
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Refusal" }
+        "401": { description: No active session }
+        "404":
+          description: >
+            No such trade for this person. A trade belonging to somebody else answers the same way
+            as one that does not exist, so the response never confirms which identifiers are real.
+    delete:
+      summary: Withdraw a recorded trade
+      description: It stops affecting every figure and stays readable as withdrawn.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204": { description: Withdrawn }
+        "400":
+          description: Refused, including a withdrawal that would make a later position negative
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Refusal" }
+        "401": { description: No active session }
+        "404": { description: No such trade for this person }
+
+components:
+  schemas:
+    Money:
+      type: string
+      description: Decimal string. Never a JSON number, which would round it.
+
+    Refusal:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum:
+                [instrument_not_carried, sale_exceeds_position, trade_date_in_future,
+                 unsupported_currency, invalid_quantity, invalid_price]
+            message:
+              type: string
+              description: >
+                Names what to do about it. "This product tracks a curated universe and does not
+                carry that instrument" is an answer; "not found" is not.
+            held_quantity:
+              type: [string, "null"]
+              description: Set on sale_exceeds_position, so the refusal names what is actually held.
+
+    TradeInput:
+      type: object
+      required: [instrument_id, direction, quantity, price, trade_date]
+      properties:
+        instrument_id: { type: string, format: uuid }
+        direction: { type: string, enum: [buy, sell] }
+        quantity: { $ref: "#/components/schemas/Money" }
+        price:
+          $ref: "#/components/schemas/Money"
+          description: Per share, in the instrument's own listing currency.
+        costs:
+          $ref: "#/components/schemas/Money"
+          description: What the trade bore, in the listing currency. Absent means zero, and zero is reported rather than omitted.
+        trade_date: { type: string, format: date }
+
+    Trade:
+      type: object
+      required:
+        [id, instrument_id, ticker, name, direction, quantity, price, currency, costs, trade_date,
+         sequence, status, recorded_at]
+      properties:
+        id: { type: string, format: uuid }
+        instrument_id: { type: string, format: uuid }
+        ticker: { type: string }
+        name: { type: string }
+        direction: { type: string, enum: [buy, sell] }
+        quantity: { $ref: "#/components/schemas/Money" }
+        price: { $ref: "#/components/schemas/Money" }
+        currency: { type: string }
+        costs: { $ref: "#/components/schemas/Money" }
+        trade_date: { type: string, format: date }
+        sequence:
+          type: integer
+          description: >
+            The order this trade was recorded in. Two trades on one date are consumed
+            first-in-first-out in this order, so it is shown rather than hidden.
+        status: { type: string, enum: [current, superseded, withdrawn] }
+        supersedes:
+          type: [string, "null"]
+          format: uuid
+          description: The version this one replaced, when it is a correction.
+        recorded_at: { type: string, format: date-time }
+        changed_at: { type: [string, "null"], format: date-time }
+
+    Valuation:
+      type: object
+      required: [value, session, absence_reason]
+      properties:
+        value: { type: [string, "null"] }
+        session:
+          type: [string, "null"]
+          format: date
+          description: >
+            The session the price came from. Stated per holding because a multi-market portfolio is
+            valued at slightly different sessions, and hiding that inside a total would be the
+            dishonest option.
+        conversion_rate: { type: [string, "null"] }
+        absence_reason:
+          type: [string, "null"]
+          enum: [no_price, no_rate, null]
+
+    BenchmarkComparison:
+      type: object
+      required: [series, from_session, to_session, holding_return, benchmark_return, absence_reason]
+      properties:
+        series: { type: string }
+        from_session: { type: [string, "null"], format: date }
+        to_session: { type: [string, "null"], format: date }
+        holding_return: { type: [string, "null"] }
+        benchmark_return: { type: [string, "null"] }
+        absence_reason:
+          type: [string, "null"]
+          description: Why the comparison is unavailable. Never truncated, never back-filled.
+
+    Holding:
+      type: object
+      required:
+        [instrument_id, ticker, name, currency, quantity, cost, valuation, unrealised, comparison]
+      properties:
+        instrument_id: { type: string, format: uuid }
+        ticker: { type: string }
+        name: { type: string }
+        currency: { type: string }
+        quantity: { $ref: "#/components/schemas/Money" }
+        cost:
+          $ref: "#/components/schemas/Money"
+          description: What the shares still held cost, first-in-first-out, including trade costs.
+        valuation: { $ref: "#/components/schemas/Valuation" }
+        unrealised:
+          type: [string, "null"]
+          description: Value less cost. Null exactly when the holding could not be valued.
+        comparison: { $ref: "#/components/schemas/BenchmarkComparison" }
+        signal:
+          type: [object, "null"]
+          description: >
+            The strategy's current view, with its stored caveat. Shown because a person will want
+            it; never phrased as a suggestion to act.
+
+    RealisedResult:
+      type: object
+      required: [instrument_id, ticker, quantity, proceeds, cost, realised, cost_basis]
+      properties:
+        instrument_id: { type: string, format: uuid }
+        ticker: { type: string }
+        quantity: { $ref: "#/components/schemas/Money" }
+        proceeds: { $ref: "#/components/schemas/Money" }
+        cost: { $ref: "#/components/schemas/Money" }
+        realised: { $ref: "#/components/schemas/Money" }
+        cost_basis:
+          type: string
+          enum: [fifo]
+          description: >
+            Stated on every realised figure. A realised number without its basis is not checkable
+            against anything.
+
+    Portfolio:
+      type: object
+      required:
+        [accounting_currency, holdings, realised, total, records_what_you_entered]
+      properties:
+        accounting_currency: { type: string }
+        holdings:
+          type: array
+          items: { $ref: "#/components/schemas/Holding" }
+        realised:
+          type: array
+          items: { $ref: "#/components/schemas/RealisedResult" }
+        total:
+          type: object
+          required: [value, cost, unrealised, realised, complete, incomplete_reason, return_absence]
+          properties:
+            value: { type: [string, "null"] }
+            cost: { $ref: "#/components/schemas/Money" }
+            unrealised: { type: [string, "null"] }
+            realised: { $ref: "#/components/schemas/Money" }
+            complete:
+              type: boolean
+              description: False when any holding could not be valued.
+            incomplete_reason: { type: [string, "null"] }
+            return_absence:
+              type: string
+              description: >
+                Always present, always the same: no portfolio return is reported because the
+                product does not track what was paid in. A stated absence, not a missing field.
+        records_what_you_entered:
+          type: boolean
+          description: >
+            Always true, and always present. The product records what a person entered and offers
+            no advice; a field a client must remember to add is one that will eventually be missing
+            from the one screen that mattered.
