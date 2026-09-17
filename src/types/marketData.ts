@@ -613,3 +613,43 @@ export interface TradeRefusal {
   /** Set when a sale exceeds the position, so the refusal names what is actually held. */
   heldQuantity: string | null;
 }
+
+/**
+ * Personal risk limits (feature 023).
+ *
+ * A limit here is the person's own rule. The product publishes none and suggests none, which is why
+ * there is no "recommended" or "default" field anywhere below — and no field naming what would close
+ * a gap, because a field that exists will eventually be rendered.
+ */
+
+export type LimitKind = 'instrument_share' | 'sector_share' | 'market_share' | 'holding_count';
+
+/** Exactly three, always present. A limit is never "within" because something could not be measured. */
+export type LimitState = 'within' | 'exceeded' | 'unevaluable';
+
+/** One group that made up a measurement — an instrument, a sector or a market. */
+export interface LimitContribution {
+  label: string;
+  value: string;
+  share: string;
+}
+
+export interface LimitEvaluation {
+  kind: LimitKind;
+  threshold: string;
+  state: LimitState;
+  /** The figure compared against the threshold. Null exactly when unevaluable. */
+  measured: string | null;
+  /** What a share was measured against, so the percentage can be checked. Null for a count. */
+  denominator: string | null;
+  absenceReason: string | null;
+  contributions: LimitContribution[];
+}
+
+export interface RiskReport {
+  accountingCurrency: string;
+  /** Empty means the person stated none, which is what everybody starts with. */
+  limits: LimitEvaluation[];
+  /** Always true. These are the person's own rules; the product neither sets them nor advises. */
+  limitsAreYourOwn: boolean;
+}
