@@ -256,11 +256,12 @@ onBeforeUnmount(() => {
         <div class="portfolio__currency">
           <label for="portfolio-currency">Show everything in</label>
           <Select
-            id="portfolio-currency"
+            input-id="portfolio-currency"
             v-model="currency"
             :options="currencies"
             option-label="label"
             option-value="value"
+            aria-label="Show everything in"
             :disabled="busy"
           />
         </div>

@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import Button from 'primevue/button';
-import InputText from 'primevue/inputtext';
 import InputNumber from 'primevue/inputnumber';
 import DatePicker from 'primevue/datepicker';
 import Select from 'primevue/select';
@@ -106,13 +105,16 @@ function submit(): void {
 
     <div class="entry__field">
       <label for="entry-instrument">Instrument</label>
+      <!-- Named explicitly: the rendered combobox is announced by its current value, so without
+           this a screen reader hears "Choose from the tracked universe" and never "Instrument". -->
       <Select
-        id="entry-instrument"
+        input-id="entry-instrument"
         v-model="instrumentId"
         :options="instrumentOptions"
         option-label="label"
         option-value="value"
         filter
+        aria-label="Instrument"
         placeholder="Choose from the tracked universe"
       />
       <small>This product tracks a curated universe of Nordic listings.</small>
@@ -121,22 +123,23 @@ function submit(): void {
     <div class="entry__field">
       <label for="entry-direction">Bought or sold</label>
       <Select
-        id="entry-direction"
+        input-id="entry-direction"
         v-model="direction"
         :options="directions"
         option-label="label"
         option-value="value"
+        aria-label="Bought or sold"
       />
     </div>
 
     <div class="entry__row">
       <div class="entry__field">
         <label for="entry-quantity">Shares</label>
-        <InputNumber id="entry-quantity" v-model="quantity" :min-fraction-digits="0" :max-fraction-digits="6" />
+        <InputNumber input-id="entry-quantity" v-model="quantity" :min-fraction-digits="0" :max-fraction-digits="6" />
       </div>
       <div class="entry__field">
         <label for="entry-price">Price per share</label>
-        <InputNumber id="entry-price" v-model="price" :min-fraction-digits="2" :max-fraction-digits="6" />
+        <InputNumber input-id="entry-price" v-model="price" :min-fraction-digits="2" :max-fraction-digits="6" />
         <small>In the instrument's own currency, as your broker shows it.</small>
       </div>
     </div>
@@ -144,12 +147,12 @@ function submit(): void {
     <div class="entry__row">
       <div class="entry__field">
         <label for="entry-costs">What the trade cost</label>
-        <InputNumber id="entry-costs" v-model="costs" :min-fraction-digits="2" :max-fraction-digits="6" />
+        <InputNumber input-id="entry-costs" v-model="costs" :min-fraction-digits="2" :max-fraction-digits="6" />
         <small>Brokerage and fees. Leave at zero if there were none.</small>
       </div>
       <div class="entry__field">
         <label for="entry-date">Date</label>
-        <DatePicker id="entry-date" v-model="tradeDate" date-format="yy-mm-dd" :max-date="today" />
+        <DatePicker input-id="entry-date" v-model="tradeDate" date-format="yy-mm-dd" :max-date="today" />
       </div>
     </div>
 
