@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-28
 
-**Status**: in-progress
+**Status**: shipped
 
 **Input**: Deploy Market Lens to the existing k3s cluster using the proven Ring
 PostgreSQL, Keel, and Traefik conventions. Serve it at
