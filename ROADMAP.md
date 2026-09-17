@@ -33,7 +33,7 @@ without a reviewed feature spec and valid red test.
 | 3 | Reusable feature engine | Shipped | [`013-feature-engine`](specs/013-feature-engine/spec.md) and [plan](specs/013-feature-engine/plan.md) | Milestone 1 | Deterministic, versioned, point-in-time returns, trend, momentum, relative strength, volatility, ATR, RSI/MACD, drawdown, volume and regime features over stored sessions, with leakage proven by test. Relative strength is measured against an equal-weighted composite of the curated universe, which needed no new data. Markets reads its three statistics from the engine. |
 | 4 | Deterministic strategies and signals | Shipped | [015](specs/015-strategies-and-signals/spec.md) | Milestone 3 | Versioned momentum/trend strategy, parameters, immutable actions/scores/confidence/explanations and reproducibility. |
 | 5 | Reproducible backtesting | Shipped | [021](specs/021-reproducible-backtesting/spec.md) | Milestone 4; benchmark data | Historical simulation, accounting, brokerage/FX/slippage, benchmarks, metrics, curves, and traceable trades/signals. |
-| 6 | Personal tracking, portfolio, and risk engine | Backlog | Not yet specified | Security-A; Milestone 4; preferably Milestone 5 evidence | User-owned holdings/trades/tracking rules, positions, cash/P&L/exposures, independent limits/rejections/modifications, and order intents. |
+| 6 | Personal tracking, portfolio, and risk engine | In progress | [022](specs/022-personal-portfolio/spec.md) (holdings, shipped); risk limits and order intents not yet specified | Security-A; Milestone 4; preferably Milestone 5 evidence | User-owned holdings/trades/tracking rules, positions, cash/P&L/exposures, independent limits/rejections/modifications, and order intents. |
 | 7 | Paper trading | Backlog | Not yet specified | Milestones 1, 4, and 6 | Permanent simulated orders/trades and forward performance using shared strategy/risk/accounting. |
 | Notifications-A | Email and Web Push alerts | Backlog | Not yet specified | Security-A; Experience-A; explainable signals and user tracking | Granular consented alerts, quiet/frequency controls, per-device revocation, minimum private payloads, and provider-outage resilience. |
 | 8 | Advanced analysis | Deferred | Not yet specified | Trusted Milestones 1–7 | Hourly data, more markets/strategies, comparisons, richer costs, fundamentals, news, notifications. |
@@ -133,10 +133,24 @@ It also introduced the product's first currency conversion, confined to backtest
 spanning four markets cannot avoid the question, and everything else still states each price in
 its own listing currency.
 
-**The next product feature is Milestone 6**, personal tracking, portfolio and risk — the first
-milestone with user-owned records, which is why backtesting deliberately introduced none.
+**Milestone 6 has begun.** Feature 022 shipped its foundation: a person records what they actually
+hold, and the product derives what it is worth, what it cost under first-in-first-out, and what each
+holding did against its own market over its own holding period. These are the first user-owned
+domain records in the product — everything before them is shared reference data — so the ownership
+boundary was built here rather than retrofitted behind the risk limits and order intents that come
+next.
 
-Milestone 6 is the next planning sequence. Create separate feature specs so their
+Two decisions in it are worth carrying forward. **Nothing derived is stored**: positions, cost and
+realised results are a fold over the recorded trades, which is what makes a correction a re-read
+rather than a repair, and what makes a superseded version safe to keep. And **cash is deliberately
+not tracked**, so the product reports no portfolio return at all and states why — it does not know
+what was paid in, and a return computed without that divides by a number it would have to invent.
+That narrowed the benchmark comparison from portfolio-level to per-holding, which for somebody
+holding a handful of names is both honest and more informative. Adding deposits later should be a
+deliberate decision, not a drift.
+
+The rest of Milestone 6 — risk limits that reject or modify, and order intents — each needs its own
+specification. Create separate feature specs so their
 acceptance criteria, data ownership, responsive behavior, and test-first proof can be
 reviewed independently. Do not combine them into one implementation batch.
 

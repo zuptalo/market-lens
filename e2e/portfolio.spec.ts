@@ -159,9 +159,16 @@ test('a refusal says what to do about it', async ({ page }) => {
 
   await page.getByLabel('Instrument').click();
   await page.getByRole('option', { name: /VOLV-B/ }).click();
+  // Tab out of each number the way a person moves through a form: the control commits its value on
+  // blur, and Save stays disabled until every required field has one.
   await page.getByLabel('Shares').fill('150');
+  await page.getByLabel('Shares').press('Tab');
   await page.getByLabel('Price per share').fill('250');
-  await page.getByRole('button', { name: 'Save' }).click();
+  await page.getByLabel('Price per share').press('Tab');
+
+  const save = page.getByRole('button', { name: 'Save' });
+  await expect(save).toBeEnabled();
+  await save.click();
 
   const refusal = page.getByTestId('trade-refusal');
   await expect(refusal).toBeVisible();

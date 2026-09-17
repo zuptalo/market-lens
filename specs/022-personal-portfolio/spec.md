@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-17
 
-**Status**: planned
+**Status**: shipped
 <!-- Market Lens spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Input**: User description: "Personal portfolio and holdings — the first feature of Milestone 6.

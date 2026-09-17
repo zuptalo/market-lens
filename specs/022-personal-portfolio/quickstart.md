@@ -33,11 +33,15 @@ reports the holding as unvalued rather than guessing.
 ## Record what you hold
 
 ```bash
-curl -X POST .../api/v1/portfolio/trades -d '{
+curl -X POST .../api/v1/portfolio/trades \
+  -H 'X-CSRF-Token: <token>' -H 'Content-Type: application/json' -d '{
   "instrument_id": "...", "direction": "buy",
   "quantity": "100", "price": "245.80", "costs": "39", "trade_date": "2026-03-16"
 }'
 ```
+
+Every write carries the CSRF token, the same as every other state change in this product. A
+portfolio nobody else can read is still a portfolio somebody else's page could write to.
 
 Three things it will refuse, each naming what to do about it:
 

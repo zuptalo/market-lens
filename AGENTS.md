@@ -150,6 +150,32 @@ currency conversion is new behaviour confined to backtesting: rates are stored i
 with the accounting currency as the base, converting divides, and nothing else in the product
 converts anything.
 
+Feature 022 (`server/internal/portfolio`, `specs/022-personal-portfolio/`) began Milestone 6: a
+person's own holdings, and the product's **first user-owned domain records**. Everything before it is
+shared reference data, which is why cross-user isolation had only ever been tested on identity
+itself. The boundary it establishes is what risk limits and order intents inherit.
+
+Five things it leaves behind:
+
+- **Ownership is inherited, not invented.** `authorization.ScopeUser`, `PrivateScopeFor` and
+  user-scoped `client_events` all existed from feature 004; this is their first domain use. What
+  needed testing was whether each query remembers to use them, so every read and write path has its
+  own cross-user test.
+- **`user_id` is denormalised onto every trade**, held equal to the portfolio's owner by a composite
+  foreign key. A query scoped only by portfolio would return the right rows for the wrong person the
+  first time an identifier leaked — a breach, not a bug.
+- **Nothing derived is stored.** Positions, cost and realised results are a fold over the trades, so
+  a correction is a re-read rather than a repair, and a superseded version can be kept without any
+  figure disagreeing with it.
+- **Cost conservation is structural, not approximate.** Lots carry their remaining cost rather than a
+  cost per share: dividing then multiplying back loses fractions at the twelfth place, and a
+  reconciliation property test caught it on its first attempt.
+- **Cash is not tracked, and the product says so.** No portfolio return is reported at all, because
+  it does not know what was paid in. The comparison is per holding against its own market instead.
+
+The decimal arithmetic moved to `server/internal/decimal` when this feature needed it too. One
+implementation, because two would eventually disagree about the same trade.
+
 Two constraints that outlive any single feature:
 
 - `AUTH_SECRET` is self-provisioned and database-resident, while `EXTERNAL_CREDENTIAL_KEY`
