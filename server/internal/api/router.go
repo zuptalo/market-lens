@@ -105,6 +105,7 @@ type Dependencies struct {
 	Backtests               BacktestReader
 	Portfolio               PortfolioService
 	Risk                    RiskService
+	Intents                 IntentsService
 	FindingDecisions        FindingDecider
 	Events                  EventReader
 	EventHeartbeat          time.Duration
@@ -200,6 +201,13 @@ func NewRouter(deps Dependencies) http.Handler {
 			httpx.RequireCSRF(setRiskLimitHandler(deps.Risk)))
 		protected.Handle("DELETE /api/v1/risk-limits/{kind}",
 			httpx.RequireCSRF(removeRiskLimitHandler(deps.Risk)))
+	}
+	if deps.Intents != nil {
+		protected.HandleFunc("GET /api/v1/order-intents", listIntentsHandler(deps.Intents))
+		protected.Handle("POST /api/v1/order-intents",
+			httpx.RequireCSRF(recordIntentHandler(deps.Intents)))
+		protected.Handle("PATCH /api/v1/order-intents/{id}",
+			httpx.RequireCSRF(settleIntentHandler(deps.Intents)))
 	}
 	if deps.Events != nil {
 		protected.HandleFunc("GET /api/v1/events", eventsHandler(deps.Events, deps.EventHeartbeat,
