@@ -12,6 +12,10 @@ import type {
   PortfolioTrade,
   PortfolioTradePage,
   RiskReport,
+  IntentDirection,
+  IntentInput,
+  IntentReport,
+  IntentStatus,
   TradeDirection,
   TradeInput,
   TradeRefusal,
@@ -442,6 +446,9 @@ export const MARKET_DATA_EVENT_TYPES = [
   'portfolio.changed.v1',
   // A person's own limits. Scoped to its owner on the server, like the portfolio's own event.
   'risk_limits.changed.v1',
+  // What a person is considering. The event names the intent, never its consequence — that is
+  // computed on read, so an open page re-reads it through the authorized path.
+  'order_intents.changed.v1',
 ] as const;
 
 /** What a market-data event says about the change it reports. */
@@ -1224,4 +1231,102 @@ export async function removeRiskLimit(
   });
   if (!response.ok) throw await toTradeRefusal(response);
   return toRiskReport(await response.json() as RiskReportWire);
+}
+
+/* Order intents (feature 025). Private to the caller, like the portfolio and the limits.
+ *
+ * There is no function here that creates an intent from a signal. The product records what a person
+ * decided to consider; the authorship runs that way round deliberately. */
+
+interface IntentReportWire {
+  intents: {
+    id: string; instrument_id: string; ticker: string; name: string; currency: string;
+    direction: IntentDirection; quantity: string; price: string; costs: string;
+    status: IntentStatus; recorded_at: string; settled_at: string | null;
+    consequence: {
+      resulting_quantity: string; resulting_value: string | null; resulting_share: string | null;
+      denominator: string | null; absence_reason: string | null;
+      limits: RiskReportWire['limits'];
+    } | null;
+  }[];
+  evaluated_independently: boolean;
+  records_what_you_are_considering: boolean;
+}
+
+function toIntentReport(wire: IntentReportWire): IntentReport {
+  return {
+    intents: (wire.intents ?? []).map((intent) => ({
+      id: intent.id, instrumentId: intent.instrument_id, ticker: intent.ticker,
+      name: intent.name, currency: intent.currency, direction: intent.direction,
+      quantity: intent.quantity, price: intent.price, costs: intent.costs,
+      status: intent.status, recordedAt: intent.recorded_at,
+      settledAt: intent.settled_at ?? null,
+      // A settled intent arrives with no consequence. Substituting an empty one would read as
+      // "it would do nothing", which is a different claim from "the question is no longer asked".
+      consequence: intent.consequence
+        ? {
+          resultingQuantity: intent.consequence.resulting_quantity,
+          resultingValue: intent.consequence.resulting_value ?? null,
+          resultingShare: intent.consequence.resulting_share ?? null,
+          denominator: intent.consequence.denominator ?? null,
+          absenceReason: intent.consequence.absence_reason ?? null,
+          limits: toRiskReport({
+            accounting_currency: '', limits: intent.consequence.limits ?? [],
+            limits_are_your_own: true,
+          }).limits,
+        }
+        : null,
+    })),
+    evaluatedIndependently: wire.evaluated_independently !== false,
+    recordsWhatYouAreConsidering: wire.records_what_you_are_considering !== false,
+  };
+}
+
+/** Everything the person is considering, and what each would do. */
+export async function fetchOrderIntents(
+  includeSettled = false,
+  fetcher: Fetcher = fetch,
+  signal?: AbortSignal,
+): Promise<IntentReport> {
+  const query = includeSettled ? '?include_settled=true' : '';
+  const response = await fetcher(`/api/v1/order-intents${query}`, { signal });
+  if (!response.ok) throw new Error('Unable to load what you are considering.');
+  return toIntentReport(await response.json() as IntentReportWire);
+}
+
+/** Write down something you are considering. */
+export async function recordOrderIntent(
+  input: IntentInput,
+  csrfToken: string,
+  fetcher: Fetcher = fetch,
+): Promise<IntentReport> {
+  const response = await fetcher('/api/v1/order-intents', {
+    method: 'POST',
+    headers: writeHeaders(csrfToken),
+    body: JSON.stringify({
+      instrument_id: input.instrumentId, direction: input.direction,
+      quantity: input.quantity, price: input.price, costs: input.costs,
+    }),
+  });
+  if (!response.ok) throw await toTradeRefusal(response);
+  return toIntentReport(await response.json() as IntentReportWire);
+}
+
+/**
+ * Withdraw an intent, or record that you acted on it.
+ *
+ * Marking one acted on records that the person acted. It creates no trade: what they actually paid
+ * is a fact only they can assert, and the portfolio is where they assert it.
+ */
+export async function settleOrderIntent(
+  id: string,
+  status: Exclude<IntentStatus, 'considering'>,
+  csrfToken: string,
+  fetcher: Fetcher = fetch,
+): Promise<IntentReport> {
+  const response = await fetcher(`/api/v1/order-intents/${encodeURIComponent(id)}`, {
+    method: 'PATCH', headers: writeHeaders(csrfToken), body: JSON.stringify({ status }),
+  });
+  if (!response.ok) throw await toTradeRefusal(response);
+  return toIntentReport(await response.json() as IntentReportWire);
 }
