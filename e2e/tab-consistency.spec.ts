@@ -123,3 +123,57 @@ test('a scrollbar appearing does not move the content sideways', async ({ page }
   const gutter = await page.evaluate(() => getComputedStyle(document.documentElement).scrollbarGutter);
   expect(gutter).toBe('stable');
 });
+
+/**
+ * Every destination in the primary navigation is actually clickable, at every supported width.
+ *
+ * This exists because adding one has broken it twice. The header carried a fixed height with
+ * flex-wrap, so once the links stopped fitting on one row the wrapped row was laid out and then
+ * clipped: the link was on the page, focusable, and unclickable. It happened at 360px with four
+ * links and again at 768px with seven, and the second time only CI caught it — Linux renders the
+ * font fractionally wider than macOS, so the local suite passed.
+ *
+ * A link that is present but unreachable is worse than one that is absent, because nothing looks
+ * wrong. Counting them is not enough; each one has to be hit.
+ */
+for (const width of [1440, 1024, 768, 390, 320]) {
+  test(`every navigation destination can be clicked at ${width}`, async ({ page }) => {
+    await stub(page);
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/');
+
+    const nav = page.locator('.primary-nav');
+    const links = nav.getByRole('link');
+    const count = await links.count();
+    expect(count).toBeGreaterThan(5);
+
+    for (let index = 0; index < count; index += 1) {
+      const link = links.nth(index);
+      const name = (await link.textContent())?.trim() ?? `link ${index}`;
+      const href = await link.getAttribute('href');
+
+      // Visible, hit-testable, and inside the viewport — not merely present in the DOM.
+      await expect(link, `${name} is not visible at ${width}`).toBeVisible();
+      const box = await link.boundingBox();
+      expect(box, `${name} has no box at ${width}`).not.toBeNull();
+      expect(box!.x, `${name} starts off the left edge at ${width}`).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width, `${name} runs past the right edge at ${width}`)
+        .toBeLessThanOrEqual(width + 1);
+
+      // The header must not be clipping the row it wrapped onto.
+      const clipped = await link.evaluate((element) => {
+        const header = element.closest('header');
+        if (!header) return false;
+        const linkBox = element.getBoundingClientRect();
+        const headerBox = header.getBoundingClientRect();
+        return linkBox.bottom > headerBox.bottom + 1;
+      });
+      expect(clipped, `${name} is clipped by the header at ${width}`).toBe(false);
+
+      // The destination is what matters; a view is free to add query parameters of its own once
+      // it arrives, as the markets listing does.
+      await link.click();
+      await expect(page).toHaveURL(new RegExp(`${href}(\\?|$)`));
+    }
+  });
+}

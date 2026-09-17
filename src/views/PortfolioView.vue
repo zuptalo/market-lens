@@ -6,9 +6,11 @@ import LoadingBlock from '@/components/finance/LoadingBlock.vue';
 import HoldingTable from '@/components/finance/HoldingTable.vue';
 import TradeEntryForm from '@/components/finance/TradeEntryForm.vue';
 import TradeHistory from '@/components/finance/TradeHistory.vue';
+import { RouterLink } from 'vue-router';
 import {
   MarketDataLive,
   PortfolioRefusalError,
+  fetchRiskLimits,
   correctTrade,
   fetchInstrumentListing,
   fetchPortfolio,
@@ -46,6 +48,9 @@ const busy = ref(false);
 const error = ref('');
 const refusal = ref('');
 const connectionState = ref<ConnectionState>(navigator.onLine ? 'reconnecting' : 'offline');
+// How many of the person's own limits are currently exceeded. Counted rather than repeated: the
+// figures live on their own screen, and showing them twice would be two chances to disagree.
+const exceededLimits = ref(0);
 
 let controller: AbortController | undefined;
 
@@ -87,6 +92,15 @@ async function load(): Promise<void> {
     error.value = 'Unable to load your portfolio.';
   } finally {
     if (!signal.aborted) loading.value = false;
+  }
+}
+
+async function loadLimits(): Promise<void> {
+  try {
+    const report = await fetchRiskLimits();
+    exceededLimits.value = report.limits.filter((limit) => limit.state === 'exceeded').length;
+  } catch {
+    // A limit report that cannot be read is not a reason to fail the portfolio.
   }
 }
 
@@ -183,7 +197,7 @@ const online = () => live.setOnline(true);
 const offline = () => live.setOnline(false);
 
 onMounted(async () => {
-  await Promise.all([load(), loadInstruments()]);
+  await Promise.all([load(), loadInstruments(), loadLimits()]);
   live.setOnline(navigator.onLine);
   live.start();
   window.addEventListener('online', online);
@@ -251,6 +265,19 @@ onBeforeUnmount(() => {
         <!-- Where somebody would go looking for "how am I doing overall". Stated, not missing. -->
         <Message severity="secondary" :closable="false" data-testid="return-absence">
           {{ returnAbsence }}
+        </Message>
+
+        <!-- A breach nobody sees is a breach nobody acts on, so the count is here. The figures are
+             not: they live on the limits screen, and repeating them would be two chances to
+             disagree. -->
+        <Message
+          v-if="exceededLimits > 0"
+          severity="warn"
+          :closable="false"
+          data-testid="limits-exceeded"
+        >
+          You are outside {{ exceededLimits }} of your own limits.
+          <RouterLink to="/risk">See where you stand</RouterLink>.
         </Message>
 
         <div class="portfolio__currency">

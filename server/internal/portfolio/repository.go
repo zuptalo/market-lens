@@ -72,8 +72,17 @@ func (r *Repository) EnsurePortfolio(ctx context.Context, userID, currency strin
 }
 
 const tradeColumns = `t.id::text, t.portfolio_id::text, t.user_id::text, t.instrument_id::text,
-	i.ticker, i.name, i.currency, t.direction, t.quantity::text, t.price::text, t.costs::text,
+	i.ticker, i.name, i.currency, i.sector, coalesce(s.name, i.sector), e.mic,
+	t.direction, t.quantity::text, t.price::text, t.costs::text,
 	t.trade_date::text, t.sequence, t.superseded_by::text, t.withdrawn_at, t.recorded_at, t.changed_at`
+
+// tradeSource is the join every trade read shares. The sector and the exchange come from here
+// rather than from a second lookup: the rows are already being fetched, and one source is one place
+// to get feature 014's explicit `unclassified` value right.
+const tradeSource = `portfolio_trades t
+	JOIN instruments i ON i.id = t.instrument_id
+	JOIN exchanges e ON e.id = i.exchange_id
+	LEFT JOIN sectors s ON s.code = i.sector`
 
 func scanTrade(row interface{ Scan(...any) error }) (Trade, error) {
 	var trade Trade
@@ -81,6 +90,7 @@ func scanTrade(row interface{ Scan(...any) error }) (Trade, error) {
 	var withdrawn *time.Time
 	if err := row.Scan((*string)(&trade.ID), (*string)(&trade.PortfolioID), (*string)(&trade.UserID),
 		(*string)(&trade.InstrumentID), &trade.Ticker, &trade.Name, &trade.Currency,
+		&trade.Sector, &trade.SectorName, &trade.MIC,
 		(*string)(&trade.Direction), &trade.Quantity, &trade.Price, &trade.Costs,
 		(*string)(&trade.TradeDate), &trade.Sequence, &superseded, &withdrawn,
 		&trade.RecordedAt, &trade.ChangedAt); err != nil {
@@ -103,7 +113,7 @@ func (r *Repository) CurrentTrades(ctx context.Context, userID string) ([]Trade,
 		return nil, err
 	}
 	rows, err := r.pool.Query(ctx, `SELECT `+tradeColumns+`
-		FROM portfolio_trades t JOIN instruments i ON i.id = t.instrument_id
+		FROM `+tradeSource+`
 		WHERE t.user_id = $1 AND t.superseded_by IS NULL AND t.withdrawn_at IS NULL
 		ORDER BY t.instrument_id::text, t.trade_date, t.sequence`, userID)
 	if err != nil {
@@ -128,7 +138,7 @@ func (r *Repository) Trade(ctx context.Context, userID, tradeID string) (Trade, 
 		return Trade{}, err
 	}
 	row := r.pool.QueryRow(ctx, `SELECT `+tradeColumns+`
-		FROM portfolio_trades t JOIN instruments i ON i.id = t.instrument_id
+		FROM `+tradeSource+`
 		WHERE t.user_id = $1 AND t.id = $2`, userID, tradeID)
 	trade, err := scanTrade(row)
 	if err != nil {
@@ -169,7 +179,7 @@ func (r *Repository) ListTrades(ctx context.Context, userID string, query TradeQ
 	}
 
 	statement := `SELECT ` + tradeColumns + `
-		FROM portfolio_trades t JOIN instruments i ON i.id = t.instrument_id
+		FROM ` + tradeSource + `
 		WHERE t.user_id = $1` + condition
 	args := []any{userID}
 	if after != nil {

@@ -104,6 +104,7 @@ type Dependencies struct {
 	Signals                 SignalReader
 	Backtests               BacktestReader
 	Portfolio               PortfolioService
+	Risk                    RiskService
 	FindingDecisions        FindingDecider
 	Events                  EventReader
 	EventHeartbeat          time.Duration
@@ -192,6 +193,13 @@ func NewRouter(deps Dependencies) http.Handler {
 			httpx.RequireCSRF(correctTradeHandler(deps.Portfolio)))
 		protected.Handle("DELETE /api/v1/portfolio/trades/{id}",
 			httpx.RequireCSRF(withdrawTradeHandler(deps.Portfolio)))
+	}
+	if deps.Risk != nil {
+		protected.HandleFunc("GET /api/v1/risk-limits", getRiskLimitsHandler(deps.Risk))
+		protected.Handle("PUT /api/v1/risk-limits/{kind}",
+			httpx.RequireCSRF(setRiskLimitHandler(deps.Risk)))
+		protected.Handle("DELETE /api/v1/risk-limits/{kind}",
+			httpx.RequireCSRF(removeRiskLimitHandler(deps.Risk)))
 	}
 	if deps.Events != nil {
 		protected.HandleFunc("GET /api/v1/events", eventsHandler(deps.Events, deps.EventHeartbeat,

@@ -6,9 +6,12 @@ import type {
   BacktestSummary,
   BacktestTradePage,
   ConnectionState,
+  LimitKind,
+  LimitState,
   Portfolio,
   PortfolioTrade,
   PortfolioTradePage,
+  RiskReport,
   TradeDirection,
   TradeInput,
   TradeRefusal,
@@ -437,6 +440,8 @@ export const MARKET_DATA_EVENT_TYPES = [
   // A person's own portfolio. Scoped to its owner on the server, so a second person connected to
   // the same stream never receives it — the subscription here is the same either way.
   'portfolio.changed.v1',
+  // A person's own limits. Scoped to its owner on the server, like the portfolio's own event.
+  'risk_limits.changed.v1',
 ] as const;
 
 /** What a market-data event says about the change it reports. */
@@ -1160,4 +1165,63 @@ async function toTradeRefusal(response: Pick<Response, 'json'>): Promise<Error> 
     // Falls through to the generic message below.
   }
   return new Error('That could not be recorded.');
+}
+
+/* Personal risk limits (feature 023). Private to the caller: no path carries a user identifier,
+ * because there is no such thing as reading "the" limits. */
+
+interface RiskReportWire {
+  accounting_currency: string;
+  limits: {
+    kind: LimitKind; threshold: string; state: LimitState;
+    measured: string | null; denominator: string | null; absence_reason: string | null;
+    contributions: { label: string; value: string; share: string }[];
+  }[];
+  limits_are_your_own: boolean;
+}
+
+function toRiskReport(wire: RiskReportWire): RiskReport {
+  return {
+    accountingCurrency: wire.accounting_currency,
+    limits: (wire.limits ?? []).map((limit) => ({
+      kind: limit.kind, threshold: limit.threshold, state: limit.state,
+      measured: limit.measured ?? null, denominator: limit.denominator ?? null,
+      absenceReason: limit.absence_reason ?? null,
+      contributions: (limit.contributions ?? []).map((contribution) => ({ ...contribution })),
+    })),
+    limitsAreYourOwn: wire.limits_are_your_own !== false,
+  };
+}
+
+/** Every limit the person stated, and where they stand against each. */
+export async function fetchRiskLimits(fetcher: Fetcher = fetch, signal?: AbortSignal): Promise<RiskReport> {
+  const response = await fetcher('/api/v1/risk-limits', { signal });
+  if (!response.ok) throw new Error('Unable to load your limits.');
+  return toRiskReport(await response.json() as RiskReportWire);
+}
+
+/** State or change one limit. One of each kind, so this replaces rather than adds. */
+export async function setRiskLimit(
+  kind: LimitKind,
+  threshold: string,
+  csrfToken: string,
+  fetcher: Fetcher = fetch,
+): Promise<RiskReport> {
+  const response = await fetcher(`/api/v1/risk-limits/${encodeURIComponent(kind)}`, {
+    method: 'PUT', headers: writeHeaders(csrfToken), body: JSON.stringify({ threshold }),
+  });
+  if (!response.ok) throw await toTradeRefusal(response);
+  return toRiskReport(await response.json() as RiskReportWire);
+}
+
+export async function removeRiskLimit(
+  kind: LimitKind,
+  csrfToken: string,
+  fetcher: Fetcher = fetch,
+): Promise<RiskReport> {
+  const response = await fetcher(`/api/v1/risk-limits/${encodeURIComponent(kind)}`, {
+    method: 'DELETE', headers: writeHeaders(csrfToken),
+  });
+  if (!response.ok) throw await toTradeRefusal(response);
+  return toRiskReport(await response.json() as RiskReportWire);
 }
