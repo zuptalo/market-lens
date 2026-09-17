@@ -73,10 +73,12 @@ proportion to the change. Never disable a failing check to hide a regression.
 
 <!-- SPECKIT START -->
 For durable cross-session context, read `docs/product-vision.md`, `ROADMAP.md`, and
-`specs/README.md`, which is the authority on lifecycle status. Everything specified so far is
-shipped: `v0.5.0` carries features 002, 003, 004 and 009 through 012, `v0.6.0` carries 005,
-Instrument Exploration and Financial Charts, and `v0.9.0` carries 013, the Reusable Feature
-Engine.
+`specs/README.md`, which is the authority on lifecycle status and the only place that tracks which
+feature shipped in which release. Everything specified so far is shipped and serving production.
+
+What follows is the part worth carrying between sessions: the decisions each feature settled and the
+traps it left behind. It is deliberately not a version list — one goes stale a release after it is
+written, and this block had been wrong by thirteen of them before anybody noticed.
 
 The engine (`server/internal/features`, `specs/013-feature-engine/`) computes twenty-four
 versioned definitions plus the universe composite from stored sessions alone. Three rules

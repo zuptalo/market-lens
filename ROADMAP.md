@@ -21,7 +21,7 @@ without a reviewed feature spec and valid red test.
 | Order | Milestone / feature | Status | Governing specification | Depends on | Completion outcome |
 |---:|---|---|---|---|---|
 | 0 | Application foundation | Shipped | Repository baseline | — | Go/Vue app, migrations, embedded SPA, health/readiness, themes, tests, Docker/Compose, and CI. |
-| Ops-A | Optional public k3s deployment | In progress | [`001-k3s-deployment`](specs/001-k3s-deployment/spec.md) | Foundation | Same image runs on target k3s with PostgreSQL, TLS, and image rollout; not a product prerequisite. |
+| Ops-A | Optional public k3s deployment | Shipped | [`001-k3s-deployment`](specs/001-k3s-deployment/spec.md) | Foundation | Same image runs on target k3s with PostgreSQL, TLS, and image rollout; not a product prerequisite. |
 | Release-A | Protected versioned delivery | Shipped | [`003-release-versioning`](specs/003-release-versioning/spec.md) and [plan](specs/003-release-versioning/plan.md) | Foundation | PR-only squash delivery, automatic SemVer/GHCR releases, protected main, and visible runtime version. |
 | 1 | Instruments and daily market data | Shipped | [`002-instruments-market-data`](specs/002-instruments-market-data/spec.md) and [plan](specs/002-instruments-market-data/plan.md) | Foundation | 100 Nordic listings, about ten years of daily OHLCV, action context, quality findings, observable imports, read-only inspection, and durable resumable SSE updates. |
 | Security-A | Owner bootstrap, authentication, and invitations | Shipped | [`004-owner-access`](specs/004-owner-access/spec.md) | Foundation; required before browser access beyond bootstrap and all private data | Exactly one first owner, secure sessions/recovery, roles, and expiring single-use verified-email invitations with cross-user isolation. |
@@ -42,9 +42,12 @@ without a reviewed feature spec and valid red test.
 
 ## Current focus
 
-Everything specified so far is shipped and running: `v0.6.1` carries features 002, 003, 004,
-005 and 009 through 012. Production needs only `DATABASE_URL` plus the credential key it must
-retain, and the owner can correct provider configuration from the browser.
+Everything specified so far is shipped and running, currently `v0.19.0`. Production needs only
+`DATABASE_URL` plus the credential key it must retain, and the owner can correct provider
+configuration from the browser.
+
+`specs/README.md` is the authority on which feature is where; this section is the narrative, and
+it is deliberately not a version list — one gets stale a release after it is written.
 
 Milestone 2 shipped in `v0.6.0`. The curated universe is browsable with price, derived
 statistics and freshness, and one instrument's stored daily history is readable as a

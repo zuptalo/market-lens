@@ -12,7 +12,7 @@ test before production code changes.
 
 | ID | Feature | Lifecycle | Plan | Tasks | Dependencies | Notes |
 |---|---|---|---|---|---|---|
-| 001 | [k3s deployment](001-k3s-deployment/spec.md) | In progress | Not generated in current workflow | Not generated | Foundation | Optional deployment track, not a prerequisite for product milestones. |
+| 001 | [k3s deployment](001-k3s-deployment/spec.md) | Shipped | Not generated in current workflow | Not generated | Foundation | Optional deployment track, not a prerequisite for product milestones. Serving production on k3s since 2026-08-29: the same image, PostgreSQL, TLS through Traefik, and Keel rolling `:latest` automatically — every release since has arrived that way without intervention. |
 | 002 | [Instruments and daily market data](002-instruments-market-data/spec.md) | Shipped | [Complete](002-instruments-market-data/plan.md) | [Complete](002-instruments-market-data/tasks.md) | Foundation | Shipped in `v0.3.0`, currently serving in `v0.5.0`. |
 | 003 | [Release versioning and protected delivery](003-release-versioning/spec.md) | Shipped | [Complete](003-release-versioning/plan.md) | [Complete](003-release-versioning/tasks.md) | Foundation | Shipped in `v0.2.0`. Every release since has gone through it. |
 | 004 | [Owner access and invitations](004-owner-access/spec.md) | Shipped | [Complete](004-owner-access/plan.md) | [Complete](004-owner-access/tasks.md) | Foundation | Shipped in `v0.4.0`. Protects every market page, REST snapshot, and SSE stream, with cross-user isolation proven. |
