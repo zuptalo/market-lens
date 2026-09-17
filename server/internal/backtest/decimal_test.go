@@ -26,19 +26,19 @@ func TestDecimalRoundsHalfToEven(t *testing.T) {
 }
 
 func TestDecimalArithmeticStaysAtStoredPrecision(t *testing.T) {
-	third := mustDec("1").div(mustDec("3"))
+	third := mustDec("1").Div(mustDec("3"))
 	if third.String() != "0.333333333333" {
 		t.Errorf("1/3 = %s", third)
 	}
-	if back := third.mul(mustDec("3")); back.String() != "0.999999999999" {
+	if back := third.Mul(mustDec("3")); back.String() != "0.999999999999" {
 		// Not 1. Saying so is the point: the stored figures reconcile with each other exactly
 		// because each step is rounded, not because the arithmetic is exact.
 		t.Errorf("(1/3)*3 = %s, want 0.999999999999", back)
 	}
-	if floor := mustDec("7.9").floor().String(); floor != "7" {
+	if floor := mustDec("7.9").Floor().String(); floor != "7" {
 		t.Errorf("floor(7.9) = %s", floor)
 	}
-	if floor := mustDec("-0.5").floor().String(); floor != "-1" {
+	if floor := mustDec("-0.5").Floor().String(); floor != "-1" {
 		t.Errorf("floor(-0.5) = %s", floor)
 	}
 }

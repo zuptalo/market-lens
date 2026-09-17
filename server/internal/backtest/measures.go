@@ -38,7 +38,7 @@ func (e *engine) measure(equity []EquityPoint, trades []Trade) []Measures {
 		if err != nil {
 			continue
 		}
-		curve = append(curve, point{session: item.SessionDate, value: total.float()})
+		curve = append(curve, point{session: item.SessionDate, value: total.Float()})
 	}
 
 	count := int64(len(trades))
@@ -49,7 +49,7 @@ func (e *engine) measure(equity []EquityPoint, trades []Trade) []Measures {
 			if err != nil {
 				continue
 			}
-			costs = costs.add(value)
+			costs = costs.Add(value)
 		}
 	}
 
@@ -101,7 +101,7 @@ func (e *engine) measureBenchmark(series *benchmark, from, to SessionDate) Measu
 
 	curve := make([]point, 0, lastInRange-firstInRange+1)
 	for _, session := range series.sessions[firstInRange : lastInRange+1] {
-		curve = append(curve, point{session: session, value: series.closes[session].float()})
+		curve = append(curve, point{session: session, value: series.closes[session].Float()})
 	}
 	// A benchmark bears no trades and no costs. Reporting them as zero rather than omitting them
 	// is what makes the two columns read as the same six figures.

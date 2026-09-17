@@ -49,7 +49,14 @@ body { margin: 0; min-width: 320px; min-height: 100vh; background: inherit; colo
 a { color: inherit; }
 .app-shell { min-height: 100vh; }
 .app-header {
-  height: 4.5rem;
+  /*
+   * Grows rather than clips. A fixed height with flex-wrap means a wrapped row is laid out and
+   * then cut off, so the destination that wrapped is on the page, focusable, and unclickable —
+   * which is worse than being absent. It happened at 360px with four links and again at 768px
+   * with seven; a minimum height is the fix that does not need revisiting every time a
+   * destination is added.
+   */
+  min-height: 4.5rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -252,14 +259,24 @@ html { scrollbar-gutter: stable; }
 .sessions li { display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-width: 0; padding: 1rem; border-radius: .75rem; background: color-mix(in srgb, currentColor 6%, transparent); }
 .sessions p { margin: .35rem 0 0; color: color-mix(in srgb, currentColor 68%, transparent); font-size: .85rem; }
 .current-session { display: inline-flex; margin-left: .5rem; padding: .2rem .45rem; border-radius: 999px; background: color-mix(in srgb, #0f766e 15%, transparent); font-size: .72rem; font-weight: 750; }
-@media (max-width: 40rem) {
-  .app-header { height: auto; min-height: 4.5rem; flex-wrap: wrap; padding: .75rem 1rem; }
-  /*
-   * Wrap rather than scroll. A scrolling nav hides destinations off the edge — with four
-   * links the last one was simply not there at 360px — and a person cannot choose what they
-   * cannot see. Wrapping costs a row of height and shows every destination.
-   */
+/*
+ * The navigation takes its own row below the desktop width.
+ *
+ * Wrap rather than scroll. A scrolling nav hides destinations off the edge — with four links the
+ * last one was simply not there at 360px — and a person cannot choose what they cannot see.
+ * Wrapping costs a row of height and shows every destination.
+ *
+ * This applies up to 64rem rather than 40rem because the row has to hold every destination beside
+ * the brand and the actions: at 768px seven links no longer fit, and the one that wrapped ended up
+ * clipped by the header. Giving the nav the whole width is what keeps that from depending on how
+ * wide a font happens to render.
+ */
+@media (max-width: 64rem) {
   .primary-nav { order: 3; width: 100%; flex-wrap: wrap; }
+}
+
+@media (max-width: 40rem) {
+  .app-header { min-height: 4.5rem; flex-wrap: wrap; padding: .75rem 1rem; }
   .app-actions { width: 100%; justify-content: space-between; }
   .app-content { padding: 2rem 1rem; }
   .status-heading, .run-summary { align-items: flex-start; flex-direction: column; }

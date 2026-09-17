@@ -103,6 +103,7 @@ type Dependencies struct {
 	Features                FeatureReader
 	Signals                 SignalReader
 	Backtests               BacktestReader
+	Portfolio               PortfolioService
 	FindingDecisions        FindingDecider
 	Events                  EventReader
 	EventHeartbeat          time.Duration
@@ -177,6 +178,20 @@ func NewRouter(deps Dependencies) http.Handler {
 		protected.HandleFunc("GET /api/v1/backtests/{id}", getBacktestHandler(deps.Backtests))
 		protected.HandleFunc("GET /api/v1/backtests/{id}/trades", listBacktestTradesHandler(deps.Backtests))
 		protected.HandleFunc("GET /api/v1/backtests/{id}/equity", getBacktestEquityHandler(deps.Backtests))
+	}
+	if deps.Portfolio != nil {
+		// Private to the caller, and mutating — so the writes carry the same CSRF requirement every
+		// other state change in this product does.
+		protected.HandleFunc("GET /api/v1/portfolio", getPortfolioHandler(deps.Portfolio))
+		protected.Handle("PUT /api/v1/portfolio",
+			httpx.RequireCSRF(setPortfolioCurrencyHandler(deps.Portfolio)))
+		protected.HandleFunc("GET /api/v1/portfolio/trades", listTradesHandler(deps.Portfolio))
+		protected.Handle("POST /api/v1/portfolio/trades",
+			httpx.RequireCSRF(recordTradeHandler(deps.Portfolio)))
+		protected.Handle("PATCH /api/v1/portfolio/trades/{id}",
+			httpx.RequireCSRF(correctTradeHandler(deps.Portfolio)))
+		protected.Handle("DELETE /api/v1/portfolio/trades/{id}",
+			httpx.RequireCSRF(withdrawTradeHandler(deps.Portfolio)))
 	}
 	if deps.Events != nil {
 		protected.HandleFunc("GET /api/v1/events", eventsHandler(deps.Events, deps.EventHeartbeat,

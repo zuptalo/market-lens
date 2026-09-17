@@ -21,6 +21,7 @@ var contractPaths = []string{
 	"../../../specs/016-rolling-reobservation/contracts/openapi.yaml",
 	"../../../specs/017-unsettleable-findings/contracts/openapi.yaml",
 	"../../../specs/021-reproducible-backtesting/contracts/openapi.yaml",
+	"../../../specs/022-personal-portfolio/contracts/openapi.yaml",
 }
 
 // boundaryContractPath is the contract that declares the deny-by-default access boundary for

@@ -109,5 +109,5 @@ func parsedFloat(t *testing.T, value string) float64 {
 	if err != nil {
 		t.Fatalf("parse %s: %v", value, err)
 	}
-	return parsed.float()
+	return parsed.Float()
 }

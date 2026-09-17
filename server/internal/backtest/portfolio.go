@@ -76,7 +76,7 @@ func (e *engine) value(p *portfolio, session SessionDate) valuation {
 			continue
 		}
 
-		value := toAccounting(price.mul(held.quantity), rate, converted)
+		value := toAccounting(price.Mul(held.quantity), rate, converted)
 		priceText, sessionValue, valueText := price.String(), priceSession, value.String()
 		position.Price, position.PriceSession, position.Value = &priceText, &sessionValue, &valueText
 		if converted {
@@ -84,9 +84,9 @@ func (e *engine) value(p *portfolio, session SessionDate) valuation {
 			position.FXRate = &rateText
 		}
 		result.positions = append(result.positions, position)
-		result.positionValue = result.positionValue.add(value)
+		result.positionValue = result.positionValue.Add(value)
 	}
-	result.total = p.cash.add(result.positionValue)
+	result.total = p.cash.Add(result.positionValue)
 	result.investable = result.total
 	return result
 }
