@@ -148,3 +148,43 @@ dishonesty; your holding count is perfectly well known.
 - No blocking, rejecting or modifying a recorded trade.
 - No notification — consented email and Web Push is its own feature with its own consent rules.
 - No order, no order intent, and no effect on any stored backtest.
+
+---
+
+## Recorded evidence
+
+`v0.19.0` on k3s, 2026-09-17. Schema at version 27.
+
+**The table is live, and it is empty.**
+
+| Check | Result |
+|---|---|
+| `risk_limits` rows on a fresh deployment | **0** — the migration seeds nothing, because a default threshold is advice |
+| `user_id` nullable | No |
+| Constraints present | `risk_limits_user_id_kind_key` (one of each kind), two threshold checks, the kind check, and the owner foreign key |
+
+**The constraints refuse what they should**, exercised directly against the production database:
+
+```text
+refused: a share above 100%
+refused: a fractional holding count
+refused: a kind the product cannot measure
+```
+
+That last one matters more than it looks. A stored limit the product could never evaluate would be
+a rule somebody believed they were being held to, and the database is where that stops being
+possible — including for `portfolio_drawdown`, the control this feature deliberately does not offer.
+
+**The boundary refuses without a session.** `/api/v1/risk-limits` answers 401 unauthenticated, as
+does the administrative path that does not exist. Ownership here is not administrative: no role
+reaches another person's rules.
+
+**No limit was stated to produce this evidence.** The table is empty because nobody has written a
+rule down, and inventing one to demonstrate the feature would put a threshold into the one place in
+this product that is supposed to hold only what its owner chose — which is the entire point of the
+feature. The checks above are the ones that can be made without doing that.
+
+**What to check after writing your first limits**, from the section above: that every share
+reproduces from the contributions shown beside it, that a share limit goes `unevaluable` rather than
+`within` when a holding cannot be priced, that the holding count keeps reporting in that case, and
+that nothing on the screen tells you what to do about a breach.
