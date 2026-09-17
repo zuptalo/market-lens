@@ -97,8 +97,8 @@ func (s *Service) View(ctx context.Context, userID string) (View, error) {
 
 		sample := byInstrument[id][0]
 		holding := Holding{InstrumentID: id, Ticker: sample.Ticker, Name: sample.Name,
-			Currency: sample.Currency, Quantity: folded.quantity.String(),
-			Cost: folded.cost.String()}
+			Currency: sample.Currency, Sector: sample.Sector, SectorName: sample.SectorName,
+			MIC: sample.MIC, Quantity: folded.quantity.String(), Cost: folded.cost.String()}
 
 		var latest *priced
 		if price, ok := prices[id]; ok {

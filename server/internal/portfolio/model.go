@@ -71,6 +71,9 @@ type Trade struct {
 	Ticker       string
 	Name         string
 	Currency     string
+	Sector       string
+	SectorName   string
+	MIC          string
 	Direction    Direction
 	Quantity     string
 	Price        string
@@ -133,7 +136,15 @@ type Holding struct {
 	Ticker       string
 	Name         string
 	Currency     string
-	Quantity     string
+	// Sector is feature 014's curated classification, including its explicit `unclassified` value.
+	// MIC is the exchange the instrument is listed on, which is also how feature 021 chooses a
+	// benchmark. Both are on the holding rather than looked up separately, because the join that
+	// fetches the ticker and name has them already and two sources would be two places to get the
+	// unclassified case wrong.
+	Sector     string
+	SectorName string
+	MIC        string
+	Quantity   string
 	// Cost is what the shares still held actually cost under first-in-first-out, including the
 	// proportion of each purchase's trade costs.
 	Cost       string

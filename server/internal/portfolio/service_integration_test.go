@@ -191,3 +191,45 @@ func TestNoPortfolioReturnIsEverReported(t *testing.T) {
 		t.Errorf("the view does not state that it records what a person entered")
 	}
 }
+
+// TestAHoldingCarriesItsSectorAndMarket.
+//
+// A holding's sector and listing exchange come from the same join that already fetches its ticker
+// and name. They are on the holding rather than looked up separately because two sources would be
+// two places to get `unclassified` wrong — and because somebody looking at what they hold
+// reasonably wants to know what sector it is in.
+func TestAHoldingCarriesItsSectorAndMarket(t *testing.T) {
+	f := newPortfolioFixture(t)
+	f.record(aliceID, alfaTicker, portfolio.DirectionBuy, "100", "105.00", "0", f.session("XSTO", 5))
+	f.record(aliceID, danaTicker, portfolio.DirectionBuy, "10", "120.00", "0", f.session("XCSE", 5))
+
+	view := f.view(aliceID)
+	byTicker := map[string]portfolio.Holding{}
+	for _, holding := range view.Holdings {
+		byTicker[holding.Ticker] = holding
+	}
+
+	swedish, ok := byTicker[alfaTicker]
+	if !ok {
+		t.Fatalf("holdings are %+v", view.Holdings)
+	}
+	if swedish.MIC != "XSTO" {
+		t.Errorf("the Swedish holding reports market %q, want XSTO", swedish.MIC)
+	}
+	// The fixture leaves its instruments unclassified, which feature 014 made an explicit value
+	// rather than an absence — so it arrives as a sector like any other.
+	if swedish.Sector != "unclassified" {
+		t.Errorf("the sector is %q, want unclassified", swedish.Sector)
+	}
+	if swedish.SectorName == "" {
+		t.Errorf("the sector has no readable name, so no screen can show one")
+	}
+
+	danish, ok := byTicker[danaTicker]
+	if !ok {
+		t.Fatalf("the Danish holding is missing")
+	}
+	if danish.MIC != "XCSE" {
+		t.Errorf("the Danish holding reports market %q, want XCSE", danish.MIC)
+	}
+}
