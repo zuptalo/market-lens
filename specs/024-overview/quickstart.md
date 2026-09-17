@@ -94,3 +94,35 @@ was told not to have.
   portfolio value, change, cash, drawdown and performance. Four of those cannot be reported honestly
   now — feature 022 tracks no cash and keeps no equity history — and the rest are better where they
   are derived. The departure is recorded in the specification's checklist.
+
+---
+
+## Recorded evidence
+
+`v0.20.0` on k3s, 2026-09-17.
+
+**It added nothing to the backend**, which was the claim most worth checking:
+
+```text
+$ git diff --stat <before>..<after> -- server/
+(no output — not one Go file changed)
+```
+
+The schema stayed at **version 27**, unmoved by the release. Every source the screen reads —
+findings, limits, holdings, imports, feature runs, strategy runs — is an endpoint that already
+existed and already enforced its own ownership boundary.
+
+**The deployment reports itself honestly now.** The stub it replaced told signed-in owners that
+market data, signals, backtesting and portfolios "will be implemented from future specifications",
+while all four were serving production. That sentence is gone and a test asserts it cannot come
+back.
+
+**What could not be checked from outside, and why.** Every API path answers 401 unauthenticated —
+including paths that do not exist — because authentication runs before routing. That is good
+behaviour and it makes "does `/api/v1/overview` exist?" unanswerable by probing. The diff above is
+the evidence instead, and it is stronger: no endpoint was added because no server code was added.
+
+**What to check when you next open it.** With a portfolio and limits of your own, confirm the three
+things the tests assert and a person can verify by eye: no value, percentage or currency code
+appears anywhere; every item leads to the screen that owns its figures; and blocking one of its
+reads makes the screen say that source could not be read rather than reporting an all-clear.
