@@ -143,9 +143,9 @@ test('every destination is one tap away on a phone', async ({ page }) => {
   await open.click();
   const destinations = page.getByRole('navigation', { name: /primary/i }).getByRole('link');
   await expect(destinations.first()).toBeVisible();
-  expect(await destinations.count(), 'not every destination is in the menu').toBeGreaterThanOrEqual(9);
+  expect(await destinations.count(), 'not every destination is in the menu').toBeGreaterThanOrEqual(10);
   for (const name of ['Overview', 'Market data', 'Signals', 'Portfolio', 'Limits', 'Intents',
-    'Backtests', 'Operations', 'Account']) {
+    'Paper', 'Backtests', 'Operations', 'Account']) {
     await expect(page.getByRole('link', { name, exact: true })).toBeVisible();
   }
 });

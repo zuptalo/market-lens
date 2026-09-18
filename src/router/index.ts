@@ -9,6 +9,7 @@ import BacktestsView from '@/views/BacktestsView.vue';
 import PortfolioView from '@/views/PortfolioView.vue';
 import RiskLimitsView from '@/views/RiskLimitsView.vue';
 import IntentsView from '@/views/IntentsView.vue';
+import PaperTradingView from '@/views/PaperTradingView.vue';
 import LoginView from '@/views/LoginView.vue';
 import OwnerSetupView from '@/views/OwnerSetupView.vue';
 import AcceptInvitationView from '@/views/AcceptInvitationView.vue';
@@ -36,6 +37,7 @@ export function createMarketLensRouter(history: RouterHistory, auth: RouteAuthSt
       { path: '/portfolio', name: 'portfolio', component: PortfolioView },
       { path: '/risk', name: 'risk-limits', component: RiskLimitsView },
       { path: '/intents', name: 'order-intents', component: IntentsView },
+      { path: '/paper', name: 'paper-trading', component: PaperTradingView },
       { path: '/operations', name: 'operations', component: OperationsView },
       { path: '/account', name: 'account-settings', component: AccountSettingsView },
     ],

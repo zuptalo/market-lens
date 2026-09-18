@@ -712,3 +712,105 @@ export interface IntentInput {
   price: string;
   costs: string;
 }
+
+/**
+ * Paper trading (feature 026).
+ *
+ * A simulated account over stored prices. It is not a second portfolio: feature 022 records what a
+ * person did, this records what they would have done, and no figure from the two is ever added
+ * together. Every order here exists because a person promoted an intent they wrote down — nothing
+ * proposes one — and nothing here could be sent anywhere.
+ */
+
+export type PaperOrderState = 'pending' | 'filled' | 'cancelled' | 'unfillable';
+
+export type PaperAbsenceReason = 'insufficient_cash' | 'exceeds_position' | 'no_price';
+
+/** What an order became. Recorded rather than derived, so a corrected bar cannot rewrite it. */
+export interface PaperFill {
+  fillSession: string;
+  /** The stored open of that session, unmodified. Costs travel separately so it can be checked. */
+  openPrice: string;
+  quantity: string;
+  costs: string;
+  /** Negative for a buy, positive for a sale: the consideration and every cost together. */
+  cashEffect: string;
+  conversionRate: string;
+  /** The bar this fill read has since been corrected. The fill is never re-priced; it is reported. */
+  barDiverged: boolean;
+  filledAt: string;
+}
+
+export interface PaperOrder {
+  id: string;
+  intentId: string;
+  instrumentId: string;
+  ticker: string;
+  name: string;
+  currency: string;
+  direction: IntentDirection;
+  quantity: string;
+  /** What the person expected to pay, carried over from the intent so the fill can be read against it. */
+  expectedPrice: string;
+  placedSession: string;
+  state: PaperOrderState;
+  absenceReason: PaperAbsenceReason | null;
+  placedAt: string;
+  settledAt: string | null;
+  fill: PaperFill | null;
+}
+
+export interface PaperHolding {
+  instrumentId: string;
+  ticker: string;
+  name: string;
+  currency: string;
+  quantity: string;
+  cost: string;
+  value: string | null;
+  unrealised: string | null;
+  session: string | null;
+  absenceReason: string | null;
+  comparison: {
+    series: string;
+    holdingReturn: string | null;
+    benchmarkReturn: string | null;
+    absenceReason: string | null;
+  };
+}
+
+export interface PaperTotals {
+  value: string | null;
+  cost: string;
+  unrealised: string | null;
+  realised: string;
+  /**
+   * The only return figure in this product. Feature 022 declines to state one because it never saw
+   * the deposits; here the account started at a stated balance and this product recorded every
+   * movement since.
+   */
+  totalReturn: string | null;
+  complete: boolean;
+  incompleteReason: string | null;
+}
+
+export interface PaperCostRates {
+  brokerageBps: string;
+  brokerageMinimum: string;
+  slippageBps: string;
+  currencySpreadBps: string;
+}
+
+export interface PaperAccount {
+  startingCash: string;
+  accountingCurrency: string;
+  openedAt: string;
+  /** Fixed when the account was opened: a record that can be tuned afterwards is not a record. */
+  costs: PaperCostRates;
+  cash: string;
+  holdings: PaperHolding[];
+  orders: PaperOrder[];
+  totals: PaperTotals;
+  /** Always true. Nothing here was traded and no order was placed anywhere. */
+  isASimulation: boolean;
+}
