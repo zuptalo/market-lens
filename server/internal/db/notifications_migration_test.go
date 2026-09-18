@@ -1,0 +1,183 @@
+package db_test
+
+import (
+	"context"
+	"testing"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"market-lens/server/internal/db"
+	"market-lens/server/internal/testdb"
+)
+
+// What notification tables must never grow.
+//
+// The first five are engagement tracking, excluded by FR-027: a product that records whether
+// somebody opened a message has started measuring them. The last two are device fingerprinting — a
+// push needs neither to be delivered, and a subscription list would otherwise quietly accumulate a
+// record of where somebody reads their mail.
+var forbiddenNotificationColumns = []string{
+	"opened_at", "clicked_at", "read_at", "tracking_id", "campaign",
+	"user_agent", "ip_address",
+}
+
+var notificationTables = []string{
+	"instance_push_key", "notification_preferences", "notification_quiet_hours",
+	"push_subscriptions", "notifications",
+}
+
+func TestNotificationsArriveOnACleanInstall(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.Open(t)
+	if err := db.Migrate(ctx, pool); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	for _, table := range notificationTables {
+		var present bool
+		if err := pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, table).Scan(&present); err != nil {
+			t.Fatal(err)
+		}
+		if !present {
+			t.Fatalf("%s does not exist", table)
+		}
+		var rows int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM `+table).Scan(&rows); err != nil {
+			t.Fatal(err)
+		}
+		// Nothing is seeded, including preferences: a seeded row would look like a decision had
+		// been made on somebody's behalf, and the absence of a row means the same as `false`.
+		if rows != 0 {
+			t.Errorf("%s arrived with %d rows", table, rows)
+		}
+	}
+
+	// Ownership is read from the row itself on every person-owned table.
+	for _, table := range []string{"notification_preferences", "notification_quiet_hours",
+		"push_subscriptions", "notifications"} {
+		var nullable string
+		if err := pool.QueryRow(ctx, `SELECT is_nullable FROM information_schema.columns
+			WHERE table_name = $1 AND column_name = 'user_id'`, table).Scan(&nullable); err != nil {
+			t.Fatalf("%s has no user_id: %v", table, err)
+		}
+		if nullable != "NO" {
+			t.Errorf("%s.user_id is nullable", table)
+		}
+	}
+
+	var forbidden int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.columns
+		WHERE table_name = ANY($1) AND column_name = ANY($2)`,
+		notificationTables, forbiddenNotificationColumns).Scan(&forbidden); err != nil {
+		t.Fatal(err)
+	}
+	if forbidden != 0 {
+		t.Errorf("%d columns exist that this feature exists to not have", forbidden)
+	}
+}
+
+// TestThereIsExactlyOnePushKeyForever. The same shape as the instance signing key, and for a worse
+// reason: rotating a VAPID key invalidates every subscription in existence, and the failure is
+// silent — pushes simply stop arriving.
+func TestThereIsExactlyOnePushKeyForever(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.Open(t)
+	if err := db.Migrate(ctx, pool); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	insert := func() error {
+		_, err := pool.Exec(ctx, `INSERT INTO instance_push_key
+			(id, private_key, public_key, subject)
+			VALUES (gen_random_uuid(), repeat('a', 32)::bytea, repeat('b', 65)::bytea,
+			        'mailto:owner@example.com')`)
+		return err
+	}
+	if err := insert(); err != nil {
+		t.Fatalf("provision: %v", err)
+	}
+	if err := insert(); err == nil {
+		t.Errorf("a second push key was stored; every subscription is signed against one")
+	}
+
+	// And the shapes are checked, because a key of the wrong length fails at send time with an
+	// error nobody can read.
+	if _, err := pool.Exec(ctx, `UPDATE instance_push_key SET private_key = 'short'::bytea`); err == nil {
+		t.Errorf("a private key of the wrong length was accepted")
+	}
+}
+
+// TestAPreferenceExistsOncePerKindPerChannel, and only for kinds this product actually has.
+func TestAPreferenceExistsOncePerKindPerChannel(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.Open(t)
+	if err := db.Migrate(ctx, pool); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	user := seedUserForNotifications(t, pool)
+
+	set := func(kind, channel string) error {
+		_, err := pool.Exec(ctx, `INSERT INTO notification_preferences (user_id, kind, channel, enabled)
+			VALUES ($1, $2, $3, true)`, user, kind, channel)
+		return err
+	}
+	if err := set("decision_waiting", "email"); err != nil {
+		t.Fatalf("set a preference: %v", err)
+	}
+	if err := set("decision_waiting", "email"); err == nil {
+		t.Errorf("one kind and channel was stored twice for one person")
+	}
+	for _, unknown := range []struct{ kind, channel string }{
+		{"everything", "email"},
+		{"decision_waiting", "sms"},
+		{"decision_waiting", "webhook"},
+	} {
+		if err := set(unknown.kind, unknown.channel); err == nil {
+			t.Errorf("%s on %s was accepted", unknown.kind, unknown.channel)
+		}
+	}
+}
+
+// TestASentNotificationCarriesWhenItWasSent. Half a state is worse than either: a row that says
+// sent with no moment cannot be reconciled against anything.
+func TestASentNotificationCarriesWhenItWasSent(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.Open(t)
+	if err := db.Migrate(ctx, pool); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	user := seedUserForNotifications(t, pool)
+
+	raise := func(state string, sentAt any) error {
+		_, err := pool.Exec(ctx, `INSERT INTO notifications
+			(id, user_id, kind, channel, subject_key, state, sent_at)
+			VALUES (gen_random_uuid(), $1, 'paper_fill', 'email', 'order', $2, $3)`,
+			user, state, sentAt)
+		return err
+	}
+	if err := raise("sent", nil); err == nil {
+		t.Errorf("a notification says it was sent and does not say when")
+	}
+	if err := raise("pending", "2026-09-18T09:00:00Z"); err == nil {
+		t.Errorf("a pending notification carries a moment it was sent")
+	}
+	if err := raise("sent", "2026-09-18T09:00:00Z"); err != nil {
+		t.Errorf("an ordinary sent notification was refused: %v", err)
+	}
+	if err := raise("pending", nil); err != nil {
+		t.Errorf("an ordinary pending notification was refused: %v", err)
+	}
+	if err := raise("delivered", nil); err == nil {
+		t.Errorf("an unknown state was accepted")
+	}
+}
+
+func seedUserForNotifications(t *testing.T, pool *pgxpool.Pool) string {
+	t.Helper()
+	const id = "70000000-0027-4000-8000-000000000001"
+	mustExec(t, context.Background(), pool, `INSERT INTO users
+		(id, email, normalized_email, display_name, role, status, email_verified_at, created_at, updated_at)
+		VALUES ($1, 'notify@example.com', 'notify@example.com', 'Notify', 'owner', 'active', now(), now(), now())`,
+		id)
+	return id
+}
