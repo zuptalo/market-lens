@@ -101,7 +101,7 @@ describe('IntentsView', () => {
     const text = wrapper.text().toLowerCase();
     expect(text).toContain('no advice');
     expect(text).toContain('nothing is sent anywhere');
-    for (const forbidden of ['we recommend', 'you should', 'suggested', 'place an order']) {
+    for (const forbidden of ['recommend', 'you should', 'suggested', 'place an order']) {
       expect(text).not.toContain(forbidden);
     }
   });

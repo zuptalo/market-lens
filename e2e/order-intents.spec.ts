@@ -135,7 +135,7 @@ test('no surface tells the person whether to act', async ({ page }) => {
   await page.goto('/intents');
   await expect(page.getByTestId('intent-list')).toBeVisible();
   const body = (await page.locator('main').innerText()).toLowerCase();
-  for (const forbidden of ['we recommend', 'we suggest', 'you should', 'suggested',
+  for (const forbidden of ['recommend', 'suggest', 'you should', 'suggested',
     'place an order', 'submit order', 'send to broker']) {
     expect(body, `the page says "${forbidden}"`).not.toContain(forbidden);
   }
