@@ -245,3 +245,75 @@ func (c *recordingComputer) ComputeSinceRun(_ context.Context, runID instruments
 	c.runs = append(c.runs, runID)
 	return c.err
 }
+
+// A paper account has to move whether or not anybody visits, which is the whole reason its fills
+// are a scheduled pass rather than a derivation on read. It hangs off the import because that is
+// exactly when new prices exist and never otherwise — there is no second schedule to keep in step
+// with the data.
+type paperFillsStub struct {
+	calls int
+	err   error
+}
+
+func (s *paperFillsStub) FillPending(context.Context) (int, error) {
+	s.calls++
+	return 0, s.err
+}
+
+func TestPendingPaperOrdersAreFilledAfterAnImport(t *testing.T) {
+	fills := &paperFillsStub{}
+	scheduler := schedulerForTest(t)
+	scheduler.PaperFills = fills
+
+	if err := scheduler.RunDue(context.Background(), dueTime()); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if fills.calls != 1 {
+		t.Errorf("the pass ran %d times after an import, want once", fills.calls)
+	}
+}
+
+// Best effort, like the feature computation beside it: a pass that fails leaves the import
+// successful and its bars stored, and the next one picks the work up. Losing the night's prices
+// because an order could not be decided would be the wrong trade.
+func TestAFailedPaperPassDoesNotFailTheImport(t *testing.T) {
+	fills := &paperFillsStub{err: errors.New("the pass fell over")}
+	scheduler := schedulerForTest(t)
+	scheduler.PaperFills = fills
+
+	if err := scheduler.RunDue(context.Background(), dueTime()); err != nil {
+		t.Errorf("a failed paper pass failed the import: %v", err)
+	}
+	if fills.calls != 1 {
+		t.Errorf("the pass ran %d times", fills.calls)
+	}
+}
+
+// And a deployment with no paper accounts configured must not require one.
+func TestAnImportWithoutPaperTradingStillSucceeds(t *testing.T) {
+	scheduler := schedulerForTest(t)
+	scheduler.PaperFills = nil
+	if err := scheduler.RunDue(context.Background(), dueTime()); err != nil {
+		t.Errorf("an import without paper trading failed: %v", err)
+	}
+}
+
+// dueTime is a moment past the configured hour, so RunDue actually imports rather than deciding it
+// is not time yet.
+func dueTime() time.Time {
+	return time.Date(2026, 7, 1, 21, 0, 0, 0, time.UTC)
+}
+
+// schedulerForTest is an enabled scheduler with a recording importer, for the tests that care about
+// what happens *after* a successful import rather than about when one is due.
+func schedulerForTest(t *testing.T) *MarketData {
+	t.Helper()
+	scheduler, err := NewMarketData(MarketDataConfig{
+		Enabled: true, Hour: 20, Minute: 0, Location: mustLocation(t, "Europe/Stockholm"),
+		Provider: "fixture", Universe: "nordic-liquid-v1", AppVersion: "test", Workers: 1,
+	}, staticTargets(t), &recordingImporter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return scheduler
+}

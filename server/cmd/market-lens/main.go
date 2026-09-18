@@ -35,6 +35,7 @@ import (
 	"market-lens/server/internal/mail"
 	"market-lens/server/internal/marketdata"
 	"market-lens/server/internal/marketdata/eodhd"
+	"market-lens/server/internal/paper"
 	"market-lens/server/internal/portfolio"
 	"market-lens/server/internal/risk"
 	"market-lens/server/internal/scheduler"
@@ -1231,6 +1232,16 @@ func run() error {
 		scheduledFeatures.Signals = newSignalPass(pool, "nordic-liquid-v1", version, cfg.MarketData.Workers)
 		job.Features = featurePass{service: scheduledFeatures,
 			universe: "nordic-liquid-v1", appVersion: version, workers: cfg.MarketData.Workers}
+		// Pending paper orders settle after the import that brought their prices in. Nothing else
+		// schedules them, because nothing else knows when a new session exists.
+		job.PaperFills = paper.NewService(paper.NewRepository(pool),
+			intents.NewService(intents.NewRepository(pool),
+				portfolio.NewService(portfolio.NewRepository(pool), slog.Default()),
+				risk.NewService(risk.NewRepository(pool),
+					portfolio.NewService(portfolio.NewRepository(pool), slog.Default()),
+					slog.Default()),
+				slog.Default()),
+			portfolio.NewService(portfolio.NewRepository(pool), slog.Default()), slog.Default())
 		jobErrors := make(chan error, 1)
 		scheduleErr = jobErrors
 		go func() { jobErrors <- job.Run(ctx) }()
@@ -1251,6 +1262,12 @@ func run() error {
 	}
 	portfolioService := portfolio.NewService(portfolio.NewRepository(pool), slog.Default())
 	riskService := risk.NewService(risk.NewRepository(pool), portfolioService, slog.Default())
+	intentsService := intents.NewService(intents.NewRepository(pool), portfolioService,
+		riskService, slog.Default())
+	// The paper account reads a person's own intents and their own holdings, so it is handed the
+	// same two services rather than second copies that could disagree with them.
+	paperService := paper.NewService(paper.NewRepository(pool), intentsService, portfolioService,
+		slog.Default())
 	handler := api.NewRouter(api.Dependencies{
 		Database: pool, AllowedOrigins: cfg.AllowedOrigins, StaticDir: cfg.StaticDir, Version: version,
 		Authenticator: authenticationService, Identity: identityService, Authentication: authenticationService,
@@ -1274,8 +1291,8 @@ func run() error {
 		Risk:          riskService,
 		// What a person is considering is evaluated against their own holdings and their own
 		// limits, so it is handed the same two services rather than a second copy of either.
-		Intents: intents.NewService(intents.NewRepository(pool), portfolioService, riskService,
-			slog.Default()),
+		Intents: intentsService,
+		Paper:   paperService,
 		// Reading findings is for every authenticated user; deciding about one is the owner's.
 		FindingDecisions: marketdata.NewRepository(pool),
 		Events:           clientevents.NewService(clientevents.NewRepository(pool)),
