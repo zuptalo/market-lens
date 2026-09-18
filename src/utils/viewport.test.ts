@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { lockZoomWhenInstalled } from './viewport';
 
@@ -55,5 +57,35 @@ describe('zoom in the installed app', () => {
     lockZoomWhenInstalled();
     lockZoomWhenInstalled();
     expect(viewportMeta().content.match(/user-scalable=no/g)).toHaveLength(1);
+  });
+});
+
+describe('the installable document', () => {
+  const html = readFileSync(join(process.cwd(), 'index.html'), 'utf8');
+
+  /**
+   * This deployment answers 401 for every path without a session, the manifest included. A manifest
+   * link is fetched *without* credentials by default, so the browser gets the 401, decides there is
+   * no manifest, and the app is not installable — while every other request on the page succeeds,
+   * because those carry the cookie.
+   */
+  it('asks for the manifest with the session the rest of the page uses', () => {
+    const link = html.match(/<link[^>]*rel="manifest"[^>]*>/)?.[0];
+    expect(link, 'no manifest is linked, so nothing is installable').toBeTruthy();
+    expect(link).toContain('crossorigin="use-credentials"');
+  });
+
+  it('lets the page reach under the notch and pays it back in the shell', () => {
+    expect(html).toContain('viewport-fit=cover');
+    const css = readFileSync(join(process.cwd(), 'src/styles/main.css'), 'utf8');
+    expect(css).toContain('safe-area-inset-top');
+  });
+
+  // Zoom belongs to the reader in a tab. The document must not take it away up front; only the
+  // installed app does, at runtime, once it knows it is installed.
+  it('does not disable zoom in the markup', () => {
+    const meta = html.match(/<meta[^>]*name="viewport"[^>]*>/)?.[0] ?? '';
+    expect(meta).not.toContain('user-scalable=no');
+    expect(meta).not.toContain('maximum-scale');
   });
 });
