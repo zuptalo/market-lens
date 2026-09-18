@@ -1,0 +1,274 @@
+openapi: 3.1.0
+info:
+  title: Market Lens Paper Trading API
+  version: 1.0.0
+  description: >
+    A simulated account over stored prices. Every operation is private to the authenticated caller.
+
+    Nothing here places an order anywhere. There is no operation that creates an order from a
+    strategy or a signal — an order exists only because a person promoted an intent they wrote down
+    themselves — and no field on an order that a broker could act on.
+servers:
+  - url: /api/v1
+x-market-lens-access-boundary:
+  user_private:
+    - /paper-account
+    - /paper-account/orders
+    - /paper-account/orders/{id}
+  rule: >
+    Every operation requires an active session, is scoped to the caller's own account, and is
+    refused to a deactivated account. No role widens access to another person's paper account.
+x-market-lens-events:
+  - type: paper_account.changed.v1
+    scope: user
+    entity: paper_account
+    description: >
+      Published in the same transaction that promotes, cancels or fills an order, scoped to its
+      owner alone. Carries the account's identity, never its figures — those are computed on read.
+
+paths:
+  /paper-account:
+    get:
+      summary: The account, what it holds, and how it has done
+      responses:
+        "200":
+          description: The account and its current figures
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaperAccount" }
+        "404": { description: This person has not opened one }
+        "401": { description: No active session }
+    post:
+      summary: Open the account
+      description: >
+        Once. The starting balance, the accounting currency and the cost rates cannot be changed
+        afterwards — a record that can be tuned after the result is known is not a record.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [starting_cash, accounting_currency]
+              properties:
+                starting_cash: { type: string }
+                accounting_currency: { type: string }
+      responses:
+        "201":
+          description: The opened account
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaperAccount" }
+        "400": { $ref: "#/components/responses/Refusal" }
+        "409": { description: An account is already open }
+        "401": { description: No active session }
+
+  /paper-account/orders:
+    get:
+      summary: Every order, newest first
+      parameters:
+        - name: state
+          in: query
+          schema: { type: string, enum: [pending, filled, cancelled, unfillable] }
+      responses:
+        "200":
+          description: The orders and their fills
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OrderList" }
+        "401": { description: No active session }
+    post:
+      summary: Promote an intent into a pending order
+      description: >
+        The only way an order comes into existence. The intent is settled as acted on, and the
+        order fills at the open of the first stored session after the one it was placed in.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [intent_id]
+              properties:
+                intent_id: { type: string, format: uuid }
+      responses:
+        "201":
+          description: The account, with the new order pending
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaperAccount" }
+        "400": { $ref: "#/components/responses/Refusal" }
+        "401": { description: No active session }
+        "404": { description: No such intent for this person }
+
+  /paper-account/orders/{id}:
+    delete:
+      summary: Cancel a pending order
+      description: >
+        A filled order cannot be cancelled, deleted or edited. A track record that can be corrected
+        after the fact measures nothing.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: The account, with the order cancelled
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaperAccount" }
+        "400": { description: That order is not pending }
+        "401": { description: No active session }
+        "404": { description: No such order for this person }
+
+components:
+  responses:
+    Refusal:
+      description: Refused, with a reason a person can act on
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Refusal" }
+
+  schemas:
+    Refusal:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum:
+                [account_already_open, no_account, invalid_starting_cash, unknown_currency,
+                 intent_not_found, intent_already_promoted, intent_not_considering,
+                 order_not_pending]
+            message: { type: string }
+
+    Money:
+      type: string
+      description: A decimal, as a string. Never a float — a float cannot hold a price exactly.
+
+    Fill:
+      type: object
+      description: What an order became. Recorded, not derived.
+      required: [fill_session, open_price, quantity, costs, cash_effect]
+      properties:
+        fill_session: { type: string, format: date }
+        open_price:
+          $ref: "#/components/schemas/Money"
+          description: The stored open of that session, unmodified.
+        quantity: { $ref: "#/components/schemas/Money" }
+        costs: { $ref: "#/components/schemas/Money" }
+        cash_effect:
+          $ref: "#/components/schemas/Money"
+          description: Negative for a buy, positive for a sale. Value and costs together.
+        conversion_rate: { $ref: "#/components/schemas/Money" }
+        bar_diverged:
+          type: boolean
+          description: >
+            True when the bar this fill read has since been corrected. The fill is never re-priced;
+            the divergence is reported so the history stays reconcilable.
+
+    Order:
+      type: object
+      description: >
+        No venue, no order type, no time in force, no destination, no limit or stop price. The
+        absence is the safeguard, and a migration test asserts the columns do not exist either.
+      required: [id, instrument_id, ticker, direction, quantity, expected_price, placed_session, state]
+      properties:
+        id: { type: string, format: uuid }
+        intent_id: { type: string, format: uuid }
+        instrument_id: { type: string, format: uuid }
+        ticker: { type: string }
+        name: { type: string }
+        currency: { type: string }
+        direction: { type: string, enum: [buy, sell] }
+        quantity: { $ref: "#/components/schemas/Money" }
+        expected_price:
+          $ref: "#/components/schemas/Money"
+          description: What the person thought they would pay, from the intent.
+        placed_session: { type: string, format: date }
+        state: { type: string, enum: [pending, filled, cancelled, unfillable] }
+        absence_reason:
+          type: [string, "null"]
+          enum: [insufficient_cash, exceeds_position, no_price, null]
+        placed_at: { type: string, format: date-time }
+        settled_at: { type: [string, "null"], format: date-time }
+        fill:
+          oneOf:
+            - $ref: "#/components/schemas/Fill"
+            - type: "null"
+
+    OrderList:
+      type: object
+      required: [orders]
+      properties:
+        orders:
+          type: array
+          items: { $ref: "#/components/schemas/Order" }
+
+    Holding:
+      type: object
+      required: [instrument_id, ticker, quantity, cost]
+      properties:
+        instrument_id: { type: string, format: uuid }
+        ticker: { type: string }
+        name: { type: string }
+        currency: { type: string }
+        quantity: { $ref: "#/components/schemas/Money" }
+        cost: { $ref: "#/components/schemas/Money" }
+        value: { type: [string, "null"] }
+        unrealised: { type: [string, "null"] }
+        session: { type: [string, "null"], format: date }
+        absence_reason: { type: [string, "null"] }
+        comparison:
+          type: object
+          description: The holding against the benchmark for its market, over its own period.
+          properties:
+            series: { type: string }
+            holding_return: { type: [string, "null"] }
+            benchmark_return: { type: [string, "null"] }
+            absence_reason: { type: [string, "null"] }
+
+    PaperAccount:
+      type: object
+      required: [starting_cash, accounting_currency, cash, holdings, total, is_a_simulation]
+      properties:
+        starting_cash: { $ref: "#/components/schemas/Money" }
+        accounting_currency: { type: string }
+        opened_at: { type: string, format: date-time }
+        costs:
+          type: object
+          description: Fixed when the account was opened, and refused any change afterwards.
+          properties:
+            brokerage_bps: { $ref: "#/components/schemas/Money" }
+            brokerage_minimum: { $ref: "#/components/schemas/Money" }
+            slippage_bps: { $ref: "#/components/schemas/Money" }
+            currency_spread_bps: { $ref: "#/components/schemas/Money" }
+        cash: { $ref: "#/components/schemas/Money" }
+        holdings:
+          type: array
+          items: { $ref: "#/components/schemas/Holding" }
+        total:
+          type: object
+          required: [value, cost, realised, complete]
+          properties:
+            value: { type: [string, "null"] }
+            cost: { $ref: "#/components/schemas/Money" }
+            unrealised: { type: [string, "null"] }
+            realised: { $ref: "#/components/schemas/Money" }
+            total_return:
+              type: [string, "null"]
+              description: >
+                Cash plus holdings against starting cash. The one place in this product that reports
+                a return, because it is the one account whose every movement the product recorded.
+            complete: { type: boolean }
+            incomplete_reason: { type: [string, "null"] }
+        is_a_simulation:
+          type: boolean
+          description: >
+            Always true and always present. Nothing here was traded, no order was placed anywhere,
+            and no figure here may be combined with a real holding.
