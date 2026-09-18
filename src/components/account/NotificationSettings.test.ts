@@ -250,7 +250,8 @@ describe('NotificationSettings', () => {
     expect(wrapper.find('[data-testid="subscribe-this-device"]').exists()).toBe(false);
   });
 
-  // A list of devices is no use if you cannot find the one you are holding.
+  // A list of devices is no use if you cannot find the one you are holding. The label is allowed to
+  // arrive after the first render, so this waits for it rather than assuming one flush is enough.
   it('marks which listed device is this one', async () => {
     stubBrowser({ subscribed: true });
     stubFetch({ devices: [
@@ -260,8 +261,9 @@ describe('NotificationSettings', () => {
         created_at: '2026-09-19T08:00:00Z', last_used_at: null },
     ] });
     const wrapper = mount(NotificationSettings, { global });
-    await flushPromises();
-    expect(wrapper.text()).toContain('This device');
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('This device');
+    });
   });
 
   it('reports a failure rather than showing every switch off', async () => {

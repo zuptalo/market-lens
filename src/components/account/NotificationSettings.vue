@@ -12,6 +12,7 @@ import {
   fetchNotificationSettings,
   fetchSubscriptions,
   inspectThisDevice,
+  thisDeviceDigest,
   revokeSubscription,
   setNotificationPreference,
   setQuietHours,
@@ -151,7 +152,10 @@ async function load(): Promise<void> {
   } catch {
     devices.value = [];
   }
+  // Whether this device is covered decides a warning, and is settled first. Which row it is in the
+  // list is a label, and is allowed to arrive a moment later.
   thisDevice.value = await inspectThisDevice();
+  thisDeviceDigest().then((digest) => { thisDevice.value = { ...thisDevice.value, digest }; });
 }
 
 async function toggle(kind: NotificationKind, channel: NotificationChannel, value: boolean): Promise<void> {
@@ -202,6 +206,7 @@ async function subscribe(): Promise<void> {
   try {
     devices.value = await subscribeThisDevice(deviceLabel(), token());
     thisDevice.value = await inspectThisDevice();
+    thisDevice.value = { ...thisDevice.value, digest: await thisDeviceDigest() };
   } catch (caught) {
     notice.value = caught instanceof Error ? caught.message : 'This device could not be subscribed.';
   } finally {

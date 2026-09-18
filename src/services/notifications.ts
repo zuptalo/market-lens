@@ -187,6 +187,14 @@ async function endpointDigest(endpoint: string): Promise<string | null> {
     .slice(0, 16);
 }
 
+/**
+ * Whether this device can and does receive push — without hashing anything.
+ *
+ * The digest is deliberately not computed here. Whether a device is covered decides a warning
+ * somebody needs to see; which row in a list it corresponds to is a label. Making the warning wait
+ * on a hash made it arrive a turn of the microtask queue later than the screen that renders it,
+ * which is the sort of ordering that works on one machine and not another.
+ */
 export async function inspectThisDevice(): Promise<ThisDevice> {
   if (!pushIsAvailable()) {
     return { available: false, permission: 'unsupported', subscribed: false, digest: null };
@@ -195,19 +203,23 @@ export async function inspectThisDevice(): Promise<ThisDevice> {
   try {
     const registration = await navigator.serviceWorker.getRegistration('/');
     const subscription = await registration?.pushManager.getSubscription();
-    if (!subscription) {
-      return { available: true, permission, subscribed: false, digest: null };
-    }
-    return {
-      available: true,
-      permission,
-      subscribed: true,
-      digest: await endpointDigest(subscription.endpoint),
-    };
+    return { available: true, permission, subscribed: Boolean(subscription), digest: null };
   } catch {
     // A browser that will not answer is treated as not subscribed, which is the safe way to be
     // wrong: it offers to subscribe rather than claiming a device is covered when it is not.
     return { available: true, permission, subscribed: false, digest: null };
+  }
+}
+
+/** Which row in the device list is this one. Cosmetic, and allowed to arrive late. */
+export async function thisDeviceDigest(): Promise<string | null> {
+  if (!pushIsAvailable()) return null;
+  try {
+    const registration = await navigator.serviceWorker.getRegistration('/');
+    const subscription = await registration?.pushManager.getSubscription();
+    return subscription ? endpointDigest(subscription.endpoint) : null;
+  } catch {
+    return null;
   }
 }
 
