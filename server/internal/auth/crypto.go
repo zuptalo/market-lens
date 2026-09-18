@@ -145,6 +145,9 @@ const (
 	PurposeCSRF       DigestPurpose = "csrf"
 	PurposeMemberCode DigestPurpose = "member_code"
 	PurposeOrigin     DigestPurpose = "origin"
+	// PurposeUnsubscribe signs the link in a notification email. Domain-separated from every other
+	// purpose, so a token that stops one kind of message cannot be replayed as anything else.
+	PurposeUnsubscribe DigestPurpose = "unsubscribe"
 )
 
 type Secrets struct {

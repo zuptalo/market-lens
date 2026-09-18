@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -316,4 +317,112 @@ func schedulerForTest(t *testing.T) *MarketData {
 		t.Fatal(err)
 	}
 	return scheduler
+}
+
+// A notification raised by the night's work is delivered the same night, rather than the next time
+// somebody happens to open the app — which is the entire point of it being a notification.
+type deliveryStub struct {
+	calls int
+	err   error
+}
+
+func (s *deliveryStub) DeliverDue(context.Context) (int, error) {
+	s.calls++
+	return 0, s.err
+}
+
+func TestNotificationsAreDeliveredAfterAnImport(t *testing.T) {
+	deliveries := &deliveryStub{}
+	scheduler := schedulerForTest(t)
+	scheduler.Notifications = deliveries
+
+	if err := scheduler.RunDue(context.Background(), dueTime()); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if deliveries.calls != 1 {
+		t.Errorf("the pass ran %d times after an import, want once", deliveries.calls)
+	}
+}
+
+// Best effort, like the passes beside it. Losing the night's prices because a mail server was down
+// would be the wrong trade entirely.
+func TestAFailedNotificationPassDoesNotFailTheImport(t *testing.T) {
+	deliveries := &deliveryStub{err: errors.New("the mail server is unreachable")}
+	scheduler := schedulerForTest(t)
+	scheduler.Notifications = deliveries
+
+	if err := scheduler.RunDue(context.Background(), dueTime()); err != nil {
+		t.Errorf("a failed notification pass failed the import: %v", err)
+	}
+}
+
+// The owner is the only person who can act on an import that did not complete, and they will not
+// find out any other way until a screen shows them older data than it looks like it is showing.
+type failureReporterStub struct {
+	calls    int
+	provider string
+	err      error
+}
+
+func (s *failureReporterStub) RaiseImportFailure(_ context.Context, provider string) error {
+	s.calls++
+	s.provider = provider
+	return s.err
+}
+
+func TestAFailedImportTellsWhoeverAskedToBeTold(t *testing.T) {
+	reporter := &failureReporterStub{}
+	importer := &recordingImporter{err: errors.New("the provider refused the request")}
+	scheduler, err := NewMarketData(MarketDataConfig{
+		Enabled: true, Hour: 20, Minute: 0, Location: mustLocation(t, "Europe/Stockholm"),
+		Provider: "fixture", Universe: "nordic-liquid-v1", AppVersion: "test", Workers: 1,
+	}, staticTargets(t), importer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scheduler.Failures = reporter
+
+	if err := scheduler.RunDue(context.Background(), dueTime()); err == nil {
+		t.Fatal("a failed import reported success")
+	}
+	if reporter.calls != 1 {
+		t.Errorf("the owner was told %d times about a failed import", reporter.calls)
+	}
+	if reporter.provider != "fixture" {
+		t.Errorf("the notification names the provider %q", reporter.provider)
+	}
+}
+
+// Failing to tell somebody about a failure must not replace the failure with a different one: the
+// import error is what the caller needs, and it is what they still get.
+func TestAFailureToNotifyDoesNotReplaceTheImportError(t *testing.T) {
+	reporter := &failureReporterStub{err: errors.New("the database is unreachable too")}
+	importer := &recordingImporter{err: errors.New("the provider refused the request")}
+	scheduler, err := NewMarketData(MarketDataConfig{
+		Enabled: true, Hour: 20, Minute: 0, Location: mustLocation(t, "Europe/Stockholm"),
+		Provider: "fixture", Universe: "nordic-liquid-v1", AppVersion: "test", Workers: 1,
+	}, staticTargets(t), importer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scheduler.Failures = reporter
+
+	runErr := scheduler.RunDue(context.Background(), dueTime())
+	if runErr == nil || !strings.Contains(runErr.Error(), "provider refused") {
+		t.Errorf("the caller was given %v rather than the import failure", runErr)
+	}
+}
+
+// A successful import tells nobody anything. Silence is the ordinary night.
+func TestASuccessfulImportRaisesNoFailureNotice(t *testing.T) {
+	reporter := &failureReporterStub{}
+	scheduler := schedulerForTest(t)
+	scheduler.Failures = reporter
+
+	if err := scheduler.RunDue(context.Background(), dueTime()); err != nil {
+		t.Fatal(err)
+	}
+	if reporter.calls != 0 {
+		t.Errorf("a successful import told somebody %d times", reporter.calls)
+	}
 }

@@ -35,7 +35,7 @@ without a reviewed feature spec and valid red test.
 | 5 | Reproducible backtesting | Shipped | [021](specs/021-reproducible-backtesting/spec.md) | Milestone 4; benchmark data | Historical simulation, accounting, brokerage/FX/slippage, benchmarks, metrics, curves, and traceable trades/signals. |
 | 6 | Personal tracking, portfolio, and risk engine | Complete | [022](specs/022-personal-portfolio/spec.md) (holdings), [023](specs/023-personal-risk-limits/spec.md) (limits) and [025](specs/025-order-intents/spec.md) (order intents) shipped | Security-A; Milestone 4; preferably Milestone 5 evidence | User-owned holdings/trades/tracking rules, positions, cash/P&L/exposures, independent limits/rejections/modifications, and order intents. |
 | 7 | Paper trading | Complete | [026](specs/026-paper-trading/spec.md) shipped | Milestones 1, 4, and 6 | Permanent simulated orders/trades and forward performance using shared strategy/risk/accounting. |
-| Notifications-A | Email and Web Push alerts | Backlog | Not yet specified | Security-A; Experience-A; explainable signals and user tracking | Granular consented alerts, quiet/frequency controls, per-device revocation, minimum private payloads, and provider-outage resilience. |
+| Notifications-A | Email and Web Push alerts | Complete | [027](specs/027-notifications/spec.md) shipped | Security-A; Experience-A; explainable signals and user tracking | Granular consented alerts, quiet/frequency controls, per-device revocation, minimum private payloads, and provider-outage resilience. |
 | 8 | Advanced analysis | Deferred | Not yet specified | Trusted Milestones 1–7 | Hourly data, more markets/strategies, comparisons, richer costs, fundamentals, news, notifications. |
 | 9 | Machine-learning experimentation | Deferred | Not yet specified | Trusted deterministic platform | Time-aware research and out-of-sample classification/ranking compared with deterministic baselines. |
 | Future | Broker execution | Deferred / V1 non-goal | Separate future project/spec | Authentication, risk, paper validation, broker capability | No automated Danske Bank or real-money execution in V1. |
@@ -224,6 +224,32 @@ exclusion is written as a requirement with a test behind it rather than left unm
 021 measured `momentum_trend` over ten years and found it lost to two of its three benchmarks;
 turning that into an equity curve that looks like a track record should cost a reviewed
 specification, not a scheduler change.
+
+**Notifications-A closed the gap seven milestones had opened.** The product had accumulated
+decisions only a person can make — a finding it refuses to settle, a limit somebody is outside, a
+paper order filling overnight — and no way to tell anybody. Feature 027 is the telling, and every
+part of it is opt-in: four kinds, two channels each, nothing on until somebody asks.
+
+Three decisions shaped it. **All four kinds** were chosen, including signal changes — the one that
+edges toward advice, since a push saying "NOKIA is now a buy" reads as a recommendation however it
+is worded. The mitigation is constraint rather than care: the message states the two views and the
+strategy's caveat, and the advice-vocabulary guard that scans the interface now scans the templates
+too. **Immediate with quiet hours**, where a notification raised inside the window is *held* until
+it ends rather than sent early or dropped — stored as local time plus a zone, because a person means
+"while I am asleep" and daylight saving moves that against UTC twice a year. And **per kind, per
+channel**, because wanting a fill on your phone but not in your inbox is an ordinary preference.
+
+Two implementation choices are worth recording. The **VAPID key pair is generated on first start and
+kept in this product's own database**, following the instance signing key exactly — a restored
+backup keeps working instead of silently invalidating every subscription in existence, which is a
+failure with no error anywhere. And **Web Push is implemented rather than imported**: RFC 8291's
+encryption and RFC 8292's assertion need only `crypto/ecdh`, `crypto/hkdf` and `crypto/ecdsa` at Go
+1.26, and the encryption is checked against the RFC's own worked example rather than against itself.
+
+What a message may carry is a **schema question, not a wording one**. A push payload rests on a push
+service's server until the browser collects it, so it carries a kind, a count and a path — no
+instrument, no figure. An email may name an instrument and may not carry a holding, a quantity, a
+valuation or a balance. Both are refused at the source rather than caught in review of a template.
 
 Feature 024 then replaced the Overview, which had been a foundation-stage stub telling signed-in
 owners that shipped features "will be implemented from future specifications". It now answers the

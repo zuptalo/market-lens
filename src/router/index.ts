@@ -10,6 +10,7 @@ import PortfolioView from '@/views/PortfolioView.vue';
 import RiskLimitsView from '@/views/RiskLimitsView.vue';
 import IntentsView from '@/views/IntentsView.vue';
 import PaperTradingView from '@/views/PaperTradingView.vue';
+import UnsubscribeView from '@/views/UnsubscribeView.vue';
 import LoginView from '@/views/LoginView.vue';
 import OwnerSetupView from '@/views/OwnerSetupView.vue';
 import AcceptInvitationView from '@/views/AcceptInvitationView.vue';
@@ -29,6 +30,8 @@ export function createMarketLensRouter(history: RouterHistory, auth: RouteAuthSt
       { path: '/login', name: 'login', component: LoginView, meta: { public: true } },
       { path: '/setup', name: 'owner-setup', component: OwnerSetupView, meta: { public: true } },
       { path: '/invite', name: 'accept-invitation', component: AcceptInvitationView, meta: { public: true } },
+      // Followed from a link in an email by somebody who is not signed in, which is the point.
+      { path: '/unsubscribe', name: 'unsubscribe', component: UnsubscribeView, meta: { public: true } },
       { path: '/', name: 'dashboard', component: DashboardView },
       { path: '/markets', name: 'markets', component: MarketsView },
       { path: '/markets/:instrumentId', name: 'instrument-market-data', component: InstrumentMarketDataView },

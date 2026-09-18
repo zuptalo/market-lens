@@ -5,6 +5,7 @@ import SessionList from '@/components/account/SessionList.vue';
 import MemberList from '@/components/account/MemberList.vue';
 import InvitationForm from '@/components/account/InvitationForm.vue';
 import IntegrationSettings from '@/components/account/IntegrationSettings.vue';
+import NotificationSettings from '@/components/account/NotificationSettings.vue';
 import { useAuth } from '@/composables/useAuth';
 import type { AccountStatus, IntegrationSettingsView, IntegrationUpdateInput, Invitation, Member, Session } from '@/types/auth';
 import { AuthRequestError } from '@/services/auth';
@@ -207,6 +208,8 @@ async function logout(): Promise<void> {
       @unlock="unlockMember"
       @set-status="setMemberStatus"
     />
+    <NotificationSettings />
+
     <IntegrationSettings
       v-if="isOwner"
       :settings="integrations"

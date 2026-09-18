@@ -1,0 +1,19 @@
+# GitGuardian configuration.
+#
+# One exclusion, and it is narrow on purpose: a whole-repository allowance would be a way to stop
+# hearing about real secrets.
+
+version: 2
+
+secret:
+  ignored-paths:
+    # RFC 8291 section 5 publishes a complete worked example of Web Push encryption — a server
+    # private key, a subscription public key, an auth secret, a salt and the resulting ciphertext.
+    # They are printed in the specification precisely so implementations can be checked against it
+    # rather than against themselves, which is what this file does. A push a browser cannot decrypt
+    # fails silently, so checking against the RFC is the only verification worth having.
+    #
+    # The exclusion is this one file, which contains nothing but those published values and the
+    # assertions that compare against them. Every other file, including the rest of this package,
+    # is still scanned.
+    - "server/internal/notify/push/encrypt_test.go"

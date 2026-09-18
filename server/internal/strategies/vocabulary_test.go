@@ -67,6 +67,14 @@ func TestNoSurfaceCallsASignalAdvice(t *testing.T) {
 		filepath.Join("server", "internal", "db", "migrations", "0021_strategies_and_signals.sql"),
 		"src",
 		filepath.Join("specs", "015-strategies-and-signals"),
+		// Feature 027 sends a message when a strategy changes its view. That message is read away
+		// from the screen that carries the caveats, by somebody who did not choose the moment — so
+		// it is the surface where adviser vocabulary would do the most damage, and it is scanned
+		// here rather than reviewed when a template changes.
+		//
+		// The template file rather than the package: the package also contains the list of words
+		// this rule forbids, which is a description of the rule and not a thing anybody reads.
+		filepath.Join("server", "internal", "notify", "templates.go"),
 	}
 	scanned := 0
 	for _, surface := range surfaces {

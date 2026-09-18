@@ -35,6 +35,8 @@ import (
 	"market-lens/server/internal/mail"
 	"market-lens/server/internal/marketdata"
 	"market-lens/server/internal/marketdata/eodhd"
+	"market-lens/server/internal/notify"
+	"market-lens/server/internal/notify/push"
 	"market-lens/server/internal/paper"
 	"market-lens/server/internal/portfolio"
 	"market-lens/server/internal/risk"
@@ -769,6 +771,17 @@ func newAuthenticationService(authConfig config.AuthConfig, signingKey []byte,
 	})
 }
 
+// unsubscribeSigner is the instance signing key, narrowed to signing the link that stops one kind
+// of message. The notification package is given this rather than the key, so it cannot mint a
+// session, a capability, or anything else with it.
+type unsubscribeSigner struct {
+	secrets *auth.Secrets
+}
+
+func (s unsubscribeSigner) Sign(value string) []byte {
+	return s.secrets.Digest(auth.PurposeUnsubscribe, value)
+}
+
 // storedSMTPSender resolves the encrypted SMTP configuration for every message, so credentials
 // updated after start-up take effect without a restart and are never held in memory between
 // deliveries.
@@ -1204,6 +1217,39 @@ func run() error {
 	}
 
 	var scheduleErr <-chan error
+	// Notifications.
+	//
+	// The signing key is narrowed to the one thing this feature signs: the link in an email that
+	// stops one kind of message. Narrowed rather than handed over whole, so that package cannot
+	// sign anything else with it.
+	notificationSecrets, err := auth.NewSecrets(signingKey.Key, rand.Reader)
+	if err != nil {
+		return err
+	}
+	credentialCipher, err := newCredentialCipher(cfg.ExternalCredentials)
+	if err != nil {
+		return err
+	}
+	notifyRepository := notify.NewRepository(pool).
+		WithSigner(unsubscribeSigner{secrets: notificationSecrets})
+
+	// The VAPID pair is generated on first start and kept here, so a deployment needs only
+	// DATABASE_URL and a restored backup keeps working. Losing it is invisible: every subscription
+	// in existence was made against this public key, and a new one means pushes silently stop
+	// arriving with no error anywhere.
+	//
+	// The subject is this instance's own address, which RFC 8292 allows — so the deployment gains
+	// no new configuration for a feature that generates its own key.
+	pushKeys, err := notifyRepository.EnsurePushKey(ctx, cfg.Auth.AppBaseURL)
+	if err != nil {
+		return err
+	}
+	slog.Default().Info("web push key ready", "subject", pushKeys.Subject)
+
+	notificationService := notify.NewService(notifyRepository,
+		newStoredSMTPSender(credentials.NewRepository(pool), credentialCipher, slog.Default()),
+		push.NewSender(pushKeys, nil), cfg.Auth.AppBaseURL, slog.Default())
+
 	if cfg.MarketData.ScheduleEnabled {
 		if cfg.MarketData.Provider != "eodhd" {
 			return errors.New("configured market-data provider is not supported")
@@ -1234,6 +1280,12 @@ func run() error {
 			universe: "nordic-liquid-v1", appVersion: version, workers: cfg.MarketData.Workers}
 		// Pending paper orders settle after the import that brought their prices in. Nothing else
 		// schedules them, because nothing else knows when a new session exists.
+		// A notification raised by any of the passes above is delivered by the one below, so a
+		// person hears about the night's work the same night rather than the next time somebody
+		// opens the app.
+		job.Notifications = notificationService
+		job.Failures = notificationService
+		job.Surveyor = notificationService
 		job.PaperFills = paper.NewService(paper.NewRepository(pool),
 			intents.NewService(intents.NewRepository(pool),
 				portfolio.NewService(portfolio.NewRepository(pool), slog.Default()),
@@ -1291,8 +1343,9 @@ func run() error {
 		Risk:          riskService,
 		// What a person is considering is evaluated against their own holdings and their own
 		// limits, so it is handed the same two services rather than a second copy of either.
-		Intents: intentsService,
-		Paper:   paperService,
+		Intents:       intentsService,
+		Paper:         paperService,
+		Notifications: notificationService,
 		// Reading findings is for every authenticated user; deciding about one is the owner's.
 		FindingDecisions: marketdata.NewRepository(pool),
 		Events:           clientevents.NewService(clientevents.NewRepository(pool)),
