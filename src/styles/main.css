@@ -46,6 +46,11 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; min-height: 100vh; background: inherit; color: inherit; }
+/* A double tap should press the thing under the finger, not magnify it. This removes the ~300ms
+   the browser otherwise waits to find out which was meant, on every tap, everywhere. */
+a, button, [role="button"], input, select, textarea, summary, .p-button, .p-select, .p-datatable-tbody > tr {
+  touch-action: manipulation;
+}
 a { color: inherit; }
 .app-shell { min-height: 100vh; }
 .app-header {
@@ -55,6 +60,9 @@ a { color: inherit; }
    * which is worse than being absent. It happened at 360px with four links and again at 768px
    * with seven; a minimum height is the fix that does not need revisiting every time a
    * destination is added.
+   *
+   * Below the tablet breakpoint the destinations move into a drawer instead of wrapping, because
+   * nine of them wrapped onto three rows and took a third of a phone screen before the page began.
    */
   min-height: 4.5rem;
   display: flex;
@@ -65,7 +73,24 @@ a { color: inherit; }
   flex-wrap: wrap;
   border-bottom: 1px solid color-mix(in srgb, currentColor 12%, transparent);
   background: color-mix(in srgb, canvas 92%, transparent);
+  /* Navigation that scrolls off the top is navigation you have to scroll back for. */
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  backdrop-filter: blur(8px);
+  /* The page reaches under the notch; the bar pays it back so nothing sits beneath the status. */
+  padding-top: env(safe-area-inset-top, 0);
 }
+/* The drawer is the phone treatment and the inline row is everything else. Which one shows is
+   decided here rather than in JavaScript, so a resize or a rotation never leaves a frame with the
+   wide row in a narrow window. The drawer builds its contents only while open, so the destinations
+   are never in the accessibility tree twice. */
+/* Two class names deep, because PrimeVue's own .p-button rule is injected at runtime and would
+   otherwise win the cascade on equal specificity and show the control at every width. */
+.app-header .menu-toggle { display: none; }
+.primary-nav--stacked { flex-direction: column; align-items: stretch; gap: .25rem; }
+.primary-nav--stacked a { padding: .9rem 1rem; font-size: 1.05rem; text-align: left; }
+.app-actions--stacked { flex-direction: column; align-items: flex-start; gap: .75rem; margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent); }
 .brand { display: inline-flex; align-items: center; gap: .75rem; font-weight: 700; text-decoration: none; }
 /*
  * The header wraps rather than overflowing. Four destinations plus the actions fit one row on
@@ -276,8 +301,8 @@ html { scrollbar-gutter: stable; }
 }
 
 @media (max-width: 40rem) {
-  .app-header { min-height: 4.5rem; flex-wrap: wrap; padding: .75rem 1rem; }
-  .app-actions { width: 100%; justify-content: space-between; }
+  .app-header { min-height: 3.5rem; flex-wrap: nowrap; padding: .5rem .75rem; gap: .5rem; }
+  .app-actions { width: auto; justify-content: flex-end; gap: .25rem; }
   .app-content { padding: 2rem 1rem; }
   .status-heading, .run-summary { align-items: flex-start; flex-direction: column; }
   .run-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -288,6 +313,14 @@ html { scrollbar-gutter: stable; }
   .member-list__item, .invitation-form__item { align-items: stretch; flex-direction: column; }
   .member-list button, .invitation-form button { width: 100%; }
   .member-list__actions, .invitation-form__actions { flex-direction: column; }
+}
+@media (max-width: 47.99rem) {
+  .primary-nav--inline,
+  .app-actions--inline { display: none; }
+  /* A thumb needs a target, and 44 CSS pixels is the long-standing floor for one. */
+  .app-header .menu-toggle { display: inline-flex; min-width: 2.75rem; min-height: 2.75rem; }
+  .app-drawer .theme-toggle { min-height: 2.75rem; justify-content: flex-start; }
+  .app-content { padding: 1.25rem .75rem 3rem; }
 }
 @media (min-width: 40.01rem) and (max-width: 64rem) {
   .instrument-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -313,26 +346,49 @@ html { scrollbar-gutter: stable; }
 .p-datatable, .p-datatable-table-container { max-width: 100%; }
 /* Below the breakpoint each row becomes a labelled block. A table that only scrolled sideways
    would leave its action buttons off-screen, and a control nobody can reach without scrolling
-   the page sideways is not usable on a phone. This is PrimeVue 4's documented responsive
-   treatment: the column name arrives on each cell as data-label, because CSS cannot read a
-   table header. */
-@media (max-width: 48rem) {
-  .data-scroll .p-datatable-thead { display: none; }
-  .data-scroll .p-datatable-tbody > tr { display: block; padding: .35rem 0; }
-  .data-scroll .p-datatable-tbody > tr > td {
+   sideways is not usable on a phone. The column name arrives on each cell as data-label,
+   because CSS cannot read a table header; a guard test keeps every column carrying one.
+
+   The boundary is just below 768 rather than at it: a 768-wide tablet in portrait has room for
+   real columns, and stacking there cost it the header row it sorts from.
+
+   This applies to every data table rather than only those inside .data-scroll. It used to be
+   scoped to that wrapper, which three account tables had and eleven finance tables did not —
+   those eleven asked to stack with PrimeVue 3's responsive-layout prop, which PrimeVue 4
+   ignores silently, so they rendered six columns into 360 pixels instead. */
+@media (max-width: 47.99rem) {
+  .p-datatable-thead { display: none; }
+  .p-datatable-tbody > tr { display: block; padding: .35rem 0; }
+  .p-datatable-tbody > tr > td {
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
-    align-items: center;
-    gap: 1rem;
+    align-items: baseline;
+    gap: .1rem .75rem;
     width: 100%;
     border: 0;
     padding: .35rem .5rem;
     text-align: right;
+    /* break-word, never anywhere: a long address may be broken to fit, an ordinary name may not.
+       Squeezing a value into a narrow column split "Kamran" across two lines. */
+    overflow-wrap: break-word;
   }
-  .data-scroll .p-datatable-tbody > tr > td::before {
+  .p-datatable-tbody > tr > td::before {
     content: attr(data-label);
+    flex: 0 0 auto;
     font-weight: 600;
     text-align: left;
   }
-  .data-scroll .p-datatable-tbody > tr > td:last-child { border-bottom: 1px solid var(--p-content-border-color); }
+  /* The value sits beside its label when it fits and takes a line of its own when it does not.
+     Without a basis it would be squeezed into whatever the label left over, which is how a user
+     agent string came to wrap into an eight-line ribbon. */
+  .p-datatable-tbody > tr > td > * {
+    flex: 1 1 11rem;
+    min-width: 0;
+  }
+  .p-datatable-tbody > tr > td:last-child { border-bottom: 1px solid var(--p-content-border-color); }
+  /* The table no longer has columns to be wider than, so nothing inside should scroll either.
+     A container still reporting a scroll width means a cell is refusing to wrap. */
+  .p-datatable-table-container, .p-datatable-wrapper { overflow-x: visible; }
+  .p-datatable-table { width: 100%; min-width: 0; table-layout: fixed; }
 }

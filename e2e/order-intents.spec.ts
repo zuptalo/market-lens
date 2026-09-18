@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { dismissShellControls, navigationLink } from './support/shell';
 
 const VIEWPORTS = [
   { name: 'mobile', width: 360, height: 800 },
@@ -104,7 +105,8 @@ for (const viewport of VIEWPORTS) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
     await page.goto('/intents');
 
-    await expect(page.getByRole('link', { name: 'Intents' }).first()).toBeVisible();
+    await expect(await navigationLink(page, 'Intents')).toBeVisible();
+    await dismissShellControls(page);
     await expect(page.getByRole('heading', { name: /what you are considering/i }).first())
       .toBeVisible();
 

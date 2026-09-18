@@ -67,8 +67,6 @@ const statusLabel: Record<string, string> = {
       v-else
       :value="props.trades"
       data-testid="trade-history"
-      responsive-layout="stack"
-      breakpoint="768px"
       class="history__table"
     >
       <Column header="Instrument" :pt="{ bodyCell: { 'data-label': 'Instrument' } }">

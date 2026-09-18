@@ -5,8 +5,10 @@ import router from './router';
 import { bindAuthConnectivity } from '@/composables/useAuth';
 import { marketLensTheme, themeOptions } from '@/styles/theme';
 import './styles/main.css';
+import { lockZoomWhenInstalled } from '@/utils/viewport';
 
 bindAuthConnectivity();
+lockZoomWhenInstalled();
 
 createApp(App)
   .use(router)

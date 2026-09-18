@@ -5,6 +5,7 @@ import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
 import LoadingBlock from './LoadingBlock.vue';
 import type { StrategyRunSummary } from '@/types/marketData';
+import { formatDateTime } from '@/utils/datetime';
 
 const props = withDefaults(defineProps<{
   runs: StrategyRunSummary[];
@@ -70,8 +71,6 @@ function keptEarlier(run: StrategyRunSummary): string {
       :value="props.runs"
       :loading="props.loading"
       data-testid="strategy-run-list"
-      responsive-layout="stack"
-      breakpoint="768px"
       class="strategy-runs__table"
     >
       <Column field="kind" header="Run" :pt="{ bodyCell: { 'data-label': 'Run' } }">
@@ -88,7 +87,7 @@ function keptEarlier(run: StrategyRunSummary): string {
       </Column>
       <Column field="startedAt" header="Started" :pt="{ bodyCell: { 'data-label': 'Started' } }">
         <template #body="{ data }">
-          <time :datetime="data.startedAt">{{ new Date(data.startedAt).toLocaleString() }}</time>
+          <time :datetime="data.startedAt">{{ formatDateTime(data.startedAt) }}</time>
         </template>
       </Column>
       <Column header="Took" :pt="{ bodyCell: { 'data-label': 'Took' } }">

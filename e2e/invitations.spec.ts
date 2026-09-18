@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { cycleTheme } from './support/shell';
 
 const ownerAccount = {
   id: '10000000-0000-4000-8000-000000000001', email: 'owner@example.com', display_name: 'Owner',
@@ -162,7 +163,7 @@ test('owner administration fits 320 pixels and survives theme changes', async ({
   await expect(page.getByRole('heading', { name: 'Invitations' })).toBeVisible();
   await page.getByLabel('Invite by email').fill('typed@example.com');
   for (let theme = 0; theme < 3; theme += 1) {
-    await page.getByRole('button', { name: 'Change color theme' }).click();
+    await cycleTheme(page);
     await expect(page.getByLabel('Invite by email')).toHaveValue('typed@example.com');
   }
   expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);

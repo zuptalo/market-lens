@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { cycleTheme } from './support/shell';
 
 /**
  * A session that is live *now*. Written relative to the clock rather than as fixed dates,
@@ -168,7 +169,7 @@ test('typed input survives every theme and an orientation change', async ({ page
 
   // System, light, and dark in turn. The theme control cycles through all three.
   for (let theme = 0; theme < 3; theme += 1) {
-    await page.getByRole('button', { name: 'Change color theme' }).click();
+    await cycleTheme(page);
     await expect(invite).toHaveValue('someone@example.com');
     expect(await horizontallyOverflows(page)).toBe(false);
     await expectReadableContrast(page);

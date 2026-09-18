@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { dismissShellControls, navigationLink } from './support/shell';
 
 const VOLVO = '44000000-0000-4000-8000-000000000001';
 const TRADE = '88000000-0022-4000-8000-000000000001';
@@ -86,7 +87,8 @@ for (const viewport of VIEWPORTS) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
     await page.goto('/portfolio');
 
-    await expect(page.getByRole('link', { name: 'Portfolio' }).first()).toBeVisible();
+    await expect(await navigationLink(page, 'Portfolio')).toBeVisible();
+    await dismissShellControls(page);
     await expect(page.getByRole('heading', { name: /what you own/i })).toBeVisible();
 
     // FR-018: the product records what a person entered, and offers no advice.

@@ -30,8 +30,9 @@ function stateLabel(member: Member): string {
     <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
     <p v-if="members.length === 0" class="member-list__empty">No members yet. Invite someone to get started.</p>
 
-    <!-- responsiveLayout="stack" is what keeps a table usable on a phone: below the breakpoint
-         each row becomes a labelled block rather than something to scroll sideways. -->
+    <!-- Below the tablet breakpoint the stylesheet turns each row into a labelled block rather
+         than something to scroll sideways; every column names itself with data-label so the
+         figure still says what it is. -->
     <div v-else class="data-scroll">
     <DataTable
       :value="members"

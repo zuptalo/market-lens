@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { cycleTheme, themeLabel } from './support/shell';
 
 const runID = '22000000-0000-4000-8000-000000000001';
 
@@ -75,8 +76,8 @@ test('shows partial import, refreshes live without polling, reconnects, and pres
   await expect(page.getByText('Retry command copied')).toBeVisible();
   if (isMobile) await copy.tap();
 
-  await page.getByRole('button', { name: 'Change color theme' }).click();
-  const themeLabel = await page.getByRole('button', { name: 'Change color theme' }).textContent();
+  await cycleTheme(page);
+  const chosenTheme = await themeLabel(page);
   status = 'succeeded';
   await page.evaluate(({ runID }) => {
     (window as unknown as { __emitMarketDataEvent: (...args: string[]) => void })
@@ -91,7 +92,8 @@ test('shows partial import, refreshes live without polling, reconnects, and pres
   await expect.poll(async () => page.evaluate(() =>
     (window as unknown as { __marketDataEventURLs: string[] }).__marketDataEventURLs.at(-1),
   )).toContain('last_event_id=41');
-  await expect(page.getByRole('button', { name: 'Change color theme' })).toHaveText(themeLabel ?? '');
+  // The chosen theme survives a dropped stream and its reconnection.
+  expect(await themeLabel(page)).toBe(chosenTheme);
 
   const afterEventRequests = requests;
   await page.waitForTimeout(2_000);
@@ -114,7 +116,7 @@ test('shows failed import accessibly in every theme and does not overflow at 320
   for (let index = 0; index < 3; index += 1) {
     await expect(page.getByTestId('run-status')).toContainText('failed', { ignoreCase: true });
     await expect(page.getByText('Market-data provider request timed out.')).toBeVisible();
-    await page.getByRole('button', { name: 'Change color theme' }).click();
+    await cycleTheme(page);
   }
   expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
   await expect(page.getByTestId('copy-retry')).toBeVisible();
@@ -176,7 +178,7 @@ test('searches, inspects, and returns with instrument state across responsive in
 
   for (let theme = 0; theme < 3; theme += 1) {
     await expect(page.getByRole('heading', { name: 'Alpha AB' })).toBeVisible();
-    await page.getByRole('button', { name: 'Change color theme' }).click();
+    await cycleTheme(page);
   }
   const viewport = page.viewportSize();
   if (viewport && viewport.width === 768) {

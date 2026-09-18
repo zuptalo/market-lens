@@ -159,8 +159,6 @@ onBeforeUnmount(() => {
         :value="scoredItems"
         :loading="loading"
         data-testid="signal-ranking"
-        responsive-layout="stack"
-        breakpoint="768px"
         class="signals__table"
       >
         <Column header="#" :pt="{ bodyCell: { 'data-label': 'Rank' } }">
@@ -196,8 +194,6 @@ onBeforeUnmount(() => {
         <DataTable
           :value="unscoredItems"
           data-testid="unscored-instruments"
-          responsive-layout="stack"
-          breakpoint="768px"
         >
           <Column field="ticker" header="Instrument" :pt="{ bodyCell: { 'data-label': 'Instrument' } }">
             <template #body="{ data }">

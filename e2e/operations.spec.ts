@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { dismissShellControls, navigationLink } from './support/shell';
 
 const importRunID = '22000000-0000-4000-8000-000000000001';
 
@@ -72,7 +73,8 @@ for (const viewport of VIEWPORTS) {
     await page.goto('/operations');
 
     // Reachable from the primary navigation rather than by knowing the URL.
-    await expect(page.getByRole('link', { name: 'Operations' })).toBeVisible();
+    await expect(await navigationLink(page, 'Operations')).toBeVisible();
+    await dismissShellControls(page);
     await expect(page.getByRole('heading', { name: 'Data pipeline' })).toBeVisible();
 
     // The import half, with its sanitized reason and no provider internals.
@@ -109,8 +111,9 @@ test('market data carries no operational report, only a link to it', async ({ pa
   await expect(page.getByTestId('copy-retry')).toHaveCount(0);
   await expect(page.getByTestId('feature-run-list')).toHaveCount(0);
 
-  // What remains leads to the screen that has them.
-  const link = page.getByRole('link', { name: 'Operations' });
+  // What remains leads to the screen that has them. This is the page's own link, not the shell's
+  // navigation, so it is looked up inside main.
+  const link = page.locator('main').getByRole('link', { name: 'Operations' });
   await expect(link.first()).toBeVisible();
   await link.first().click();
   await expect(page.getByRole('heading', { name: 'Data pipeline' })).toBeVisible();

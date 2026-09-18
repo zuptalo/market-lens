@@ -62,8 +62,6 @@ function statement(contribution: SignalContribution): string {
     <DataTable
       :value="props.contributions"
       data-testid="contribution-list"
-      responsive-layout="stack"
-      breakpoint="768px"
       class="contributions__table"
     >
       <Column field="factor" header="Factor" :pt="{ bodyCell: { 'data-label': 'Factor' } }">

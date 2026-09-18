@@ -77,9 +77,27 @@ function percent(value: string | null): string {
   return `${(parsed * 100).toFixed(1)}%`;
 }
 
+/**
+ * A price, written the way money is written.
+ *
+ * The stored figure carries twelve decimal places so the arithmetic reconciles exactly. Rendering
+ * all twelve puts "284.100000000000 SEK" on the screen, which wraps onto two lines on a phone and
+ * reads as a fault. Trailing zeroes go; genuine places stay, because a price is not always two.
+ */
+function price(value: string): string {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return value;
+  const trimmed = value.includes('.') ? value.replace(/(\.\d*?[1-9])0+$|\.0+$/, '$1') : value;
+  // Two places is the floor, so 284.1 reads as 284.10 rather than as a truncation.
+  const places = Math.max(2, (trimmed.split('.')[1] ?? '').length);
+  return parsed.toLocaleString(undefined, {
+    minimumFractionDigits: 2, maximumFractionDigits: places,
+  });
+}
+
 function describeIntent(intent: OrderIntent): string {
   const verb = intent.direction === 'buy' ? 'Buy' : 'Sell';
-  return `${verb} ${quantity(intent.quantity)} at ${intent.price} ${intent.currency}`;
+  return `${verb} ${quantity(intent.quantity)} at ${price(intent.price)} ${intent.currency}`;
 }
 
 /**
@@ -111,8 +129,6 @@ function overdrawn(consequence: IntentConsequence | null): boolean {
         :value="props.intents"
         data-key="id"
         data-testid="intent-list"
-        responsive-layout="stack"
-        breakpoint="768px"
         class="intents__table"
       >
         <Column header="Instrument" :pt="{ bodyCell: { 'data-label': 'Instrument' } }">

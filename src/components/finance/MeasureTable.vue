@@ -102,8 +102,6 @@ const unavailable = () => props.benchmarks.filter((benchmark) => benchmark.absen
       v-else
       :value="rows"
       data-testid="measure-table"
-      responsive-layout="stack"
-      breakpoint="768px"
       class="measures__table"
     >
       <Column header="Measure" :pt="{ bodyCell: { 'data-label': 'Measure' } }">

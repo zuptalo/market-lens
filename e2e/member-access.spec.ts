@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { cycleTheme } from './support/shell';
 
 const memberAccount = {
   id: '11111111-1111-4111-8111-111111111111', email: 'member@example.com', display_name: 'Ada Member',
@@ -157,7 +158,7 @@ test('the passcode step survives theme changes and fits 320 CSS pixels', async (
   await page.getByLabel('Six-digit passcode').fill('0123');
 
   for (let theme = 0; theme < 3; theme += 1) {
-    await page.getByRole('button', { name: 'Change color theme' }).click();
+    await cycleTheme(page);
     // Input typed before the theme switch must survive it.
     await expect(page.getByLabel('Six-digit passcode')).toHaveValue('0123');
   }

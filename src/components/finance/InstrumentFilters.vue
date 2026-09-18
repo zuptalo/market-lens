@@ -183,7 +183,7 @@ defineEmits<{
 .instrument-filters {
   display: grid;
   gap: 0.75rem;
-  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
   margin-block-end: 1rem;
 }
 

@@ -5,6 +5,7 @@ import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
 import LoadingBlock from './LoadingBlock.vue';
 import type { FeatureRunSummary } from '@/types/marketData';
+import { formatDateTime } from '@/utils/datetime';
 
 const props = withDefaults(defineProps<{
   runs: FeatureRunSummary[];
@@ -71,8 +72,6 @@ function staleAfter(run: FeatureRunSummary): string {
       :value="props.runs"
       :loading="props.loading"
       data-testid="feature-run-list"
-      responsive-layout="stack"
-      breakpoint="768px"
       class="feature-runs__table"
     >
       <Column field="kind" header="Run" :pt="{ bodyCell: { 'data-label': 'Run' } }">
@@ -89,7 +88,7 @@ function staleAfter(run: FeatureRunSummary): string {
       </Column>
       <Column field="startedAt" header="Started" :pt="{ bodyCell: { 'data-label': 'Started' } }">
         <template #body="{ data }">
-          <time :datetime="data.startedAt">{{ new Date(data.startedAt).toLocaleString() }}</time>
+          <time :datetime="data.startedAt">{{ formatDateTime(data.startedAt) }}</time>
         </template>
       </Column>
       <Column header="Took" :pt="{ bodyCell: { 'data-label': 'Took' } }">

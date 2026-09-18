@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { dismissShellControls, navigationLink } from './support/shell';
 
 const ALFA = 'dddddddd-0015-4000-8000-000000000001';
 const BETA = 'dddddddd-0015-4000-8000-000000000002';
@@ -85,7 +86,8 @@ for (const viewport of VIEWPORTS) {
     await page.goto('/signals');
 
     // Reachable from the primary navigation, not only by knowing the URL.
-    await expect(page.getByRole('link', { name: 'Signals' }).first()).toBeVisible();
+    await expect(await navigationLink(page, 'Signals')).toBeVisible();
+    await dismissShellControls(page);
     await expect(page.getByRole('heading', { name: /universe in a strategy/i })).toBeVisible();
 
     // Which version, and as of when. A ranking that does not say is not reproducible by a reader.
