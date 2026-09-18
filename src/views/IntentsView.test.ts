@@ -66,8 +66,12 @@ function stubFetch(options: Stubs = {}) {
       return { ok: true, json: async () => ({ items: [{
         id: '33333333-3333-4333-8333-333333333333', isin: 'SE0000115446', ticker: 'VOLV-B',
         name: 'Volvo B', exchange: { mic: 'XSTO', name: 'Nasdaq Stockholm' }, currency: 'SEK',
-        country: 'SE', instrument_type: 'common_stock', active: true,
-        purchasability_status: 'user_confirmed',
+        country: 'SE', sector: 'industrials', sector_name: 'Industrials', industry: 'Trucks',
+        instrument_type: 'common_stock', status: 'active',
+        purchasability_status: 'user_confirmed', latest_session: '2026-09-17',
+        latest_close: '281.400000000000', change_absolute: '1.200000000000',
+        change_percent: 0.0043, return_20: null, return_90: null, volatility: null,
+        stored_sessions: 2500, freshness: { state: 'current', sessions_behind: 0 },
       }], next_cursor: null, total: 1 }) };
     }
     if (url.includes('/api/v1/portfolio')) {
@@ -138,6 +142,25 @@ describe('IntentsView', () => {
     });
     await flushPromises();
     expect(wrapper.text()).toContain('This product does not carry that instrument.');
+  });
+
+  it('offers the instruments the product carries, once the list has arrived', async () => {
+    const wrapper = mount(IntentsView, { global });
+    await flushPromises();
+    const form = wrapper.findComponent({ name: 'IntentForm' });
+    expect(form.props('instruments')).toEqual([
+      { id: '33333333-3333-4333-8333-333333333333', ticker: 'VOLV-B', name: 'Volvo B' },
+    ]);
+    expect(form.props('instrumentsError')).toBe('');
+  });
+
+  it('says the list could not be loaded rather than offering an empty one', async () => {
+    stubFetch({ failing: ['/api/v1/instruments'] });
+    const wrapper = mount(IntentsView, { global });
+    await flushPromises();
+    const form = wrapper.findComponent({ name: 'IntentForm' });
+    expect(form.props('instruments')).toEqual([]);
+    expect(String(form.props('instrumentsError'))).toContain('Unable to load');
   });
 
   it('settles through the write path, with the status the person chose', async () => {

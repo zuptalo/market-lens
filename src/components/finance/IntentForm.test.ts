@@ -11,6 +11,27 @@ function mountForm(props: Record<string, unknown> = {}) {
 }
 
 describe('IntentForm', () => {
+  // Opening the list before it has arrived shows an empty dropdown that does not repopulate, so
+  // the field waits rather than lying about there being nothing to choose.
+  it('will not let the person open an instrument list it has not got yet', () => {
+    const wrapper = mount(IntentForm, { props: { instruments: [] } });
+    expect(wrapper.findComponent({ name: 'Select' }).props('disabled')).toBe(true);
+    expect(wrapper.text().toLowerCase()).toContain('still loading');
+  });
+
+  it('says so when the list could not be loaded, instead of waiting forever', () => {
+    const wrapper = mount(IntentForm, {
+      props: { instruments: [], instrumentsError: 'Unable to load the instruments.' },
+    });
+    expect(wrapper.text()).toContain('Unable to load the instruments.');
+    expect(wrapper.text().toLowerCase()).not.toContain('still loading');
+  });
+
+  it('opens once the list is there', () => {
+    const wrapper = mountForm();
+    expect(wrapper.findComponent({ name: 'Select' }).props('disabled')).toBe(false);
+  });
+
   it('offers no default quantity or price that could be read as a recommendation', () => {
     const wrapper = mountForm();
     const inputs = wrapper.findAll('input');

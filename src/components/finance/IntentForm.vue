@@ -19,7 +19,9 @@ const props = withDefaults(defineProps<{
   instruments: { id: string; ticker: string; name: string }[];
   busy?: boolean;
   refusal?: string;
-}>(), { busy: false, refusal: '' });
+  /** Set when the list could not be loaded, so the field says so rather than waiting forever. */
+  instrumentsError?: string;
+}>(), { busy: false, refusal: '', instrumentsError: '' });
 
 const emit = defineEmits<{ submit: [input: IntentInput] }>();
 
@@ -38,6 +40,12 @@ const choices = computed(() => props.instruments.map((instrument) => ({
   label: `${instrument.ticker} — ${instrument.name}`,
   value: instrument.id,
 })));
+
+/**
+ * Opening the list before it has arrived shows an empty dropdown that does not repopulate when the
+ * data lands, so the field waits instead of claiming there is nothing to choose.
+ */
+const instrumentsReady = computed(() => props.instruments.length > 0);
 
 const complete = computed(() => instrumentId.value !== null
   && quantity.value !== null && quantity.value > 0
@@ -77,8 +85,11 @@ function submit(): void {
         option-label="label"
         option-value="value"
         filter
+        :disabled="!instrumentsReady"
         aria-label="Which instrument you are considering"
       />
+      <small v-if="props.instrumentsError">{{ props.instrumentsError }}</small>
+      <small v-else-if="!instrumentsReady">The list of instruments is still loading.</small>
     </div>
 
     <div class="intent-form__field">

@@ -14,6 +14,7 @@ const TABS = [
   { path: '/', name: 'Overview' },
   { path: '/markets', name: 'Market data' },
   { path: '/signals', name: 'Signals' },
+  { path: '/intents', name: 'Intents' },
   { path: '/operations', name: 'Operations' },
   { path: '/account', name: 'Account' },
 ];

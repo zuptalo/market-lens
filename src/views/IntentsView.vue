@@ -28,6 +28,7 @@ import type { ConnectionState, IntentInput, IntentReport, IntentStatus } from '@
 
 const report = ref<IntentReport | null>(null);
 const instruments = ref<{ id: string; ticker: string; name: string }[]>([]);
+const instrumentsError = ref('');
 const currency = ref('');
 const loading = ref(true);
 const busy = ref(false);
@@ -71,6 +72,10 @@ async function loadContext(): Promise<void> {
     instruments.value = listing.value.items.map((item) => ({
       id: item.id, ticker: item.ticker, name: item.name,
     }));
+    instrumentsError.value = instruments.value.length > 0 ? ''
+      : 'This product carries no instruments yet, so there is nothing to consider.';
+  } else {
+    instrumentsError.value = 'Unable to load the list of instruments.';
   }
 }
 
@@ -179,6 +184,7 @@ onBeforeUnmount(() => {
 
         <IntentForm
           :instruments="instruments"
+          :instruments-error="instrumentsError"
           :busy="busy"
           :refusal="refusal"
           @submit="record"
