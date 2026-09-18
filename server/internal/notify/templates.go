@@ -83,8 +83,8 @@ func emailWording(kind Kind, count int, detail map[string]string) (string, strin
 		}
 		return fmt.Sprintf("%d %s waiting in Market Lens", count, thing),
 			fmt.Sprintf("There %s %d %s waiting that only you can make.\n\n"+
-				"Market Lens does not settle these itself: a finding it cannot decide, or a limit "+
-				"you set that your holdings are now outside. The Overview lists them.",
+				"Market Lens does not settle these itself: a finding it cannot decide, or a rule "+
+				"you set that is no longer being met. The Overview lists them.",
 				plural(count, "is", "are"), count, thing), nil
 
 	case KindPaperFill:
@@ -115,9 +115,8 @@ func emailWording(kind Kind, count int, detail map[string]string) (string, strin
 		body := fmt.Sprintf(
 			"The %s strategy's view of %s changed from %s to %s.\n\n"+
 				"This is a strategy output, not advice. Its weights are stated rather than fitted, "+
-				"and backtesting has measured it against the markets it trades in — where it did "+
-				"not come out ahead. Market Lens does not suggest acting on this and has no view "+
-				"on whether you should.",
+				"and backtesting has measured it over ten years against the markets it trades in, "+
+				"where it came out behind. Market Lens takes no view on what to do about this.",
 			orUnknown(strategy), orUnknown(ticker), orUnknown(from), orUnknown(to))
 		return fmt.Sprintf("%s: a strategy view changed", orUnknown(ticker)), body, nil
 	}

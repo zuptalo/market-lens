@@ -2,8 +2,11 @@ package notify_test
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -129,9 +132,19 @@ func (f *fixture) count(sql string, args ...any) int64 {
 	return total
 }
 
+// testSigner stands in for the instance signing key. The production one is auth.Secrets.Digest,
+// narrowed to this one purpose so nothing here can sign anything else with it.
+type testSigner struct{}
+
+func (testSigner) Sign(value string) []byte {
+	digest := hmac.New(sha256.New, []byte("market-lens/test/unsubscribe"))
+	_, _ = digest.Write([]byte(value))
+	return digest.Sum(nil)
+}
+
 func (f *fixture) service() *notify.Service {
-	return notify.NewService(notify.NewRepository(f.pool), f.mail, f.pusher,
-		"https://market-lens.example.com", slog.Default())
+	return notify.NewService(notify.NewRepository(f.pool).WithSigner(testSigner{}),
+		f.mail, f.pusher, "https://market-lens.example.com", slog.Default())
 }
 
 // ask is the ordinary path to a preference, so a test states what somebody asked for.
@@ -200,4 +213,41 @@ func (f *fixture) history(user notify.UUID) []notify.Record {
 		f.t.Fatalf("read history: %v", err)
 	}
 	return records
+}
+
+// pushGone is what a browser's push service says when the browser has forgotten a subscription.
+func pushGone() error { return push.ErrSubscriptionGone }
+
+// mailMessage is the part of a sent message these tests read, so the assertions do not depend on
+// the mail package's shape.
+type mailMessage struct {
+	subject string
+	text    string
+}
+
+func toMailMessages(sent []mail.Message) []mailMessage {
+	messages := make([]mailMessage, 0, len(sent))
+	for _, message := range sent {
+		messages = append(messages, mailMessage{subject: message.Subject, text: message.Text})
+	}
+	return messages
+}
+
+func nowForTest() time.Time { return time.Now().UTC() }
+
+// prose is what a person actually reads, with opaque machine text removed.
+//
+// An unsubscribe token is base64 of a signature: several hundred random-looking characters that
+// will contain any short word often enough to matter. Scanning it for forbidden vocabulary tests
+// the entropy of HMAC, not the wording of a message.
+func prose(body string) string {
+	words := strings.Fields(body)
+	kept := make([]string, 0, len(words))
+	for _, word := range words {
+		if strings.Contains(word, "://") || strings.Contains(word, "token=") {
+			continue
+		}
+		kept = append(kept, word)
+	}
+	return strings.Join(kept, " ")
 }
