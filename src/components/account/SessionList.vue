@@ -6,6 +6,7 @@ import Button from 'primevue/button';
 import Panel from 'primevue/panel';
 import Tag from 'primevue/tag';
 import type { Session } from '@/types/auth';
+import { formatDateTime } from '@/utils/datetime';
 
 const props = defineProps<{ sessions: Session[]; busy?: boolean }>();
 defineEmits<{ revoke: [sessionID: string]; revokeAll: []; logout: [] }>();
@@ -67,7 +68,7 @@ const endedCount = computed(() => props.sessions.length - active.value.length);
       </Column>
       <Column header="Last active" :pt="{ bodyCell: { 'data-label': 'Last active' } }">
         <template #body="{ data }">
-          <time :datetime="data.lastSeenAt">{{ new Date(data.lastSeenAt).toLocaleString() }}</time>
+          <time :datetime="data.lastSeenAt">{{ formatDateTime(data.lastSeenAt) }}</time>
         </template>
       </Column>
       <Column header="Actions" :pt="{ bodyCell: { 'data-label': 'Actions' } }">

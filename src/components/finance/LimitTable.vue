@@ -100,8 +100,6 @@ function gap(limit: LimitEvaluation): string {
       v-else
       :value="props.limits"
       data-testid="limit-table"
-      responsive-layout="stack"
-      breakpoint="768px"
       class="limits__table"
     >
       <Column header="Your rule" :pt="{ bodyCell: { 'data-label': 'Your rule' } }">

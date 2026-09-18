@@ -65,8 +65,6 @@ function signalLink(trade: BacktestTrade): string {
       <DataTable
         :value="props.trades"
         data-testid="trade-list"
-        responsive-layout="stack"
-        breakpoint="768px"
         class="trades__table"
       >
         <Column header="Instrument" :pt="{ bodyCell: { 'data-label': 'Instrument' } }">

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { cycleTheme, navigationLink } from './support/shell';
 
 /**
  * A session that is live *now*. Written relative to the clock rather than as fixed dates,
@@ -74,7 +75,7 @@ test('retries provider validation then completes encrypted owner setup without b
   expect(await page.evaluate(() => JSON.stringify({ localStorage, sessionStorage }))).not.toContain('eodhd-key-secret');
   expect(await page.evaluate(() => JSON.stringify({ localStorage, sessionStorage }))).not.toContain('smtp-password-secret');
 
-  await page.getByRole('link', { name: 'Account' }).click();
+  await (await navigationLink(page, 'Account')).click();
   await expect(page.getByRole('heading', { name: 'Account settings' })).toBeVisible();
   await expect(page.getByText('Chrome on Linux')).toBeVisible();
   await page.getByRole('button', { name: 'Revoke Chrome on Linux' }).click();
@@ -94,7 +95,7 @@ test('retains auth form state across themes and has no horizontal overflow at 32
   await page.goto('/login');
   await page.getByLabel('Email').fill('owner@example.com');
   for (let theme = 0; theme < 3; theme += 1) {
-    await page.getByRole('button', { name: 'Change color theme' }).click();
+    await cycleTheme(page);
     await expect(page.getByLabel('Email')).toHaveValue('owner@example.com');
   }
   expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);

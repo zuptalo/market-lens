@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { dismissShellControls, shellVersion } from './support/shell';
 
 /**
  * The application boots and the shell renders.
@@ -48,8 +49,11 @@ test.beforeEach(async ({ page }) => {
 test('the shell renders and knows which version it is', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('link', { name: 'Market Lens home' })).toBeVisible();
+  // Navigation and the build number are in the bar on a wide screen and behind the menu on a
+  // phone. Either way they are here, which is what this asserts.
+  await expect(await shellVersion(page)).toHaveText(expectedVersion);
   await expect(page.getByRole('navigation', { name: 'Primary navigation' })).toBeVisible();
-  await expect(page.getByText(expectedVersion, { exact: true })).toBeVisible();
+  await dismissShellControls(page);
   // Whatever the landing view is, it has a title.
   await expect(page.locator('main h1')).toBeVisible();
 });
@@ -63,5 +67,5 @@ test('the shell fits a 320px viewport', async ({ page }) => {
   );
   expect(hasHorizontalOverflow).toBe(false);
   await expect(page.getByRole('link', { name: 'Market Lens home' })).toBeVisible();
-  await expect(page.getByText(expectedVersion, { exact: true })).toBeVisible();
+  await expect(await shellVersion(page)).toHaveText(expectedVersion);
 });

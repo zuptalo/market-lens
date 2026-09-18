@@ -4,6 +4,7 @@ import Button from 'primevue/button';
 import Checkbox from 'primevue/checkbox';
 import Drawer from 'primevue/drawer';
 import InstrumentFilters from '@/components/finance/InstrumentFilters.vue';
+import { formatDateTime } from '@/utils/datetime';
 import InstrumentTable from '@/components/finance/InstrumentTable.vue';
 import ListingProgress from '@/components/finance/ListingProgress.vue';
 import { useCompactViewport } from '@/composables/useCompactViewport';
@@ -225,7 +226,7 @@ const freshnessSummary = computed(() => {
   const latest = runs.value[0];
   if (!latest) return 'No import has run yet.';
   const when = latest.finishedAt ?? latest.startedAt;
-  const stamp = new Date(when).toLocaleString();
+  const stamp = formatDateTime(when);
   if (latest.status === 'succeeded') return `Data as of ${stamp}.`;
   return `Last import ${latest.status}, ${stamp}.`;
 });

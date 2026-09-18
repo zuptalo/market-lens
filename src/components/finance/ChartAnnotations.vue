@@ -171,7 +171,7 @@ const hasAnything = computed(() =>
 
 @media (min-width: 900px) {
   .annotations__groups {
-    grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
   }
 }
 

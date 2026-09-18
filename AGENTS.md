@@ -255,6 +255,45 @@ dropdown that does **not** repopulate when the data lands. The instrument field 
 the list is there and says why, and the end-to-end test waits for that as its signal. Separately,
 `InputNumber` commits on blur, so an end-to-end entry needs a `press('Tab')` after `fill`.
 
+**Mobile-first is enforced by `e2e/mobile-layout.spec.ts`**, which walks every destination at 320
+and 390 and fails if the *page* scrolls sideways or if a data table does. It exists because the
+product had been shipping a broken phone layout for months behind a prop that did nothing:
+
+- **PrimeVue 4 has no `responsiveLayout` prop.** It is PrimeVue 3's API, and Vue passes an unknown
+  prop straight through to the DOM as an attribute, so eleven finance tables asked to stack on a
+  phone and silently did not. Only the three account tables stacked, because they happened to sit
+  inside `.data-scroll`, which is where the CSS lived. `src/components/table-stacking.test.ts` now
+  fails if the prop reappears, and if any `<Column>` omits the `data-label` the stacked cell needs.
+- **A page wider than the window is not a cosmetic problem on iOS.** Safari answers by shrinking
+  the whole document to fit, so the header stops reaching the edges and every type size drops at
+  once. It reads as a broken layout rather than as an overflowing table.
+- **`repeat(auto-fit, minmax(13rem, 1fr))` inside a grid item blows the page out**, because a grid
+  item defaults to `min-width: auto` and will not shrink below its content. Always
+  `minmax(min(100%, 13rem), 1fr)`.
+- **Decide the phone/desktop swap in CSS, never in `matchMedia` plus a re-render.** The JavaScript
+  version left one frame after a resize or rotation with the wide layout in a narrow window, and
+  the page scrolled sideways for that frame. Both treatments are in the document; CSS shows one.
+  The drawer builds its contents only while open, so nothing is announced twice.
+- **PrimeVue's theme CSS is injected at runtime**, after `main.css`. A rule with the same
+  specificity as one of its own (`.menu-toggle` against `.p-button`) loses. Reach for one more
+  class, not `!important`.
+- The breakpoint is **47.99rem**, just below 768, so a 768-wide tablet keeps real columns and the
+  header row it sorts from. `src/styles/main.css` and `AppShell.vue` must agree on it.
+
+Shell controls differ by width, so end-to-end specs reach them through `e2e/support/shell.ts`
+(`revealShellControls`, `cycleTheme`, `navigationLink`, `shellVersion`) rather than clicking the bar
+directly. `e2e/fixtures/api.mjs` holds one set of shape-correct API answers, shared by the layout
+guard and by the local browser harness, so what a person looks at is what the guard asserts.
+
+**Every date is written `2026-11-28`**, via `src/utils/datetime.ts`. `toLocaleString()` with no
+locale takes the reader's, so the same session read `9/18/2026` on one phone and `18/09/2026` on
+another; a guard in `src/utils/datetime.test.ts` fails if a screen formats its own. Numbers keep
+locale grouping — 1 234 567 is right either way — but dates do not.
+
+**Zoom is locked only in the installed app** (`src/utils/viewport.ts`, keyed on
+`display-mode: standalone`). In a browser tab pinch-zoom stays available, because taking it away
+takes it from the person who needed it to read.
+
 Two constraints that outlive any single feature:
 
 - `AUTH_SECRET` is self-provisioned and database-resident, while `EXTERNAL_CREDENTIAL_KEY`

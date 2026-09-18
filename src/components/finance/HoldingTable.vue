@@ -85,8 +85,6 @@ function describeComparison(reason: string): string {
       v-else
       :value="props.holdings"
       data-testid="holding-table"
-      responsive-layout="stack"
-      breakpoint="768px"
       class="holdings__table"
     >
       <Column header="Instrument" :pt="{ bodyCell: { 'data-label': 'Instrument' } }">

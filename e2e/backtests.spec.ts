@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { dismissShellControls, navigationLink } from './support/shell';
 
 const RUN = '55000000-0000-4000-8000-000000000001';
 const VOLVO = '44000000-0000-4000-8000-000000000001';
@@ -134,7 +135,8 @@ for (const viewport of VIEWPORTS) {
     await page.goto('/backtests');
 
     // Reachable from the primary navigation, not only by knowing the URL.
-    await expect(page.getByRole('link', { name: 'Backtests' }).first()).toBeVisible();
+    await expect(await navigationLink(page, 'Backtests')).toBeVisible();
+    await dismissShellControls(page);
     await expect(page.getByRole('heading', { name: /what a strategy would have done/i })).toBeVisible();
 
     // FR-021: the statement is on the screen, above the result rather than beneath it.

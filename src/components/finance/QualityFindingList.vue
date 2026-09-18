@@ -62,8 +62,6 @@ function describe(finding: QualityFinding): string {
       v-else
       :value="props.findings"
       data-testid="quality-finding-list"
-      responsive-layout="stack"
-      breakpoint="768px"
       class="quality-findings__table"
     >
       <Column header="Instrument" :pt="{ bodyCell: { 'data-label': 'Instrument' } }">

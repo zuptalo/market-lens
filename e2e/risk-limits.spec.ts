@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { dismissShellControls, navigationLink } from './support/shell';
 
 const VIEWPORTS = [
   { name: 'mobile', width: 360, height: 800 },
@@ -57,7 +58,8 @@ for (const viewport of VIEWPORTS) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
     await page.goto('/risk');
 
-    await expect(page.getByRole('link', { name: 'Limits' }).first()).toBeVisible();
+    await expect(await navigationLink(page, 'Limits')).toBeVisible();
+    await dismissShellControls(page);
     await expect(page.getByRole('heading', { name: /rules you set yourself/i })).toBeVisible();
 
     // FR-018: these are the person's own rules, and the product offers no advice.

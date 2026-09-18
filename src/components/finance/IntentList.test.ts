@@ -34,6 +34,33 @@ function intent(overrides: Partial<OrderIntent> = {}): OrderIntent {
 }
 
 describe('IntentList', () => {
+  /**
+   * A price is money, and money is written the way money is written. The stored figure carries
+   * twelve decimal places so the arithmetic reconciles exactly; rendering all twelve puts
+   * "284.100000000000 SEK" on a phone, where it wraps onto two lines and reads as a fault.
+   */
+  it('writes a price as a price, not as a stored decimal', () => {
+    const wrapper = mount(IntentList, {
+      props: {
+        currency: 'SEK',
+        intents: [intent({ price: '284.100000000000', quantity: '50.000000000000' })],
+      },
+    });
+    const text = wrapper.text();
+    expect(text).toContain('284.10');
+    expect(text).not.toContain('284.100000000000');
+    // The quantity is a count of shares and keeps its own treatment.
+    expect(text).toContain('50');
+  });
+
+  // Fractions that matter are kept. A price is not always two decimal places.
+  it('keeps a price that genuinely has more places', () => {
+    const wrapper = mount(IntentList, {
+      props: { currency: 'SEK', intents: [intent({ price: '0.004873000000' })] },
+    });
+    expect(wrapper.text()).toContain('0.004873');
+  });
+
   it('says what the position would become, and what it would be worth', () => {
     const wrapper = mount(IntentList, { props: { intents: [intent()], currency: 'SEK' } });
     const text = wrapper.text();

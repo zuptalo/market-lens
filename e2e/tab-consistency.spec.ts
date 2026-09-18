@@ -45,6 +45,26 @@ async function stub(page: Page): Promise<void> {
   });
 }
 
+/**
+ * Opens the drawer and waits for it to stop moving.
+ *
+ * It slides in, so a box measured the instant after the tap is a box mid-flight — which reads as
+ * a link sitting outside the viewport when it is merely on its way in.
+ */
+async function openMenu(page: Page, menu: ReturnType<Page['getByRole']>): Promise<void> {
+  await menu.click();
+  const drawer = page.locator('.app-drawer');
+  await expect(drawer).toBeVisible();
+  await page.waitForFunction(() => {
+    // The panel and the mask behind it animate separately, and the mask is what swallows a click
+    // while it is still fading in. Waiting on the panel alone let a tap land on the overlay.
+    const mask = document.querySelector('.p-drawer-mask');
+    if (!mask) return true;
+    return mask.getAnimations({ subtree: true })
+      .every((animation) => animation.playState === 'finished');
+  });
+}
+
 /** Where the page's own title sits, and how large it is. */
 async function heading(page: Page) {
   return page.evaluate(() => {
@@ -143,6 +163,14 @@ for (const width of [1440, 1024, 768, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto('/');
 
+    // Below the tablet breakpoint the destinations live in a drawer, because nine of them wrapped
+    // onto three rows and took a third of a phone screen. The question this test asks is unchanged
+    // — can every destination actually be reached — but on a phone it takes one tap to get there.
+    const menu = page.getByRole('button', { name: /open navigation menu/i });
+    // Visibility, not presence: the CSS decides which treatment applies, so both are present.
+    const behindAMenu = await menu.isVisible();
+    if (behindAMenu) await openMenu(page, menu);
+
     const nav = page.locator('.primary-nav');
     const links = nav.getByRole('link');
     const count = await links.count();
@@ -175,6 +203,13 @@ for (const width of [1440, 1024, 768, 390, 320]) {
       // it arrives, as the markets listing does.
       await link.click();
       await expect(page).toHaveURL(new RegExp(`${href}(\\?|$)`));
+
+      // Arriving closes the drawer, so the next destination needs it opened again. That it closes
+      // at all is the point: a menu still covering the page you asked for is the usual bug here.
+      if (behindAMenu) {
+        await expect(menu, 'the menu did not close on arrival').toBeVisible();
+        await openMenu(page, menu);
+      }
     }
   });
 }

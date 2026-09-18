@@ -5,6 +5,7 @@ import QualityBadge from './QualityBadge.vue';
 import LoadingBlock from './LoadingBlock.vue';
 import LiveConnectionBadge from './LiveConnectionBadge.vue';
 import type { ConnectionState, ImportRunSummary } from '@/types/marketData';
+import { formatDateTime } from '@/utils/datetime';
 
 withDefaults(defineProps<{
   runs: ImportRunSummary[];
@@ -44,7 +45,7 @@ async function copyRetry(runID: string): Promise<void> {
         <div class="run-summary">
           <div>
             <p class="run-kind">{{ run.kind.replaceAll('_', ' ') }} · {{ run.provider }}</p>
-            <time :datetime="run.startedAt">{{ new Date(run.startedAt).toLocaleString() }}</time>
+            <time :datetime="run.startedAt">{{ formatDateTime(run.startedAt) }}</time>
           </div>
           <QualityBadge data-testid="run-status" :status="run.status" />
         </div>

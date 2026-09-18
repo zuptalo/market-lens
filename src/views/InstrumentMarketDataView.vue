@@ -310,11 +310,37 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/*
+ * A grid item defaults to min-width:auto, which means it refuses to shrink below its content and
+ * pushes the page sideways rather than letting itself be narrow. On a phone that does not merely
+ * overflow: iOS Safari answers a document wider than the window by shrinking the whole page to
+ * fit, so the header stops reaching the edges and every type size drops at once.
+ */
+.instrument-detail-view > *,
+.identity,
+.identity__heading {
+  min-width: 0;
+}
+
 .identity-facts {
   display: grid;
   gap: 0.5rem 1.5rem;
-  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
   margin: 0;
+}
+
+/* The name and the live-updates badge sit on one line when there is room and two when there is
+   not. At 320 the badge alone is most of the width. */
+.identity__heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+.identity-line,
+.identity-facts dd {
+  overflow-wrap: anywhere;
 }
 
 .identity-facts div {
@@ -342,7 +368,7 @@ onBeforeUnmount(() => {
 .window-facts {
   display: grid;
   gap: 1rem 2rem;
-  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
   margin: 1rem 0 0;
   padding-block-start: 1rem;
   border-block-start: 1px solid var(--p-content-border-color, rgb(0 0 0 / 0.12));
@@ -407,7 +433,7 @@ onBeforeUnmount(() => {
  */
 @media (min-width: 768px) {
   .identity-facts {
-    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
   }
 }
 
