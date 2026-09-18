@@ -8,6 +8,11 @@ import (
 
 // The worked example from RFC 8291 section 5.
 //
+// Every value below is printed in the specification itself and is public by design: the server
+// private key, the subscription's public key and auth secret, the salt, and the ciphertext they
+// produce. None of them belongs to anything. They exist so an implementation can be checked against
+// the specification, which is why `.gitguardian.yaml` excludes this one file by name.
+//
 // Checking against the specification's own vector rather than against this implementation's output
 // is the difference between "it encrypts consistently" and "it encrypts correctly". A push that a
 // browser cannot decrypt fails silently: the push service accepts it, and nothing ever appears.
