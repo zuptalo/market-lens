@@ -42,10 +42,31 @@ docker network create "$NETWORK" >/dev/null
 docker run -d --name "$DB" --network "$NETWORK" \
   -e POSTGRES_USER=market_lens -e POSTGRES_PASSWORD=surface \
   -e POSTGRES_DB=market_lens postgres:18 >/dev/null
+# Wait over TCP from another container, not `docker exec ... pg_isready`.
+#
+# The official image runs a temporary server during initdb that listens on the Unix socket only,
+# then stops it and restarts listening on TCP. `docker exec pg_isready` talks to that socket, so it
+# reports ready while the real server is still coming up — the application then starts, connects
+# during the restart, and is refused. That race failed this job twice before it was understood, and
+# it looked like an application fault both times because the application's error is what gets
+# logged.
+#
+# Asking over the network is the same question the application asks, which is the only readiness
+# worth waiting for.
+ready=false
 for _ in $(seq 1 60); do
-  docker exec "$DB" pg_isready -U market_lens -d market_lens >/dev/null 2>&1 && break
+  if docker run --rm --network "$NETWORK" postgres:18 \
+      pg_isready -h "$DB" -p 5432 -U market_lens -d market_lens >/dev/null 2>&1; then
+    ready=true
+    break
+  fi
   sleep 1
 done
+if [[ "$ready" != true ]]; then
+  echo "PostgreSQL never accepted a network connection; logs follow" >&2
+  docker logs "$DB" 2>&1 | tail -20 >&2
+  exit 1
+fi
 
 echo "==> starting $IMAGE"
 docker run -d --name "$APP" --network "$NETWORK" -p "$PORT:8080" \

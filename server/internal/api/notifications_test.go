@@ -74,7 +74,8 @@ func (s *notificationServiceStub) Subscriptions(_ context.Context, userID string
 	used := time.Date(2026, 9, 18, 9, 0, 0, 0, time.UTC)
 	return []notify.Subscription{{
 		ID: "55555555-5555-4555-8555-555555555555", Label: "Kamran's phone",
-		CreatedAt: used, LastUsedAt: &used,
+		EndpointDigest: "a1b2c3d4e5f60718",
+		CreatedAt:      used, LastUsedAt: &used,
 	}}, nil
 }
 
@@ -148,10 +149,18 @@ func TestADeviceListCarriesNoEndpointAndNoKeys(t *testing.T) {
 	response := performRequest(notificationRouter(&notificationServiceStub{}),
 		"/api/v1/notifications/subscriptions")
 	body := strings.ToLower(response.Body.String())
-	for _, forbidden := range []string{"endpoint", "p256dh", "auth", "https://", "user_agent"} {
+	// endpoint_digest is how a browser finds its own row, so the bare endpoint is what must be
+	// absent rather than the word.
+	for _, forbidden := range []string{"p256dh", "auth", "https://", "user_agent"} {
 		if strings.Contains(body, forbidden) {
 			t.Errorf("the device list carries %q: %s", forbidden, response.Body.String())
 		}
+	}
+	if strings.Contains(body, `"endpoint"`) {
+		t.Errorf("the device list carries the endpoint itself: %s", response.Body.String())
+	}
+	if !strings.Contains(body, "endpoint_digest") {
+		t.Errorf("a browser cannot recognise its own device: %s", response.Body.String())
 	}
 	if !strings.Contains(response.Body.String(), "Kamran's phone") {
 		t.Errorf("the device list does not name the device")

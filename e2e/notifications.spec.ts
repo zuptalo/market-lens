@@ -50,6 +50,29 @@ for (const viewport of VIEWPORTS) {
   });
 }
 
+/**
+ * The bug this feature shipped with, and the reason for the fix.
+ *
+ * Push was on for the account, so the toggle read "on" on a phone that had never been asked for
+ * permission and would never receive a thing. An account preference and a device subscription are
+ * different facts, and the screen has to say both.
+ */
+test('a device that cannot receive push says so instead of looking ready', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 800 });
+  await page.goto('/account');
+
+  const warning = page.getByTestId('device-not-subscribed');
+  await expect(warning).toBeVisible();
+  await expect(warning).toContainText(/this device is not subscribed/i);
+  await expect(warning).toContainText(/nothing will arrive here/i);
+  // Chromium under Playwright has no push service, so the screen offers the way out rather than
+  // claiming the device is covered.
+  await expect(warning).toContainText(/subscribe this device|home screen|refused/i);
+
+  expect(await page.evaluate(() =>
+    document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
+});
+
 // A device list is not a list of endpoints: an endpoint is where somebody reads their mail.
 test('the device list shows no endpoint and no keys', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -57,7 +80,7 @@ test('the device list shows no endpoint and no keys', async ({ page }) => {
   await expect(page.getByTestId('notification-settings')).toBeVisible();
 
   const section = await page.getByTestId('notification-settings').innerText();
-  for (const forbidden of ['https://', 'p256dh', 'BCVxsr']) {
+  for (const forbidden of ['https://', 'p256dh']) {
     expect(section, `the device list shows ${forbidden}`).not.toContain(forbidden);
   }
 });

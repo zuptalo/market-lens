@@ -2,7 +2,9 @@ package notify
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -14,6 +16,16 @@ import (
 )
 
 // The devices a person subscribed, and the instance key their browsers subscribed against.
+
+// EndpointDigest identifies a device to the browser that owns it, without handing out endpoints.
+//
+// A person looking at their devices has to be able to find the one in their hand, and the endpoint
+// is not something a page should hold — it is where somebody reads their mail. A digest is enough:
+// the browser knows its own endpoint and computes the same value; every other row stays opaque.
+func EndpointDigest(endpoint string) string {
+	sum := sha256.Sum256([]byte("market-lens/push-endpoint\x00" + endpoint))
+	return hex.EncodeToString(sum[:])[:16]
+}
 
 // Subscribe records one device. Subscribing the same browser twice replaces rather than duplicates:
 // a browser that re-subscribes has produced a new key pair for the same endpoint, and keeping the
@@ -74,7 +86,7 @@ func (s *Service) Subscriptions(ctx context.Context, userID string) ([]Subscript
 	if err := s.ready(userID); err != nil {
 		return nil, err
 	}
-	rows, err := s.repository.pool.Query(ctx, `SELECT id::text, label, created_at, last_used_at
+	rows, err := s.repository.pool.Query(ctx, `SELECT id::text, label, endpoint, created_at, last_used_at
 		FROM push_subscriptions WHERE user_id = $1 ORDER BY created_at`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("read the devices: %w", err)
@@ -84,10 +96,12 @@ func (s *Service) Subscriptions(ctx context.Context, userID string) ([]Subscript
 	subscriptions := make([]Subscription, 0, 4)
 	for rows.Next() {
 		var subscription Subscription
-		if err := rows.Scan(&subscription.ID, &subscription.Label,
+		var endpoint string
+		if err := rows.Scan(&subscription.ID, &subscription.Label, &endpoint,
 			&subscription.CreatedAt, &subscription.LastUsedAt); err != nil {
 			return nil, fmt.Errorf("scan a device: %w", err)
 		}
+		subscription.EndpointDigest = EndpointDigest(endpoint)
 		subscriptions = append(subscriptions, subscription)
 	}
 	return subscriptions, rows.Err()

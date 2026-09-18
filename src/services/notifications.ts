@@ -92,11 +92,12 @@ export async function fetchSubscriptions(
   const response = await fetcher('/api/v1/notifications/subscriptions', { signal });
   if (!response.ok) throw new Error('Unable to load your devices.');
   const body = await response.json() as {
-    subscriptions?: { id: string; label: string; created_at: string; last_used_at: string | null }[];
+    subscriptions?: { id: string; label: string; endpoint_digest?: string; created_at: string; last_used_at: string | null }[];
   };
   return (body.subscriptions ?? []).map((subscription) => ({
     id: subscription.id,
     label: subscription.label,
+    endpointDigest: subscription.endpoint_digest ?? '',
     createdAt: subscription.created_at,
     lastUsedAt: subscription.last_used_at ?? null,
   }));
@@ -112,11 +113,12 @@ export async function revokeSubscription(
   });
   if (!response.ok) throw new Error('That device could not be removed.');
   const body = await response.json() as {
-    subscriptions?: { id: string; label: string; created_at: string; last_used_at: string | null }[];
+    subscriptions?: { id: string; label: string; endpoint_digest?: string; created_at: string; last_used_at: string | null }[];
   };
   return (body.subscriptions ?? []).map((subscription) => ({
     id: subscription.id,
     label: subscription.label,
+    endpointDigest: subscription.endpoint_digest ?? '',
     createdAt: subscription.created_at,
     lastUsedAt: subscription.last_used_at ?? null,
   }));
@@ -149,9 +151,76 @@ export async function fetchNotificationHistory(
 /** Whether this browser can receive push at all. Safari on iOS only can once installed. */
 export function pushIsAvailable(): boolean {
   return typeof window !== 'undefined'
-    && 'serviceWorker' in navigator
-    && 'PushManager' in window
-    && 'Notification' in window;
+    && typeof navigator !== 'undefined'
+    && Boolean(navigator.serviceWorker)
+    && typeof (window as { PushManager?: unknown }).PushManager !== 'undefined'
+    && typeof (window as { Notification?: unknown }).Notification !== 'undefined';
+}
+
+/**
+ * What this device can and does receive — a different question from what the account prefers.
+ *
+ * Conflating the two is what left a phone showing "push on" while it had never been asked for
+ * permission and would never receive anything. A preference belongs to a person; a subscription
+ * belongs to a device, and only the device can say whether it has one.
+ */
+export interface ThisDevice {
+  /** False on iOS Safari until the app is installed, and on anything without a service worker. */
+  available: boolean;
+  /** What the browser will answer without prompting. `denied` cannot be re-asked from a page. */
+  permission: NotificationPermission | 'unsupported';
+  /** Whether this browser currently holds a push subscription. */
+  subscribed: boolean;
+  /** Matches one row in the device list, so a person can find the device in their hand. */
+  digest: string | null;
+}
+
+/** The digest the server publishes for each device, computed here over this device's endpoint. */
+async function endpointDigest(endpoint: string): Promise<string | null> {
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) return null;
+  const bytes = new TextEncoder().encode(`market-lens/push-endpoint\u0000${endpoint}`);
+  const hashed = await subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(hashed)]
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('')
+    .slice(0, 16);
+}
+
+/**
+ * Whether this device can and does receive push — without hashing anything.
+ *
+ * The digest is deliberately not computed here. Whether a device is covered decides a warning
+ * somebody needs to see; which row in a list it corresponds to is a label. Making the warning wait
+ * on a hash made it arrive a turn of the microtask queue later than the screen that renders it,
+ * which is the sort of ordering that works on one machine and not another.
+ */
+export async function inspectThisDevice(): Promise<ThisDevice> {
+  if (!pushIsAvailable()) {
+    return { available: false, permission: 'unsupported', subscribed: false, digest: null };
+  }
+  const permission = Notification.permission;
+  try {
+    const registration = await navigator.serviceWorker.getRegistration('/');
+    const subscription = await registration?.pushManager.getSubscription();
+    return { available: true, permission, subscribed: Boolean(subscription), digest: null };
+  } catch {
+    // A browser that will not answer is treated as not subscribed, which is the safe way to be
+    // wrong: it offers to subscribe rather than claiming a device is covered when it is not.
+    return { available: true, permission, subscribed: false, digest: null };
+  }
+}
+
+/** Which row in the device list is this one. Cosmetic, and allowed to arrive late. */
+export async function thisDeviceDigest(): Promise<string | null> {
+  if (!pushIsAvailable()) return null;
+  try {
+    const registration = await navigator.serviceWorker.getRegistration('/');
+    const subscription = await registration?.pushManager.getSubscription();
+    return subscription ? endpointDigest(subscription.endpoint) : null;
+  } catch {
+    return null;
+  }
 }
 
 function urlBase64ToUint8Array(value: string): Uint8Array<ArrayBuffer> {
@@ -219,10 +288,11 @@ export async function subscribeThisDevice(
     throw new Error(failure?.error?.message ?? 'This device could not be subscribed.');
   }
   const body = await response.json() as {
-    subscriptions?: { id: string; label: string; created_at: string; last_used_at: string | null }[];
+    subscriptions?: { id: string; label: string; endpoint_digest?: string; created_at: string; last_used_at: string | null }[];
   };
   return (body.subscriptions ?? []).map((item) => ({
-    id: item.id, label: item.label, createdAt: item.created_at, lastUsedAt: item.last_used_at ?? null,
+    id: item.id, label: item.label, endpointDigest: item.endpoint_digest ?? '',
+    createdAt: item.created_at, lastUsedAt: item.last_used_at ?? null,
   }));
 }
 

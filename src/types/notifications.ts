@@ -42,6 +42,8 @@ export interface NotificationSettings {
 export interface PushSubscriptionSummary {
   id: string;
   label: string;
+  /** Lets the browser that owns this device recognise its own row. Every other one is opaque. */
+  endpointDigest: string;
   createdAt: string;
   lastUsedAt: string | null;
 }

@@ -73,6 +73,9 @@ func notificationSettingsDTO(settings notify.Settings) notificationSettingsRespo
 type subscriptionResponse struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
+	// EndpointDigest lets the browser that owns this device recognise its own row. The endpoint
+	// itself is never returned; every other row's digest is opaque.
+	EndpointDigest string `json:"endpoint_digest"`
 	// No endpoint and no keys. They are what is needed to send to a device, not something a page
 	// has any use for — and a list of endpoints is a list of where somebody reads their mail.
 	CreatedAt  time.Time  `json:"created_at"`
@@ -306,7 +309,8 @@ func respondWithSubscriptions(w http.ResponseWriter, r *http.Request, service No
 	for _, subscription := range subscriptions {
 		response = append(response, subscriptionResponse{
 			ID: string(subscription.ID), Label: subscription.Label,
-			CreatedAt: subscription.CreatedAt, LastUsedAt: subscription.LastUsedAt,
+			EndpointDigest: subscription.EndpointDigest,
+			CreatedAt:      subscription.CreatedAt, LastUsedAt: subscription.LastUsedAt,
 		})
 	}
 	httpx.JSON(w, status, map[string]any{"subscriptions": response})

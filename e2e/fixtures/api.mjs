@@ -150,7 +150,9 @@ const routes = new Map(Object.entries({
     nothing_is_on_by_default: true,
   },
   '/api/v1/notifications/subscriptions': { subscriptions: [
-    { id: 'sub1', label: 'iPhone, added 2026-09-01',
+    // A digest no browser in a test will match, so the screen reports this device as uncovered —
+    // which is the state the fix exists for.
+    { id: 'sub1', label: 'iPhone, added 2026-09-01', endpoint_digest: 'anotherdevices0',
       created_at: '2026-09-01T08:00:00Z', last_used_at: '2026-09-18T07:00:00Z' },
   ] },
   '/api/v1/notifications/history': { notifications: [
