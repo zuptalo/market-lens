@@ -227,6 +227,34 @@ fixed height with `flex-wrap` laid the wrapped row out and then clipped it, leav
 focusable and unclickable — and the second time only CI caught it, because Linux renders the font
 fractionally wider than macOS.
 
+Feature 025 (`server/internal/intents`, `specs/025-order-intents/`) completed Milestone 6: a person
+writes down what they are considering, and the product reports what acting on it would do — the
+resulting position, its value, its share of the portfolio, and what each of their own limits would
+then say. It is the closest this product comes to telling somebody what to do, which is why the
+**authorship runs the other way**: the person writes the intent and the product evaluates it.
+
+What it leaves behind:
+
+- **Nothing here is an order, and the absence is asserted rather than reviewed.** No venue, order
+  type, time in force, destination, expiry, broker reference or limit/stop price — checked against
+  the table (`server/internal/db/order_intents_migration_test.go`), against the encoded intent, and
+  against the HTTP response. A field that exists will eventually be filled in and then sent.
+- **Intents are never combined.** Each is measured against the portfolio as it stands, never against
+  another; combining them would need an order of application nobody stated.
+- **Acted on records that the person acted, not that a trade happened.** What they actually paid is
+  a fact only they can assert, and `portfolio` is where they assert it. A test proves settling
+  writes no trade.
+- **A settled intent carries no consequence rather than a zeroed one**, because "it would do
+  nothing" is a different claim from "the question is no longer asked".
+- **Reuse, not a second implementation.** `risk.EvaluateAgainst` evaluates a hypothetical portfolio
+  with the same code that evaluates the real one, and `riskEvaluationDTO` is shared with the risk
+  handler, so a verdict cannot read differently depending on which screen asked.
+
+One frontend trap it exposed: a PrimeVue `Select` opened before its options arrive shows an empty
+dropdown that does **not** repopulate when the data lands. The instrument field is disabled until
+the list is there and says why, and the end-to-end test waits for that as its signal. Separately,
+`InputNumber` commits on blur, so an end-to-end entry needs a `press('Tab')` after `fill`.
+
 Two constraints that outlive any single feature:
 
 - `AUTH_SECRET` is self-provisioned and database-resident, while `EXTERNAL_CREDENTIAL_KEY`
