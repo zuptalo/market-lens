@@ -255,6 +255,29 @@ dropdown that does **not** repopulate when the data lands. The instrument field 
 the list is there and says why, and the end-to-end test waits for that as its signal. Separately,
 `InputNumber` commits on blur, so an end-to-end entry needs a `press('Tab')` after `fill`.
 
+Feature 026 (`server/internal/paper`, `specs/026-paper-trading/`) is Milestone 7: a simulated
+account over stored prices, answering whether the decisions a person actually made would have
+worked — forward, on prices nobody had seen at the time.
+
+What it leaves behind:
+
+- **A fill uses the open of a session strictly after the one the order was placed in**, and a
+  database *trigger* enforces it (a check constraint cannot subquery). It is in the database rather
+  than a service because a lookahead bug produces a flattering result that looks entirely plausible.
+- **Fills are stored, not derived** — the only user-owned figures in this product that are. A fill
+  is a statement about a moment; re-deriving it would let feature 016's re-observation silently
+  rewrite the past. A corrected bar is reported as a **divergence** and the fill stands.
+- **Cash is tracked, unlike feature 022**, so this is the one surface that reports a **total
+  return** — and the screen says why it may, otherwise the two screens read as an inconsistency.
+  It also makes `insufficient_cash` a real outcome; an account that cannot run out of money
+  measures nothing.
+- **Orders come only from promoted intents.** `TestTheProductCreatesNoOrders` gives the system an
+  account, written-down intents and two scheduler passes, and asserts nothing appeared.
+- **FR-024 excludes a strategy-driven paper account**, with a test behind it. Everything needed for
+  one now exists, which is the reason the exclusion is written down rather than assumed.
+- The cost model moved to `server/internal/costs`, shared with feature 021. Three features now price
+  an execution and a second implementation would eventually disagree about one trade.
+
 **Mobile-first is enforced by `e2e/mobile-layout.spec.ts`**, which walks every destination at 320
 and 390 and fails if the *page* scrolls sideways or if a data table does. It exists because the
 product had been shipping a broken phone layout for months behind a prop that did nothing:
