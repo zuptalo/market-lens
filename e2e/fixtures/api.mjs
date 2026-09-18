@@ -135,6 +135,30 @@ const routes = new Map(Object.entries({
     { kind: 'holding_count', threshold: '12', state: 'within', measured: '2',
       denominator: null, absence_reason: null, contributions: [] },
   ] },
+  '/api/v1/notifications/preferences': {
+    preferences: [
+      { kind: 'decision_waiting', channel: 'email', enabled: true },
+      { kind: 'decision_waiting', channel: 'web_push', enabled: false },
+      { kind: 'paper_fill', channel: 'email', enabled: false },
+      { kind: 'paper_fill', channel: 'web_push', enabled: true },
+      { kind: 'pipeline_failure', channel: 'email', enabled: false },
+      { kind: 'pipeline_failure', channel: 'web_push', enabled: false },
+      { kind: 'signal_change', channel: 'email', enabled: false },
+      { kind: 'signal_change', channel: 'web_push', enabled: false },
+    ],
+    quiet_hours: { starts_at: '22:00', ends_at: '07:00', timezone: 'Europe/Stockholm' },
+    nothing_is_on_by_default: true,
+  },
+  '/api/v1/notifications/subscriptions': { subscriptions: [
+    { id: 'sub1', label: 'iPhone, added 2026-09-01',
+      created_at: '2026-09-01T08:00:00Z', last_used_at: '2026-09-18T07:00:00Z' },
+  ] },
+  '/api/v1/notifications/history': { notifications: [
+    { kind: 'decision_waiting', channel: 'email', state: 'sent', count: 3, attempts: 1,
+      last_error: null, created_at: '2026-09-18T06:00:00Z', sent_at: '2026-09-18T06:00:04Z' },
+  ] },
+  '/api/v1/notifications/push-key': {
+    public_key: 'BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4' },
   '/api/v1/paper-account': { starting_cash: '1000000.000000000000', accounting_currency: 'SEK',
     opened_at: '2026-06-01T08:00:00Z',
     costs: { brokerage_bps: '10', brokerage_minimum: '5', slippage_bps: '5',

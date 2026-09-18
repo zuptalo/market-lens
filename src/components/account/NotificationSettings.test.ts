@@ -119,7 +119,7 @@ describe('NotificationSettings', () => {
     const wrapper = mount(NotificationSettings, { global });
     await flushPromises();
     const text = wrapper.text().toLowerCase();
-    for (const forbidden of ['we recommend', 'you should', 'recommended', 'stay informed']) {
+    for (const forbidden of ['recommend', 'you should', 'stay informed', 'never miss']) {
       expect(text).not.toContain(forbidden);
     }
   });
