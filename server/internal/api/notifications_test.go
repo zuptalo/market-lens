@@ -95,7 +95,9 @@ func (s *notificationServiceStub) History(_ context.Context, userID string) ([]n
 
 func (s *notificationServiceStub) PublicPushKey(_ context.Context, userID string) (string, error) {
 	s.askedFor = userID
-	return "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4", nil
+	// Shaped like a key and deliberately not one: this stub proves the public half is served and
+	// the private half is not, which needs no real key material at all.
+	return "a-public-key-in-base64url", nil
 }
 
 func (s *notificationServiceStub) Unsubscribe(_ context.Context, token string) (notify.Kind, notify.Channel, error) {

@@ -157,8 +157,9 @@ const routes = new Map(Object.entries({
     { kind: 'decision_waiting', channel: 'email', state: 'sent', count: 3, attempts: 1,
       last_error: null, created_at: '2026-09-18T06:00:00Z', sent_at: '2026-09-18T06:00:04Z' },
   ] },
-  '/api/v1/notifications/push-key': {
-    public_key: 'BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4' },
+  // Shaped like a key and deliberately not one: no test here subscribes a real browser, so real
+  // key material in a fixture would be a high-entropy string that means nothing.
+  '/api/v1/notifications/push-key': { public_key: 'a-public-key-in-base64url' },
   '/api/v1/paper-account': { starting_cash: '1000000.000000000000', accounting_currency: 'SEK',
     opened_at: '2026-06-01T08:00:00Z',
     costs: { brokerage_bps: '10', brokerage_minimum: '5', slippage_bps: '5',

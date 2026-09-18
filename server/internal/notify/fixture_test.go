@@ -2,8 +2,11 @@ package notify_test
 
 import (
 	"context"
+	"crypto/ecdh"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -156,12 +159,26 @@ func (f *fixture) ask(user notify.UUID, kind notify.Kind, channel notify.Channel
 	}
 }
 
+// subscribe registers a device with a key pair generated for the occasion.
+//
+// Generated rather than copied from anywhere: this fixture needs *a* valid P-256 point and a
+// sixteen-byte secret, not any particular ones. A literal here would be a high-entropy string
+// sitting in the repository meaning nothing, which is exactly what a secret scanner should object
+// to — and did.
 func (f *fixture) subscribe(user notify.UUID, label string) notify.Subscription {
 	f.t.Helper()
+	browserKey, err := ecdh.P256().GenerateKey(rand.Reader)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	browserSecret := make([]byte, 16)
+	if _, err := rand.Read(browserSecret); err != nil {
+		f.t.Fatal(err)
+	}
 	subscription, err := f.service().Subscribe(f.ctx, user.String(), notify.SubscribeRequest{
 		Endpoint: "https://push.example.invalid/" + label,
-		P256DH:   "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4",
-		Auth:     "BTBZMqHH6r4Tts7J_aSIgg",
+		P256DH:   base64.RawURLEncoding.EncodeToString(browserKey.PublicKey().Bytes()),
+		Auth:     base64.RawURLEncoding.EncodeToString(browserSecret),
 		Label:    label,
 	})
 	if err != nil {
