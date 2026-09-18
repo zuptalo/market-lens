@@ -255,6 +255,42 @@ dropdown that does **not** repopulate when the data lands. The instrument field 
 the list is there and says why, and the end-to-end test waits for that as its signal. Separately,
 `InputNumber` commits on blur, so an end-to-end entry needs a `press('Tab')` after `fill`.
 
+Feature 027 (`server/internal/notify`, `specs/027-notifications/`) is Notifications-A: consented
+email and Web Push. It closes the gap seven milestones opened — decisions only a person can make,
+with no way to tell anybody.
+
+What it leaves behind:
+
+- **Nothing is sent to anybody who did not ask.** `TestNothingIsSentToSomebodyWhoDidNotAskForIt` is
+  the first red and the rule everything else arranges itself around. An absent preference row and a
+  disabled one mean the same thing, so nothing is seeded — a seeded row would look like a decision.
+- **The VAPID key pair self-provisions into the database**, following `instance_signing_key`
+  (migration 0011) exactly: `INSERT ... ON CONFLICT DO NOTHING` plus an unconditional `SELECT`, one
+  forever, converging under simultaneous starts. `EXTERNAL_CREDENTIAL_KEY` still does not belong
+  there — it encrypts rows in that same database — but a VAPID key encrypts nothing here.
+  **Rotating it would silently invalidate every subscription**, which is why nothing rotates it.
+- **Web Push is standard-library** (`notify/push`): RFC 8291, 8188 and 8292 with `crypto/ecdh`,
+  `crypto/hkdf`, `crypto/aes` and `crypto/ecdsa`. The encryption is pinned to **RFC 8291 §5's worked
+  example**, so it is checked against the specification rather than against itself — a push a
+  browser cannot decrypt fails silently, with the service accepting it and nothing appearing.
+- **At-most-once is a state machine, not a careful pass.** Claiming is
+  `UPDATE ... WHERE state IN ('pending','failed')`; zero rows means another pass took it. Four
+  simultaneous passes deliver twelve notifications twelve times between them, which is asserted.
+- **Quiet hours are local time plus an IANA zone**, never a UTC offset, and a window whose end is
+  before its start crosses midnight. A notification raised inside is *held*, never dropped.
+- **What a message may carry is a schema**, in `raise.go`: permitted keys per kind, and a list of
+  keys forbidden on every kind. A figure is refused at the source rather than caught in a template
+  review. A push payload carries a kind, a count and a path — no instrument at all.
+- **The advice-vocabulary guard now scans `notify/templates.go`.** The owner chose signal-change
+  alerts knowing they edge toward advice; that guard is what makes it safe, and narrowing it would
+  break this feature first. Note the guard reads *string literals containing a space*, so a
+  forbidden-word list must use single words.
+- **The unsubscribe link needs no session**, because one that does is one people do not use — they
+  mark the mail as spam instead. It is an HMAC over the instance signing key with its own
+  `auth.PurposeUnsubscribe`, names one person, kind and channel, and can only ever turn off.
+- The SMTP section **already existed** and was not rebuilt. It gained a **test send**: saving proves
+  the server accepts a connection, and a server can connect, refuse the sender, and look configured.
+
 Feature 026 (`server/internal/paper`, `specs/026-paper-trading/`) is Milestone 7: a simulated
 account over stored prices, answering whether the decisions a person actually made would have
 worked — forward, on prices nobody had seen at the time.
