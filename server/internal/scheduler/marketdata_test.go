@@ -317,3 +317,40 @@ func schedulerForTest(t *testing.T) *MarketData {
 	}
 	return scheduler
 }
+
+// A notification raised by the night's work is delivered the same night, rather than the next time
+// somebody happens to open the app — which is the entire point of it being a notification.
+type deliveryStub struct {
+	calls int
+	err   error
+}
+
+func (s *deliveryStub) DeliverDue(context.Context) (int, error) {
+	s.calls++
+	return 0, s.err
+}
+
+func TestNotificationsAreDeliveredAfterAnImport(t *testing.T) {
+	deliveries := &deliveryStub{}
+	scheduler := schedulerForTest(t)
+	scheduler.Notifications = deliveries
+
+	if err := scheduler.RunDue(context.Background(), dueTime()); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if deliveries.calls != 1 {
+		t.Errorf("the pass ran %d times after an import, want once", deliveries.calls)
+	}
+}
+
+// Best effort, like the passes beside it. Losing the night's prices because a mail server was down
+// would be the wrong trade entirely.
+func TestAFailedNotificationPassDoesNotFailTheImport(t *testing.T) {
+	deliveries := &deliveryStub{err: errors.New("the mail server is unreachable")}
+	scheduler := schedulerForTest(t)
+	scheduler.Notifications = deliveries
+
+	if err := scheduler.RunDue(context.Background(), dueTime()); err != nil {
+		t.Errorf("a failed notification pass failed the import: %v", err)
+	}
+}

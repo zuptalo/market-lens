@@ -107,6 +107,7 @@ type Dependencies struct {
 	Risk                    RiskService
 	Intents                 IntentsService
 	Paper                   PaperService
+	Notifications           NotificationService
 	FindingDecisions        FindingDecider
 	Events                  EventReader
 	EventHeartbeat          time.Duration
@@ -137,11 +138,22 @@ func NewRouter(deps Dependencies) http.Handler {
 	public.HandleFunc("POST /api/v1/auth/sign-in/start", signInStartHandler(deps.Authentication))
 	public.HandleFunc("POST /api/v1/auth/member/code/verify", verifyMemberCodeHandler(deps.MemberAuth, deps.SecureCookies))
 	public.HandleFunc("POST /api/v1/auth/invitations/accept", acceptInvitationHandler(deps.Invitations, deps.SecureCookies))
+	if deps.Notifications != nil {
+		// The one notification route without a session. An unsubscribe that required signing in is
+		// one people do not use: they mark the mail as spam instead, and the sending domain pays
+		// for it. The token names one person, one kind and one channel, and can only turn it off.
+		public.HandleFunc("POST /api/v1/notifications/unsubscribe", unsubscribeHandler(deps.Notifications))
+	}
 	if deps.StaticDir != "" {
 		authenticationShell := spaHandler(deps.StaticDir)
 		public.Handle("GET /login", authenticationShell)
 		public.Handle("GET /setup", authenticationShell)
 		public.Handle("GET /invite", authenticationShell)
+		// Followed from a link in an email by somebody who is not signed in — which is the point.
+		public.Handle("GET /unsubscribe", authenticationShell)
+		// The service worker must be served from the origin root to be allowed the whole scope, and
+		// it is fetched by the browser without the page's session.
+		public.Handle("GET /sw.js", spaHandler(deps.StaticDir))
 		public.Handle("GET /assets/", authenticationShell)
 		public.Handle("GET /favicon.svg", authenticationShell)
 	}
@@ -220,6 +232,23 @@ func NewRouter(deps Dependencies) http.Handler {
 		protected.Handle("DELETE /api/v1/paper-account/orders/{id}",
 			httpx.RequireCSRF(cancelPaperOrderHandler(deps.Paper)))
 	}
+	if deps.Notifications != nil {
+		protected.HandleFunc("GET /api/v1/notifications/preferences",
+			getNotificationSettingsHandler(deps.Notifications))
+		protected.Handle("PUT /api/v1/notifications/preferences",
+			httpx.RequireCSRF(setNotificationPreferenceHandler(deps.Notifications)))
+		protected.Handle("PUT /api/v1/notifications/quiet-hours",
+			httpx.RequireCSRF(setQuietHoursHandler(deps.Notifications)))
+		protected.HandleFunc("GET /api/v1/notifications/push-key", getPushKeyHandler(deps.Notifications))
+		protected.HandleFunc("GET /api/v1/notifications/subscriptions",
+			listSubscriptionsHandler(deps.Notifications))
+		protected.Handle("POST /api/v1/notifications/subscriptions",
+			httpx.RequireCSRF(subscribeHandler(deps.Notifications)))
+		protected.Handle("DELETE /api/v1/notifications/subscriptions/{id}",
+			httpx.RequireCSRF(revokeSubscriptionHandler(deps.Notifications)))
+		protected.HandleFunc("GET /api/v1/notifications/history",
+			notificationHistoryHandler(deps.Notifications))
+	}
 	if deps.Events != nil {
 		protected.HandleFunc("GET /api/v1/events", eventsHandler(deps.Events, deps.EventHeartbeat,
 			deps.EventBatchLimit, deps.EventRevalidator, deps.EventRevalidateInterval))
@@ -266,12 +295,22 @@ func NewRouter(deps Dependencies) http.Handler {
 	root.Handle("POST /api/v1/auth/sign-in/start", public)
 	root.Handle("POST /api/v1/auth/member/code/verify", public)
 	root.Handle("POST /api/v1/auth/invitations/accept", public)
+	if deps.Notifications != nil {
+		// Followed from a link in an email by somebody who is not signed in, which is the point:
+		// an unsubscribe that requires a sign-in is one people do not use. The token names one
+		// person, one kind and one channel, and can only ever turn it off.
+		root.Handle("POST /api/v1/notifications/unsubscribe", public)
+	}
 	root.HandleFunc("POST /api/v1/auth/owner/recovery/request", func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) })
 	root.HandleFunc("POST /api/v1/auth/owner/recovery/complete", func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) })
 	if deps.StaticDir != "" {
 		root.Handle("GET /login", public)
 		root.Handle("GET /setup", public)
 		root.Handle("GET /invite", public)
+		root.Handle("GET /unsubscribe", public)
+		// The service worker is fetched by the browser without the page's session, and must come
+		// from the origin root to be allowed the whole scope.
+		root.Handle("GET /sw.js", public)
 		root.Handle("GET /assets/", public)
 		root.Handle("GET /favicon.svg", public)
 	}

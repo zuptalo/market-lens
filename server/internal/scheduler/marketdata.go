@@ -65,17 +65,25 @@ type PaperFiller interface {
 	FillPending(context.Context) (int, error)
 }
 
+// NotificationDeliverer sends whatever became due. Best effort like the passes beside it: a
+// delivery that fails leaves the notification stored and due again, and the next pass picks it up.
+type NotificationDeliverer interface {
+	DeliverDue(context.Context) (int, error)
+}
+
 type MarketData struct {
 	// Features, when set, recomputes features after each successful import.
 	Features FeatureComputer
 	// PaperFills, when set, settles pending paper orders after each successful import. A record
 	// only means something if it accrues whether or not anybody visits.
-	PaperFills  PaperFiller
-	config      MarketDataConfig
-	targets     TargetSource
-	importer    Importer
-	mu          sync.Mutex
-	lastSession string
+	PaperFills PaperFiller
+	// Notifications, when set, delivers what the night's work made due.
+	Notifications NotificationDeliverer
+	config        MarketDataConfig
+	targets       TargetSource
+	importer      Importer
+	mu            sync.Mutex
+	lastSession   string
 }
 
 // reobserveSessions is the configured window, with zero meaning one: the behaviour before
@@ -197,6 +205,16 @@ func (s *MarketData) RunDue(ctx context.Context, now time.Time) error {
 				"import_run_id", run.ID, "error", err)
 		} else if filled > 0 {
 			slog.Default().Info("paper orders filled", "import_run_id", run.ID, "filled", filled)
+		}
+	}
+	// Last, so it carries whatever the passes above raised.
+	if s.Notifications != nil {
+		sent, err := s.Notifications.DeliverDue(ctx)
+		if err != nil {
+			slog.Default().Error("the notification pass after import failed",
+				"import_run_id", run.ID, "error", err)
+		} else if sent > 0 {
+			slog.Default().Info("notifications delivered", "import_run_id", run.ID, "sent", sent)
 		}
 	}
 	return nil
