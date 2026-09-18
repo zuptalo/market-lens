@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -250,4 +251,33 @@ func prose(body string) string {
 		kept = append(kept, word)
 	}
 	return strings.Join(kept, " ")
+}
+
+// seedFindingsAwaitingDecision puts the kind of thing this product refuses to settle by itself into
+// the database, so a survey has something to count.
+func (f *fixture) seedFindingsAwaitingDecision(howMany int) {
+	f.t.Helper()
+	f.exec(`INSERT INTO exchanges (id, mic, name, country, currency, timezone)
+		VALUES (gen_random_uuid(), 'XNOT', 'Notify Exchange', 'SE', 'SEK', 'Europe/Stockholm')`)
+	f.exec(`INSERT INTO import_runs (id, kind, provider, status, started_at, finished_at, app_version)
+		VALUES ('70000000-0027-4000-8000-0000000000aa', 'backfill', 'fixture', 'succeeded',
+		        now(), now(), 'test')`)
+	for index := 0; index < howMany; index++ {
+		label := strconv.Itoa(index)
+		f.exec(`INSERT INTO instruments
+			(id, exchange_id, isin, ticker, name, currency, country, instrument_type, active,
+			 purchasability_status)
+			SELECT gen_random_uuid(), e.id, 'SE000000002' || $1, 'NTF' || $1,
+			       'Notify Fixture', 'SEK', 'SE', 'common_stock', true, 'unverified'
+			FROM exchanges e WHERE e.mic = 'XNOT'`, label)
+		// Re-examined and still open: the product looked again and will not settle it by itself.
+		f.exec(`INSERT INTO data_quality_findings
+			(id, instrument_id, session_date, run_id, rule, severity, disposition, detail,
+			 status, created_at, reexamined_at, reexamining_run_id)
+			SELECT gen_random_uuid(), i.id, current_date - $2::int,
+			       '70000000-0027-4000-8000-0000000000aa', 'provider_gap', 'warning', 'flagged',
+			       'the source has no bar for this session', 'open', now(), now(),
+			       '70000000-0027-4000-8000-0000000000aa'
+			FROM instruments i WHERE i.ticker = 'NTF' || $1`, label, index)
+	}
 }

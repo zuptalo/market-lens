@@ -27,6 +27,7 @@ type NotificationService interface {
 	History(ctx context.Context, userID string) ([]notify.Record, error)
 	PublicPushKey(ctx context.Context, userID string) (string, error)
 	Unsubscribe(ctx context.Context, token string) (notify.Kind, notify.Channel, error)
+	SendTestEmail(ctx context.Context, userID string) error
 }
 
 type preferenceResponse struct {
@@ -275,6 +276,22 @@ func unsubscribeHandler(service NotificationService) http.HandlerFunc {
 		httpx.JSON(w, http.StatusOK, map[string]any{
 			"kind": string(kind), "channel": string(channel), "stopped": true,
 		})
+	}
+}
+
+// sendTestEmailHandler proves mail works, to the caller's own address and nowhere else. A test send
+// that took a recipient would be a way to make this installation mail a stranger.
+func sendTestEmailHandler(service NotificationService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := callerOf(w, r)
+		if !ok {
+			return
+		}
+		if err := service.SendTestEmail(r.Context(), userID); err != nil {
+			writeNotificationRefusal(w, err)
+			return
+		}
+		httpx.JSON(w, http.StatusOK, map[string]any{"sent": true})
 	}
 }
 

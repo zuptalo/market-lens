@@ -248,6 +248,8 @@ func NewRouter(deps Dependencies) http.Handler {
 			httpx.RequireCSRF(revokeSubscriptionHandler(deps.Notifications)))
 		protected.HandleFunc("GET /api/v1/notifications/history",
 			notificationHistoryHandler(deps.Notifications))
+		protected.Handle("POST /api/v1/notifications/test-email",
+			httpx.RequireCSRF(sendTestEmailHandler(deps.Notifications)))
 	}
 	if deps.Events != nil {
 		protected.HandleFunc("GET /api/v1/events", eventsHandler(deps.Events, deps.EventHeartbeat,

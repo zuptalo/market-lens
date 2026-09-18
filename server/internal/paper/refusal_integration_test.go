@@ -2,6 +2,7 @@ package paper_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"market-lens/server/internal/intents"
@@ -205,5 +206,47 @@ func TestAnOrderWithNoPriceWaitsRatherThanFailing(t *testing.T) {
 	if order.State != paper.StatePending {
 		t.Errorf("an order still waiting for a price reads %s with reason %v",
 			order.State, order.AbsenceReason)
+	}
+}
+
+// TestAFillTellsThePersonIfTheyAskedToBeTold.
+//
+// The whole reason a paper fill is worth a notification: it happens overnight, with nobody
+// watching. A person who did not ask is still told nothing, which is what the raise checks.
+func TestAFillTellsThePersonIfTheyAskedToBeTold(t *testing.T) {
+	f := newFixture(t)
+	f.open(aliceID, "1000000", "SEK")
+	f.exec(`INSERT INTO notification_preferences (user_id, kind, channel, enabled)
+		VALUES ($1, 'paper_fill', 'email', true)`, aliceID.String())
+
+	intent := f.consider(aliceID, aTicker, intents.DirectionBuy, "100", "120.00")
+	f.promote(aliceID, intent, f.session(10))
+	f.fillPass()
+
+	if told := f.count(`SELECT count(*) FROM notifications
+		WHERE user_id = $1 AND kind = 'paper_fill'`, aliceID.String()); told != 1 {
+		t.Errorf("%d notifications for a person who asked to be told about fills", told)
+	}
+	// And nothing about what they own travelled with it.
+	var detail string
+	if err := f.pool.QueryRow(f.ctx,
+		`SELECT detail::text FROM notifications WHERE user_id = $1`, aliceID.String()).
+		Scan(&detail); err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"price", "quantity", "cash", "value", "600"} {
+		if strings.Contains(detail, forbidden) {
+			t.Errorf("the notification carries %q: %s", forbidden, detail)
+		}
+	}
+
+	// Bob asked for nothing and hears nothing, even about his own account.
+	f.open(bobID, "1000000", "SEK")
+	bobsIntent := f.consider(bobID, aTicker, intents.DirectionBuy, "10", "120.00")
+	f.promote(bobID, bobsIntent, f.session(12))
+	f.fillPass()
+	if told := f.count(`SELECT count(*) FROM notifications WHERE user_id = $1`,
+		bobID.String()); told != 0 {
+		t.Errorf("%d notifications for somebody who asked for none", told)
 	}
 }

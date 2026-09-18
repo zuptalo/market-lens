@@ -136,3 +136,19 @@ func orUnknown(value string) string {
 	}
 	return value
 }
+
+// TestMessage is what the owner gets when they ask whether mail works.
+//
+// A path exercised only by a real alert is one nobody discovers is broken until the alert matters.
+// The existing settings check proves the server accepts a connection; this proves a message arrives,
+// which is a different failure — a server can connect, refuse the sender, and look configured.
+func TestMessage(recipient string) mail.Message {
+	return mail.Message{
+		To:      recipient,
+		Subject: "Market Lens can reach you",
+		Text: "This is a test message from your Market Lens installation.\n\n" +
+			"If you are reading it, the mail server in your settings works and notifications you " +
+			"ask for will arrive here. Nothing else was sent, and nothing was turned on: this " +
+			"message exists only because you pressed the button.",
+	}
+}

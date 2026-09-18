@@ -106,6 +106,11 @@ func (s *notificationServiceStub) Unsubscribe(_ context.Context, token string) (
 	return notify.KindDecisionWaiting, notify.ChannelEmail, nil
 }
 
+func (s *notificationServiceStub) SendTestEmail(_ context.Context, userID string) error {
+	s.askedFor = userID
+	return s.err
+}
+
 func notificationRouter(stub *notificationServiceStub) http.Handler {
 	return NewRouter(authenticatedDependencies(Dependencies{Notifications: stub}))
 }
@@ -275,6 +280,23 @@ func TestOnlyThePublicPushKeyIsServed(t *testing.T) {
 	}
 	if _, present := body["private_key"]; present {
 		t.Errorf("the private key was served")
+	}
+}
+
+// A test send goes to the caller's own address. Taking a recipient would be a way to make this
+// installation mail a stranger.
+func TestATestSendTakesNoRecipient(t *testing.T) {
+	stub := &notificationServiceStub{}
+	response := performNotificationWrite(t, notificationRouter(stub), http.MethodPost,
+		"/api/v1/notifications/test-email", `{"to":"somebody-else@example.com"}`)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", response.Code, response.Body.String())
+	}
+	if stub.askedFor == "" {
+		t.Errorf("the service was not told whose address to use")
+	}
+	if strings.Contains(response.Body.String(), "somebody-else") {
+		t.Errorf("a recipient from the request reached the response")
 	}
 }
 

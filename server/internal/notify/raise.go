@@ -3,6 +3,7 @@ package notify
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -149,4 +150,119 @@ func permittedDetail(kind Kind, detail map[string]string) (map[string]string, er
 		cleaned[key] = value
 	}
 	return cleaned, nil
+}
+
+// RaiseImportFailure tells whoever asked that market data did not arrive.
+//
+// Its own transaction, unlike every other raise here: the import already failed and rolled back
+// whatever it was doing, so there is no caller transaction to join — and the telling is exactly the
+// thing that must survive the failure.
+func (s *Service) RaiseImportFailure(ctx context.Context, provider string) error {
+	if s == nil || s.repository == nil {
+		return errors.New("notification service is not configured")
+	}
+	tx, err := s.repository.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := RaiseIn(ctx, tx, Raise{
+		Kind:       KindPipelineFailure,
+		SubjectKey: "import",
+		Count:      1,
+		Detail:     map[string]string{"provider": provider, "stage": "import"},
+	}, time.Now().UTC()); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// Survey raises the two kinds that come from shared reference data changing.
+//
+// These two differ from the others, and the difference is worth stating. A paper fill and an import
+// failure each have one moment and one transaction to be raised in. A finding waiting to be settled,
+// and a strategy changing its view, are properties of stored data that the nightly pass rewrites
+// wholesale — so the honest boundary is the pass itself, and this runs at the end of it.
+//
+// The consequence is that decisions collapse into one telling: "four decisions are waiting" rather
+// than four separate messages, which is what somebody actually wants at seven in the morning.
+func (s *Service) Survey(ctx context.Context) error {
+	if s == nil || s.repository == nil {
+		return errors.New("notification service is not configured")
+	}
+	tx, err := s.repository.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Decisions only a person can make: findings this product refuses to settle by itself.
+	// Awaiting a decision means the product looked again and the answer did not change: it will
+	// not settle this by itself, and nobody but a person can. Exactly the predicate the Overview
+	// uses, so the two never disagree about how many are waiting.
+	var waiting int
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM data_quality_findings
+		WHERE status = 'open' AND reexamined_at IS NOT NULL`).Scan(&waiting); err != nil {
+		return fmt.Errorf("count what is waiting: %w", err)
+	}
+	if waiting > 0 {
+		if _, err := RaiseIn(ctx, tx, Raise{
+			Kind:       KindDecisionWaiting,
+			SubjectKey: "quality_findings",
+			Count:      waiting,
+			Detail:     map[string]string{"area": "quality"},
+		}, time.Now().UTC()); err != nil {
+			return err
+		}
+	}
+
+	// Instruments whose latest stored view differs from the one before it. Compared rather than
+	// remembered, so a restart cannot make the product forget it already said something.
+	rows, err := tx.Query(ctx, `
+		WITH ranked AS (
+			SELECT s.instrument_id, s.action, s.session_date, st.name AS strategy,
+			       row_number() OVER (PARTITION BY s.instrument_id ORDER BY s.session_date DESC) AS rank
+			FROM signals s
+			JOIN strategies st ON st.id = s.strategy_id
+			WHERE s.action IS NOT NULL
+		)
+		SELECT i.ticker, latest.action, previous.action, latest.strategy
+		FROM ranked latest
+		JOIN ranked previous
+		  ON previous.instrument_id = latest.instrument_id AND previous.rank = 2
+		JOIN instruments i ON i.id = latest.instrument_id
+		WHERE latest.rank = 1 AND latest.action <> previous.action
+		  AND latest.session_date = (SELECT max(session_date) FROM signals)`)
+	if err != nil {
+		return fmt.Errorf("read what changed: %w", err)
+	}
+	type change struct{ ticker, to, from, strategy string }
+	var changes []change
+	for rows.Next() {
+		var found change
+		if err := rows.Scan(&found.ticker, &found.to, &found.from, &found.strategy); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan a change: %w", err)
+		}
+		changes = append(changes, found)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, changed := range changes {
+		if _, err := RaiseIn(ctx, tx, Raise{
+			Kind:       KindSignalChange,
+			SubjectKey: changed.ticker,
+			Count:      1,
+			Detail: map[string]string{
+				"ticker": changed.ticker, "from": changed.from,
+				"to": changed.to, "strategy": changed.strategy,
+			},
+		}, time.Now().UTC()); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
 }

@@ -241,3 +241,51 @@ func TestAskingForPushWithNoDeviceIsNotAFailure(t *testing.T) {
 		t.Errorf("%d pushes were sent with no device subscribed", f.pusher.count())
 	}
 }
+
+// TestASurveyCollapsesDecisionsAndNamesWhatChanged.
+//
+// These two kinds come from shared data the nightly pass rewrites wholesale, so they are raised by
+// a survey rather than inside one transaction. The behaviour that matters is that decisions
+// collapse — one telling saying how many, not one telling each.
+func TestASurveyCollapsesDecisionsAndNamesWhatChanged(t *testing.T) {
+	f := newFixture(t)
+	f.ask(memberID, notify.KindDecisionWaiting, notify.ChannelEmail)
+	f.seedFindingsAwaitingDecision(4)
+
+	if err := f.service().Survey(f.ctx); err != nil {
+		t.Fatalf("survey: %v", err)
+	}
+
+	var raised, count int
+	if err := f.pool.QueryRow(f.ctx,
+		`SELECT count(*), COALESCE(max(count), 0) FROM notifications
+		 WHERE user_id = $1 AND kind = 'decision_waiting'`, memberID.String()).
+		Scan(&raised, &count); err != nil {
+		t.Fatal(err)
+	}
+	if raised != 1 {
+		t.Errorf("%d tellings for four waiting decisions, want one", raised)
+	}
+	if count != 4 {
+		t.Errorf("the telling says %d decisions are waiting, want 4", count)
+	}
+
+	f.deliver()
+	if !strings.Contains(f.mail.last().Text, "4 decisions") {
+		t.Errorf("the message does not say how many are waiting:\n%s", f.mail.last().Text)
+	}
+}
+
+// Nothing waiting means nothing said. Silence is the ordinary day, and a message saying "zero
+// decisions are waiting" would teach somebody to ignore the next one.
+func TestASurveyWithNothingWaitingSaysNothing(t *testing.T) {
+	f := newFixture(t)
+	f.ask(memberID, notify.KindDecisionWaiting, notify.ChannelEmail)
+
+	if err := f.service().Survey(f.ctx); err != nil {
+		t.Fatalf("survey: %v", err)
+	}
+	if raised := f.count(`SELECT count(*) FROM notifications`); raised != 0 {
+		t.Errorf("%d tellings were raised with nothing waiting", raised)
+	}
+}

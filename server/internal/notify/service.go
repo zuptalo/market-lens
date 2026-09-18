@@ -90,3 +90,28 @@ func (s *Service) ready(userID string) error {
 	}
 	return nil
 }
+
+// SendTestEmail proves a message actually arrives, which the settings check cannot.
+//
+// It goes to the caller's own address and nowhere else: a test send that took a recipient would be
+// a way to make this installation mail a stranger.
+func (s *Service) SendTestEmail(ctx context.Context, userID string) error {
+	if err := s.ready(userID); err != nil {
+		return err
+	}
+	if s.mailer == nil {
+		return Refusal{Code: RefusalInvalidSubscribe,
+			Message: "No mail server is configured yet."}
+	}
+	var recipient string
+	err := s.repository.pool.QueryRow(ctx,
+		`SELECT email FROM users WHERE id = $1 AND status = 'active'`, userID).Scan(&recipient)
+	if err != nil {
+		return ErrNotFound
+	}
+	if err := s.mailer.Send(ctx, TestMessage(recipient)); err != nil {
+		return Refusal{Code: RefusalInvalidSubscribe,
+			Message: "The mail server did not accept the message. Check the settings above and try again."}
+	}
+	return nil
+}

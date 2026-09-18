@@ -1284,6 +1284,8 @@ func run() error {
 		// person hears about the night's work the same night rather than the next time somebody
 		// opens the app.
 		job.Notifications = notificationService
+		job.Failures = notificationService
+		job.Surveyor = notificationService
 		job.PaperFills = paper.NewService(paper.NewRepository(pool),
 			intents.NewService(intents.NewRepository(pool),
 				portfolio.NewService(portfolio.NewRepository(pool), slog.Default()),

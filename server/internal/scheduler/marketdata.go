@@ -71,6 +71,18 @@ type NotificationDeliverer interface {
 	DeliverDue(context.Context) (int, error)
 }
 
+// ImportFailureReporter tells whoever asked that market data did not arrive. The owner alone is
+// offered that kind, because nobody else can act on it.
+type ImportFailureReporter interface {
+	RaiseImportFailure(ctx context.Context, provider string) error
+}
+
+// Surveyor raises the notification kinds that come from shared reference data changing rather than
+// from one transaction: what is now waiting to be decided, and which strategy views moved.
+type Surveyor interface {
+	Survey(context.Context) error
+}
+
 type MarketData struct {
 	// Features, when set, recomputes features after each successful import.
 	Features FeatureComputer
@@ -79,11 +91,15 @@ type MarketData struct {
 	PaperFills PaperFiller
 	// Notifications, when set, delivers what the night's work made due.
 	Notifications NotificationDeliverer
-	config        MarketDataConfig
-	targets       TargetSource
-	importer      Importer
-	mu            sync.Mutex
-	lastSession   string
+	// Failures, when set, tells the owner that an import did not complete.
+	Failures ImportFailureReporter
+	// Surveyor, when set, raises the kinds that come from shared data changing.
+	Surveyor    Surveyor
+	config      MarketDataConfig
+	targets     TargetSource
+	importer    Importer
+	mu          sync.Mutex
+	lastSession string
 }
 
 // reobserveSessions is the configured window, with zero meaning one: the behaviour before
@@ -191,6 +207,9 @@ func (s *MarketData) RunDue(ctx context.Context, now time.Time) error {
 		Targets: targets, MaxRetries: s.config.MaxRetries, Workers: s.config.Workers,
 	})
 	if err != nil {
+		// The owner is the only person who can do anything about this, and they will not find out
+		// any other way until a screen shows them older data than it looks like it is showing.
+		s.tellTheOwner(ctx, err)
 		return err
 	}
 	if s.Features != nil {
@@ -205,6 +224,14 @@ func (s *MarketData) RunDue(ctx context.Context, now time.Time) error {
 				"import_run_id", run.ID, "error", err)
 		} else if filled > 0 {
 			slog.Default().Info("paper orders filled", "import_run_id", run.ID, "filled", filled)
+		}
+	}
+	// Survey what the passes above changed in shared data — decisions now waiting, and strategy
+	// views that moved — before delivering, so the night's work goes out in one round.
+	if s.Surveyor != nil {
+		if err := s.Surveyor.Survey(ctx); err != nil {
+			slog.Default().Error("the notification survey after import failed",
+				"import_run_id", run.ID, "error", err)
 		}
 	}
 	// Last, so it carries whatever the passes above raised.
@@ -250,4 +277,18 @@ func (s *MarketData) Run(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+// tellTheOwner raises a pipeline-failure notification, if the owner asked for one.
+//
+// Best effort and deliberately quiet: an import that failed is already returning an error, and
+// failing to tell somebody about it must not replace that error with a different one.
+func (s *MarketData) tellTheOwner(ctx context.Context, cause error) {
+	if s.Failures == nil {
+		return
+	}
+	if err := s.Failures.RaiseImportFailure(ctx, s.config.Provider); err != nil {
+		slog.Default().Error("could not raise a notification about the failed import", "error", err)
+	}
+	_ = cause
 }

@@ -9,6 +9,7 @@ import (
 	"market-lens/server/internal/costs"
 	"market-lens/server/internal/decimal"
 	"market-lens/server/internal/instruments"
+	"market-lens/server/internal/notify"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -318,7 +319,32 @@ func (r *Repository) recordFill(ctx context.Context, order pending, priced bar,
 	if err := publish(ctx, tx, order.userID, order.orderID, "filled"); err != nil {
 		return err
 	}
+	// Tell the person, if they asked to be told. On this transaction: if the fill rolls back, so
+	// does the telling — nobody is informed about something that did not happen.
+	if err := raiseFillNotice(ctx, tx, order, "filled"); err != nil {
+		return err
+	}
 	return tx.Commit(ctx)
+}
+
+// raiseFillNotice is the one place this package knows notifications exist.
+//
+// It carries a ticker and an outcome and nothing else: no price, no quantity, no cash. What
+// somebody owns is not sent anywhere, and the notification schema refuses it if this ever tries.
+func raiseFillNotice(ctx context.Context, tx pgx.Tx, order pending, outcome string) error {
+	var ticker string
+	if err := tx.QueryRow(ctx, `SELECT ticker FROM instruments WHERE id = $1`,
+		order.instrumentID).Scan(&ticker); err != nil {
+		ticker = ""
+	}
+	_, err := notify.RaiseIn(ctx, tx, notify.Raise{
+		Kind:       notify.KindPaperFill,
+		SubjectKey: order.orderID,
+		Count:      1,
+		Detail:     map[string]string{"ticker": ticker, "outcome": outcome},
+		Audience:   []notify.UUID{notify.UUID(order.userID)},
+	}, time.Now().UTC())
+	return err
 }
 
 // markUnfillable settles an order that cannot be filled, with the reason it could not.
@@ -336,6 +362,9 @@ func (r *Repository) markUnfillable(ctx context.Context, order pending, reason A
 		return fmt.Errorf("settle the order: %w", err)
 	}
 	if err := publish(ctx, tx, order.userID, order.orderID, string(reason)); err != nil {
+		return err
+	}
+	if err := raiseFillNotice(ctx, tx, order, string(reason)); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

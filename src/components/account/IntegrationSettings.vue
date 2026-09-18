@@ -9,6 +9,8 @@ import Message from 'primevue/message';
 import Panel from 'primevue/panel';
 import Fieldset from 'primevue/fieldset';
 import type { IntegrationSettingsView, IntegrationUpdateInput } from '@/types/auth';
+import { sendTestEmail } from '@/services/notifications';
+import { authStore } from '@/stores/auth';
 
 const props = defineProps<{
   settings: IntegrationSettingsView | null;
@@ -20,6 +22,28 @@ const props = defineProps<{
   results?: Record<string, string> | null;
 }>();
 const emit = defineEmits<{ save: [value: IntegrationUpdateInput]; verify: [value: IntegrationUpdateInput] }>();
+
+const testing = ref(false);
+const testResult = ref('');
+
+/**
+ * Sends one message to the signed-in person's own address.
+ *
+ * It takes no recipient, on purpose: one would turn this button into a way of making the
+ * installation mail a stranger.
+ */
+async function sendTest(): Promise<void> {
+  testing.value = true;
+  testResult.value = '';
+  try {
+    await sendTestEmail(authStore.state.csrfToken ?? '');
+    testResult.value = 'Sent. If it does not arrive, the server accepted it and something after that did not.';
+  } catch (caught) {
+    testResult.value = caught instanceof Error ? caught.message : 'The message could not be sent.';
+  } finally {
+    testing.value = false;
+  }
+}
 
 const host = ref('');
 const port = ref('587');
@@ -134,6 +158,22 @@ function invalid(field: string): 'true' | undefined {
       </Fieldset>
 
       <Fieldset legend="Email delivery" :pt="{ content: { class: 'form-grid' } }">
+        <!--
+          Saving already proves the server accepts a connection. This proves a message arrives,
+          which is a different failure: a server can connect, refuse the sender, and look configured
+          until the first alert quietly does not turn up.
+        -->
+        <div class="form-field integration-settings__test">
+          <Button
+            type="button"
+            severity="secondary"
+            label="Send a test message to yourself"
+            :loading="testing"
+            @click="sendTest"
+          />
+          <p v-if="testResult" class="integration-settings__test-result">{{ testResult }}</p>
+        </div>
+
         <div class="form-field">
           <label for="integration-smtp-host">SMTP host</label>
           <InputText
@@ -206,5 +246,16 @@ function invalid(field: string): 'true' | undefined {
 <style scoped>
 /* Chrome comes from Fieldset and Panel, and spacing from the shared .form-grid/.form-field
    convention in main.css. Only the error text keeps a size of its own here. */
+.integration-settings__test {
+  grid-column: 1 / -1;
+}
+
+.integration-settings__test-result {
+  margin: 0.5rem 0 0;
+  color: var(--p-text-muted-color);
+  font-size: 0.875rem;
+  max-width: 60ch;
+}
+
 .integration-settings__field-error { margin: 0; font-size: 0.85rem; }
 </style>

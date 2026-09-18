@@ -17,6 +17,7 @@ x-market-lens-access-boundary:
     - /notifications/subscriptions
     - /notifications/subscriptions/{id}
     - /notifications/history
+    - /notifications/test-email
     - /notifications/push-key
   public:
     - /notifications/unsubscribe
@@ -181,6 +182,26 @@ paths:
                   notifications:
                     type: array
                     items: { $ref: "#/components/schemas/NotificationRecord" }
+        "401": { description: No active session }
+
+  /notifications/test-email:
+    post:
+      summary: Prove a message actually arrives
+      description: >
+        Sends one short message to the caller's own address. The settings check proves the server
+        accepts a connection; this proves a message arrives, which is a different failure — a server
+        can connect, refuse the sender, and look configured. It takes no recipient: one would be a
+        way to make this installation mail a stranger.
+      responses:
+        "200":
+          description: The message was accepted by the mail server
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sent: { type: boolean }
+        "400": { $ref: "#/components/responses/Refusal" }
         "401": { description: No active session }
 
   /notifications/unsubscribe:
