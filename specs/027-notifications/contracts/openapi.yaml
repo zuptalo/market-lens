@@ -298,13 +298,19 @@ components:
 
     Subscription:
       type: object
-      required: [id, label, created_at]
+      required: [id, label, endpoint_digest, created_at]
       description: >
         No endpoint and no keys are returned. They are what is needed to send to the device, not
         something a page has any use for.
       properties:
         id: { type: string, format: uuid }
         label: { type: string }
+        endpoint_digest:
+          type: string
+          description: >
+            Lets the browser that owns this device recognise its own row, so a person can tell
+            whether the device in their hand is covered. The endpoint itself is never returned;
+            every other row's digest is opaque.
         created_at: { type: string, format: date-time }
         last_used_at: { type: [string, "null"], format: date-time }
 

@@ -112,10 +112,13 @@ type Settings struct {
 // Subscription is one device, as a person reads it. The endpoint and keys are what is needed to
 // send to it, not something a page has any use for, so they are not part of this.
 type Subscription struct {
-	ID         UUID
-	Label      string
-	CreatedAt  time.Time
-	LastUsedAt *time.Time
+	ID    UUID
+	Label string
+	// EndpointDigest lets the browser that owns this device recognise its own row without the
+	// endpoint ever being returned. Every other row's digest is opaque.
+	EndpointDigest string
+	CreatedAt      time.Time
+	LastUsedAt     *time.Time
 }
 
 // Record is one telling, as a person reads it afterwards — without the payload, which is not kept

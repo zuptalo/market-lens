@@ -11,11 +11,12 @@ import { authStore } from '@/stores/auth';
 import {
   fetchNotificationSettings,
   fetchSubscriptions,
-  pushIsAvailable,
+  inspectThisDevice,
   revokeSubscription,
   setNotificationPreference,
   setQuietHours,
   subscribeThisDevice,
+  type ThisDevice,
 } from '@/services/notifications';
 import type {
   NotificationChannel,
@@ -36,6 +37,22 @@ import type {
 
 const settings = ref<NotificationSettings | null>(null);
 const devices = ref<PushSubscriptionSummary[]>([]);
+
+/**
+ * What this device can and does receive, which is a different question from what the account
+ * prefers. Conflating the two is what let push read "on" on a phone that had never been asked for
+ * permission and would never receive anything.
+ */
+const thisDevice = ref<ThisDevice>({
+  available: false, permission: 'unsupported', subscribed: false, digest: null,
+});
+
+/** True when the account wants push and the device in front of the person cannot deliver it. */
+const pushIsOnButThisDeviceIsNot = computed(() => {
+  const wantsPush = (settings.value?.preferences ?? [])
+    .some((preference) => preference.channel === 'web_push' && preference.enabled);
+  return wantsPush && !thisDevice.value.subscribed;
+});
 const loading = ref(true);
 const busy = ref(false);
 const error = ref('');
@@ -134,6 +151,7 @@ async function load(): Promise<void> {
   } catch {
     devices.value = [];
   }
+  thisDevice.value = await inspectThisDevice();
 }
 
 async function toggle(kind: NotificationKind, channel: NotificationChannel, value: boolean): Promise<void> {
@@ -143,8 +161,16 @@ async function toggle(kind: NotificationKind, channel: NotificationChannel, valu
     settings.value = await setNotificationPreference(kind, channel, value, token());
   } catch {
     notice.value = 'That could not be changed.';
-  } finally {
     busy.value = false;
+    return;
+  }
+  busy.value = false;
+
+  // Turning push on is the moment to ask the browser, and the moment somebody expects to be asked.
+  // Saving the preference and saying nothing is what left a phone silently uncovered: the switch
+  // read on, because the *account* wanted push, while the device had never been asked.
+  if (value && channel === 'web_push' && !thisDevice.value.subscribed) {
+    await subscribe();
   }
 }
 
@@ -167,15 +193,25 @@ async function saveQuietHours(): Promise<void> {
 }
 
 async function subscribe(): Promise<void> {
+  if (!thisDevice.value.available) {
+    notice.value = 'This browser cannot receive push notifications yet.';
+    return;
+  }
   busy.value = true;
   notice.value = '';
   try {
     devices.value = await subscribeThisDevice(deviceLabel(), token());
+    thisDevice.value = await inspectThisDevice();
   } catch (caught) {
     notice.value = caught instanceof Error ? caught.message : 'This device could not be subscribed.';
   } finally {
     busy.value = false;
   }
+}
+
+/** Whether a listed device is the one the person is holding. */
+function isThisDevice(device: PushSubscriptionSummary): boolean {
+  return thisDevice.value.digest !== null && device.endpointDigest === thisDevice.value.digest;
 }
 
 async function remove(id: string): Promise<void> {
@@ -214,6 +250,42 @@ onBeforeUnmount(() => controller?.abort());
 
     <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
     <Message v-else-if="notice" severity="warn" :closable="false">{{ notice }}</Message>
+
+    <!--
+      A preference belongs to a person; a subscription belongs to a device. The switches below say
+      what the account wants, which is the same on every screen this person opens — so a device that
+      cannot deliver any of it has to say so here, where they are looking.
+    -->
+    <Message
+      v-if="settings && pushIsOnButThisDeviceIsNot"
+      severity="warn"
+      :closable="false"
+      data-testid="device-not-subscribed"
+      class="notification-settings__notice"
+    >
+      <template v-if="!thisDevice.available">
+        Push is on for your account, but <strong>this device is not subscribed</strong>, so nothing
+        will arrive here. This browser cannot receive push until Market Lens is installed — on an
+        iPhone, open the Share menu and choose Add to Home Screen, then open it from there.
+      </template>
+      <template v-else-if="thisDevice.permission === 'denied'">
+        Push is on for your account, but <strong>this device is not subscribed</strong>, so nothing
+        will arrive here. This browser has already <strong>refused</strong> notifications, and it
+        will not ask again — allow them for this site in your browser settings first.
+      </template>
+      <template v-else>
+        Push is on for your account, but <strong>this device is not subscribed</strong>, so nothing
+        will arrive here. Your other devices are unaffected.
+        <Button
+          class="notification-settings__subscribe"
+          data-testid="subscribe-this-device"
+          label="Subscribe this device"
+          size="small"
+          :loading="busy"
+          @click="subscribe"
+        />
+      </template>
+    </Message>
 
     <template v-if="settings">
       <div class="notification-settings__kinds">
@@ -284,7 +356,9 @@ onBeforeUnmount(() => controller?.abort());
           <li v-for="device in devices" :key="device.id">
             <span class="notification-settings__title">{{ device.label }}</span>
             <span class="notification-settings__detail">
-              Added {{ formatDateTime(device.createdAt) }}<template v-if="device.lastUsedAt">,
+              <!-- A list of devices is no use if you cannot find the one you are holding. -->
+              <template v-if="isThisDevice(device)"><strong>This device.</strong> </template>Added
+              {{ formatDateTime(device.createdAt) }}<template v-if="device.lastUsedAt">,
                 last used {{ formatDateTime(device.lastUsedAt) }}</template>
             </span>
             <Button
@@ -297,15 +371,18 @@ onBeforeUnmount(() => controller?.abort());
         </ul>
 
         <Button
-          v-if="pushIsAvailable()"
+          v-if="thisDevice.available && !thisDevice.subscribed"
           label="Subscribe this device"
           severity="secondary"
           :loading="busy"
           @click="subscribe"
         />
+        <p v-else-if="!thisDevice.available" class="notification-settings__detail">
+          This browser cannot receive push notifications. On an iPhone, open the Share menu and
+          choose Add to Home Screen, then open Market Lens from there and subscribe.
+        </p>
         <p v-else class="notification-settings__detail">
-          This browser cannot receive push notifications. On an iPhone, add Market Lens to your home
-          screen first.
+          This device is subscribed.
         </p>
       </section>
     </template>
@@ -315,6 +392,10 @@ onBeforeUnmount(() => controller?.abort());
 <style scoped>
 .notification-settings__notice {
   max-width: 70ch;
+}
+
+.notification-settings__subscribe {
+  margin-top: 0.75rem;
 }
 
 .notification-settings__kinds {
