@@ -162,3 +162,54 @@ func emptyTotals() Totals {
 	return Totals{Value: &value, Cost: decZero.String(), Unrealised: &unrealised,
 		Realised: decZero.String(), Complete: true, ReturnAbsence: ReturnAbsence}
 }
+
+// ValueOf prices a hypothetical quantity of any instrument this product carries, in the person's
+// accounting currency.
+//
+// Feature 025 needs it for an intent in something the person does not hold yet: the portfolio
+// values only what is held, but the product knows the price, and reporting "no price" for an
+// instrument it has bars for would be untrue. Valuing it here rather than in the calling package
+// keeps one implementation of what a holding is worth — including the euro cross and the two
+// absences that can arise.
+func (s *Service) ValueOf(ctx context.Context, userID string, instrumentID UUID, quantity string) (Valuation, error) {
+	if err := s.ready(userID); err != nil {
+		return Valuation{}, err
+	}
+	amount, err := parseDec(quantity)
+	if err != nil || amount.Sign() <= 0 {
+		reason := ValuationNoPrice
+		return Valuation{AbsenceReason: &reason}, nil
+	}
+
+	held, err := s.repository.Portfolio(ctx, userID)
+	accounting := defaultCurrency
+	if err == nil {
+		accounting = held.AccountingCurrency
+	} else if !errors.Is(err, ErrNotFound) {
+		return Valuation{}, err
+	}
+
+	currency, err := s.repository.InstrumentCurrency(ctx, instrumentID.String())
+	if err != nil {
+		return Valuation{}, err
+	}
+	if currency == "" {
+		reason := ValuationNoPrice
+		return Valuation{AbsenceReason: &reason}, nil
+	}
+
+	prices, err := s.repository.latestPrices(ctx, []string{instrumentID.String()})
+	if err != nil {
+		return Valuation{}, err
+	}
+	latest, priced := prices[instrumentID]
+	if !priced {
+		reason := ValuationNoPrice
+		return Valuation{AbsenceReason: &reason}, nil
+	}
+	quoted, err := s.repository.ratesOn(ctx, latest.session)
+	if err != nil {
+		return Valuation{}, err
+	}
+	return value(amount, currency, accounting, &latest, quoted), nil
+}

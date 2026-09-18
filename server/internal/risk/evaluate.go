@@ -26,6 +26,25 @@ type group struct {
 	value dec
 }
 
+// EvaluateAgainst measures one person's stated limits against a portfolio that may not be the one
+// they hold.
+//
+// Feature 025 calls it with the holdings a proposed trade would leave behind, so that an intent's
+// consequence and the limits screen can never disagree about the same portfolio. The limits screen
+// calls it with the portfolio unchanged. One implementation of "what share would this be", two
+// callers — the alternative is a second copy that drifts.
+func EvaluateAgainst(limits []Limit, view portfolio.View) ([]Evaluation, error) {
+	evaluations := make([]Evaluation, 0, len(limits))
+	for _, limit := range limits {
+		evaluation, err := evaluate(limit, view)
+		if err != nil {
+			return nil, err
+		}
+		evaluations = append(evaluations, evaluation)
+	}
+	return evaluations, nil
+}
+
 // evaluate measures one limit against a portfolio.
 func evaluate(limit Limit, view portfolio.View) (Evaluation, error) {
 	threshold, err := decimal.ParseDec(limit.Threshold)

@@ -56,23 +56,30 @@ func riskReportDTO(report risk.Report) riskReportResponse {
 		LimitsAreYourOwn:   true,
 	}
 	for _, evaluation := range report.Limits {
-		item := riskEvaluationResponse{
-			Kind: string(evaluation.Kind), Threshold: evaluation.Threshold,
-			State: string(evaluation.State), Measured: evaluation.Measured,
-			Denominator:   evaluation.Denominator,
-			Contributions: make([]riskContributionResponse, 0, len(evaluation.Contributions)),
-		}
-		if evaluation.AbsenceReason != nil {
-			value := string(*evaluation.AbsenceReason)
-			item.AbsenceReason = &value
-		}
-		for _, contribution := range evaluation.Contributions {
-			item.Contributions = append(item.Contributions, riskContributionResponse{
-				Label: contribution.Label, Value: contribution.Value, Share: contribution.Share})
-		}
-		response.Limits = append(response.Limits, item)
+		response.Limits = append(response.Limits, riskEvaluationDTO(evaluation))
 	}
 	return response
+}
+
+// riskEvaluationDTO is shared with the order-intent feature, which reports what each of a person's
+// limits would say if they acted. One shape, so a verdict cannot read differently depending on
+// which screen asked for it.
+func riskEvaluationDTO(evaluation risk.Evaluation) riskEvaluationResponse {
+	item := riskEvaluationResponse{
+		Kind: string(evaluation.Kind), Threshold: evaluation.Threshold,
+		State: string(evaluation.State), Measured: evaluation.Measured,
+		Denominator:   evaluation.Denominator,
+		Contributions: make([]riskContributionResponse, 0, len(evaluation.Contributions)),
+	}
+	if evaluation.AbsenceReason != nil {
+		value := string(*evaluation.AbsenceReason)
+		item.AbsenceReason = &value
+	}
+	for _, contribution := range evaluation.Contributions {
+		item.Contributions = append(item.Contributions, riskContributionResponse{
+			Label: contribution.Label, Value: contribution.Value, Share: contribution.Share})
+	}
+	return item
 }
 
 func getRiskLimitsHandler(service RiskService) http.HandlerFunc {

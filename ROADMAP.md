@@ -33,7 +33,7 @@ without a reviewed feature spec and valid red test.
 | 3 | Reusable feature engine | Shipped | [`013-feature-engine`](specs/013-feature-engine/spec.md) and [plan](specs/013-feature-engine/plan.md) | Milestone 1 | Deterministic, versioned, point-in-time returns, trend, momentum, relative strength, volatility, ATR, RSI/MACD, drawdown, volume and regime features over stored sessions, with leakage proven by test. Relative strength is measured against an equal-weighted composite of the curated universe, which needed no new data. Markets reads its three statistics from the engine. |
 | 4 | Deterministic strategies and signals | Shipped | [015](specs/015-strategies-and-signals/spec.md) | Milestone 3 | Versioned momentum/trend strategy, parameters, immutable actions/scores/confidence/explanations and reproducibility. |
 | 5 | Reproducible backtesting | Shipped | [021](specs/021-reproducible-backtesting/spec.md) | Milestone 4; benchmark data | Historical simulation, accounting, brokerage/FX/slippage, benchmarks, metrics, curves, and traceable trades/signals. |
-| 6 | Personal tracking, portfolio, and risk engine | In progress | [022](specs/022-personal-portfolio/spec.md) (holdings) and [023](specs/023-personal-risk-limits/spec.md) (limits) shipped; order intents not yet specified | Security-A; Milestone 4; preferably Milestone 5 evidence | User-owned holdings/trades/tracking rules, positions, cash/P&L/exposures, independent limits/rejections/modifications, and order intents. |
+| 6 | Personal tracking, portfolio, and risk engine | Complete | [022](specs/022-personal-portfolio/spec.md) (holdings), [023](specs/023-personal-risk-limits/spec.md) (limits) and [025](specs/025-order-intents/spec.md) (order intents) shipped | Security-A; Milestone 4; preferably Milestone 5 evidence | User-owned holdings/trades/tracking rules, positions, cash/P&L/exposures, independent limits/rejections/modifications, and order intents. |
 | 7 | Paper trading | Backlog | Not yet specified | Milestones 1, 4, and 6 | Permanent simulated orders/trades and forward performance using shared strategy/risk/accounting. |
 | Notifications-A | Email and Web Push alerts | Backlog | Not yet specified | Security-A; Experience-A; explainable signals and user tracking | Granular consented alerts, quiet/frequency controls, per-device revocation, minimum private payloads, and provider-outage resilience. |
 | 8 | Advanced analysis | Deferred | Not yet specified | Trusted Milestones 1–7 | Hourly data, more markets/strategies, comparisons, richer costs, fundamentals, news, notifications. |
@@ -176,9 +176,28 @@ Feature 022 values holdings only at their latest stored session and tracks no ca
 value over time does not exist to measure against. That is the decision to revisit if drawdown
 matters more than the reasons feature 022 gave for not tracking cash.
 
-**Order intents are what remains of Milestone 6**, and they are what the vision's risk engine
-actually rejects or modifies — this feature built the half that measures, and that half needed
-nothing proposed to measure against.
+**Order intents completed Milestone 6.** Feature 025 is the half the vision described as a risk
+engine rejecting or modifying recommendations a strategy generated — and it is built with the
+authorship reversed. Feature 021 measured that strategy over ten years and found it lost to two of
+its three benchmarks with trading costs near 3.1% of equity a year; generating trades from it would
+have contradicted every other refusal in this codebase, in the one place the contradiction costs
+money. So the person writes down what they are considering, and the product reports what acting on
+it would do: the resulting position, what it would be worth, its share of the portfolio, and what
+each of their own limits would then say.
+
+Three properties make it safe to have. **Nothing here is an order** — no venue, no order type, no
+time in force, no destination — and the absence is asserted rather than reviewed, against the table,
+the encoded intent and the HTTP response, because a field that exists will eventually be filled in
+and sent. **Intents are never combined**: each is measured against the portfolio as it stands, since
+combining them would need an order of application nobody stated. And **marking one acted on records
+that the person acted, not that a trade happened** — what they actually paid is a fact only they can
+assert, and feature 022 is where they assert it.
+
+Two smaller decisions it settled. An intent to sell more than is held is *reported* with a negative
+resulting position rather than refused, because an intent is a thought and a notebook that refuses a
+thought is a strange one — while the same sale recorded as a trade stays refused, since that is a
+claim about the past. And a settled intent carries no consequence at all rather than a zeroed one,
+because "it would do nothing" is a different claim from "the question is no longer asked".
 
 Feature 024 then replaced the Overview, which had been a foundation-stage stub telling signed-in
 owners that shipped features "will be implemented from future specifications". It now answers the

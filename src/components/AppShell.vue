@@ -22,6 +22,7 @@ const auth = useAuth();
         <RouterLink v-if="auth.state.status === 'authenticated'" to="/signals">Signals</RouterLink>
         <RouterLink v-if="auth.state.status === 'authenticated'" to="/portfolio">Portfolio</RouterLink>
         <RouterLink v-if="auth.state.status === 'authenticated'" to="/risk">Limits</RouterLink>
+        <RouterLink v-if="auth.state.status === 'authenticated'" to="/intents">Intents</RouterLink>
         <RouterLink v-if="auth.state.status === 'authenticated'" to="/backtests">Backtests</RouterLink>
         <RouterLink v-if="auth.state.status === 'authenticated'" to="/operations">Operations</RouterLink>
         <RouterLink v-if="auth.state.status === 'authenticated'" to="/account">Account</RouterLink>

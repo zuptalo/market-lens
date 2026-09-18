@@ -31,6 +31,7 @@ import (
 	"market-lens/server/internal/features"
 	"market-lens/server/internal/identity"
 	"market-lens/server/internal/instruments"
+	"market-lens/server/internal/intents"
 	"market-lens/server/internal/mail"
 	"market-lens/server/internal/marketdata"
 	"market-lens/server/internal/marketdata/eodhd"
@@ -1248,6 +1249,8 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	portfolioService := portfolio.NewService(portfolio.NewRepository(pool), slog.Default())
+	riskService := risk.NewService(risk.NewRepository(pool), portfolioService, slog.Default())
 	handler := api.NewRouter(api.Dependencies{
 		Database: pool, AllowedOrigins: cfg.AllowedOrigins, StaticDir: cfg.StaticDir, Version: version,
 		Authenticator: authenticationService, Identity: identityService, Authentication: authenticationService,
@@ -1267,9 +1270,12 @@ func run() error {
 		Features:      features.NewRepository(pool),
 		Signals:       strategies.NewRepository(pool),
 		Backtests:     backtest.NewRepository(pool),
-		Portfolio:     portfolio.NewService(portfolio.NewRepository(pool), slog.Default()),
-		Risk: risk.NewService(risk.NewRepository(pool),
-			portfolio.NewService(portfolio.NewRepository(pool), slog.Default()), slog.Default()),
+		Portfolio:     portfolioService,
+		Risk:          riskService,
+		// What a person is considering is evaluated against their own holdings and their own
+		// limits, so it is handed the same two services rather than a second copy of either.
+		Intents: intents.NewService(intents.NewRepository(pool), portfolioService, riskService,
+			slog.Default()),
 		// Reading findings is for every authenticated user; deciding about one is the owner's.
 		FindingDecisions: marketdata.NewRepository(pool),
 		Events:           clientevents.NewService(clientevents.NewRepository(pool)),

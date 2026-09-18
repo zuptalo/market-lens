@@ -653,3 +653,62 @@ export interface RiskReport {
   /** Always true. These are the person's own rules; the product neither sets them nor advises. */
   limitsAreYourOwn: boolean;
 }
+
+/**
+ * Order intents (feature 025).
+ *
+ * An intent is something a person wrote down that they are considering. It is not an order: there is
+ * no venue, no order type, no time in force and no destination, and nothing below could be sent
+ * anywhere. The product reports what acting on it would do and says nothing about whether to.
+ */
+
+export type IntentDirection = 'buy' | 'sell';
+
+/** Three, and none of them implies transmission. `acted_on` records that the person acted. */
+export type IntentStatus = 'considering' | 'withdrawn' | 'acted_on';
+
+/** What acting on an intent today would do. Absent once the intent is settled. */
+export interface IntentConsequence {
+  /** May be negative, when an intent proposes selling more than is held. Reported, not refused. */
+  resultingQuantity: string;
+  resultingValue: string | null;
+  resultingShare: string | null;
+  /** The portfolio total the share was measured against, so the percentage can be checked. */
+  denominator: string | null;
+  absenceReason: string | null;
+  /** What each of the person's own limits would say afterwards. */
+  limits: LimitEvaluation[];
+}
+
+export interface OrderIntent {
+  id: string;
+  instrumentId: string;
+  ticker: string;
+  name: string;
+  currency: string;
+  direction: IntentDirection;
+  quantity: string;
+  price: string;
+  costs: string;
+  status: IntentStatus;
+  recordedAt: string;
+  settledAt: string | null;
+  consequence: IntentConsequence | null;
+}
+
+export interface IntentReport {
+  /** Empty means the person is considering nothing, which is what everybody starts with. */
+  intents: OrderIntent[];
+  /** Always true. Each intent is measured against the portfolio as it stands, never against another. */
+  evaluatedIndependently: boolean;
+  /** Always true. The product records what somebody is considering and offers no advice. */
+  recordsWhatYouAreConsidering: boolean;
+}
+
+export interface IntentInput {
+  instrumentId: string;
+  direction: IntentDirection;
+  quantity: string;
+  price: string;
+  costs: string;
+}
