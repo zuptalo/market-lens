@@ -1,6 +1,10 @@
 package backtest
 
-import "sort"
+import (
+	"sort"
+
+	"market-lens/server/internal/costs"
+)
 
 // The execution rules.
 //
@@ -68,20 +72,13 @@ func (e *engine) rate(currency string, session SessionDate) (value dec, converte
 	return quoted, true, true
 }
 
-// toAccounting converts an amount in a listing currency into the accounting currency.
-//
-// The stored rate is quoted with the accounting currency as the base — EURSEK is the number of
-// kronor one euro buys — so converting into the accounting currency divides. The inverse is never
-// stored, so the two directions cannot disagree.
+// The cost arithmetic lives in internal/costs, because feature 026 fills a paper order with the
+// same model and a second implementation would eventually disagree with this one about one trade.
+// The wrappers below keep this package's own vocabulary.
 func toAccounting(amount, rate dec, converted bool) dec {
-	if !converted {
-		return amount
-	}
-	return amount.Div(rate)
+	return costs.ToAccounting(amount, rate, converted)
 }
 
-// costsOf prices one execution. Every intermediate is rounded to the stored precision before the
-// next step reads it, so the stored figures reconcile with each other exactly.
 type executionCosts struct {
 	grossAccounting dec
 	slippage        dec
@@ -91,32 +88,14 @@ type executionCosts struct {
 }
 
 func (e *engine) costsOf(direction Direction, quantity, price, rate dec, converted bool) executionCosts {
-	grossListing := price.Mul(quantity)
-	slippageListing := grossListing.Mul(e.slippage)
-	gross := toAccounting(grossListing, rate, converted)
-	slippage := toAccounting(slippageListing, rate, converted)
-
-	var spread dec
-	if converted {
-		// The spread is charged on what actually crossed the currency, which is the consideration
-		// plus or minus the slippage rather than the headline amount.
-		base := gross.Add(slippage)
-		if direction == DirectionSell {
-			base = gross.Sub(slippage)
-		}
-		spread = base.Mul(e.spread)
-	} else {
-		spread = decZero
+	priced := costs.Price(costs.Model{
+		Slippage: e.slippage, Spread: e.spread,
+		BrokerageRate: e.brokerageRate, BrokerageMinimum: e.brokerageMinimum,
+	}, costs.Direction(direction), quantity, price, rate, converted)
+	return executionCosts{
+		grossAccounting: priced.Gross, slippage: priced.Slippage, spread: priced.Spread,
+		brokerage: priced.Brokerage, cashEffect: priced.CashEffect,
 	}
-	brokerage := gross.Mul(e.brokerageRate).Max(e.brokerageMinimum)
-
-	costs := executionCosts{grossAccounting: gross, slippage: slippage, spread: spread, brokerage: brokerage}
-	if direction == DirectionBuy {
-		costs.cashEffect = gross.Add(slippage).Add(spread).Add(brokerage).Neg()
-	} else {
-		costs.cashEffect = gross.Sub(slippage).Sub(spread).Sub(brokerage)
-	}
-	return costs
 }
 
 // affordableQuantity is how many whole shares a budget buys once every stated cost is allowed for.
