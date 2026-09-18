@@ -54,9 +54,23 @@ type FeatureComputer interface {
 	ComputeSinceRun(context.Context, instruments.UUID) error
 }
 
+// PaperFiller settles the paper orders that now have a price. It hangs off the import because that
+// is exactly when new prices exist and never otherwise — a second schedule would have to be kept in
+// step with the data, and would drift.
+//
+// Best effort, like the feature computation beside it: a pass that fails leaves the import
+// successful and its bars stored, and the next pass picks the work up. Losing a night's prices
+// because one order could not be decided would be the wrong trade.
+type PaperFiller interface {
+	FillPending(context.Context) (int, error)
+}
+
 type MarketData struct {
 	// Features, when set, recomputes features after each successful import.
-	Features    FeatureComputer
+	Features FeatureComputer
+	// PaperFills, when set, settles pending paper orders after each successful import. A record
+	// only means something if it accrues whether or not anybody visits.
+	PaperFills  PaperFiller
 	config      MarketDataConfig
 	targets     TargetSource
 	importer    Importer
@@ -174,6 +188,15 @@ func (s *MarketData) RunDue(ctx context.Context, now time.Time) error {
 	if s.Features != nil {
 		if err := s.Features.ComputeSinceRun(ctx, run.ID); err != nil {
 			slog.Default().Error("feature computation after import failed", "import_run_id", run.ID, "error", err)
+		}
+	}
+	if s.PaperFills != nil {
+		filled, err := s.PaperFills.FillPending(ctx)
+		if err != nil {
+			slog.Default().Error("the paper fill pass after import failed",
+				"import_run_id", run.ID, "error", err)
+		} else if filled > 0 {
+			slog.Default().Info("paper orders filled", "import_run_id", run.ID, "filled", filled)
 		}
 	}
 	return nil

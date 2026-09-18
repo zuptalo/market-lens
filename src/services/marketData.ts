@@ -16,6 +16,9 @@ import type {
   IntentInput,
   IntentReport,
   IntentStatus,
+  PaperAbsenceReason,
+  PaperAccount,
+  PaperOrderState,
   TradeDirection,
   TradeInput,
   TradeRefusal,
@@ -449,6 +452,9 @@ export const MARKET_DATA_EVENT_TYPES = [
   // What a person is considering. The event names the intent, never its consequence — that is
   // computed on read, so an open page re-reads it through the authorized path.
   'order_intents.changed.v1',
+  // A person's simulated account. Published when an order is promoted, cancelled or filled — the
+  // last of which happens on the server after an import, with nobody watching.
+  'paper_account.changed.v1',
 ] as const;
 
 /** What a market-data event says about the change it reports. */
@@ -1329,4 +1335,155 @@ export async function settleOrderIntent(
   });
   if (!response.ok) throw await toTradeRefusal(response);
   return toIntentReport(await response.json() as IntentReportWire);
+}
+
+/* Paper trading (feature 026). Private to the caller, like the portfolio, the limits and the
+ * intents.
+ *
+ * There is no function here that creates an order from a signal or a strategy. An order exists
+ * because a person promoted an intent they wrote down themselves, and nothing else. */
+
+interface PaperAccountWire {
+  starting_cash: string;
+  accounting_currency: string;
+  opened_at: string;
+  costs: {
+    brokerage_bps: string; brokerage_minimum: string;
+    slippage_bps: string; currency_spread_bps: string;
+  };
+  cash: string;
+  holdings: {
+    instrument_id: string; ticker: string; name: string; currency: string;
+    quantity: string; cost: string; value: string | null; unrealised: string | null;
+    session: string | null; absence_reason: string | null;
+    comparison: {
+      series: string; holding_return: string | null;
+      benchmark_return: string | null; absence_reason: string | null;
+    };
+  }[];
+  orders: {
+    id: string; intent_id: string; instrument_id: string; ticker: string; name: string;
+    currency: string; direction: IntentDirection; quantity: string; expected_price: string;
+    placed_session: string; state: PaperOrderState; absence_reason: PaperAbsenceReason | null;
+    placed_at: string; settled_at: string | null;
+    fill: {
+      fill_session: string; open_price: string; quantity: string; costs: string;
+      cash_effect: string; conversion_rate: string; bar_diverged: boolean; filled_at: string;
+    } | null;
+  }[];
+  total: {
+    value: string | null; cost: string; unrealised: string | null; realised: string;
+    total_return: string | null; complete: boolean; incomplete_reason: string | null;
+  };
+  is_a_simulation: boolean;
+}
+
+function toPaperAccount(wire: PaperAccountWire): PaperAccount {
+  return {
+    startingCash: wire.starting_cash,
+    accountingCurrency: wire.accounting_currency,
+    openedAt: wire.opened_at,
+    costs: {
+      brokerageBps: wire.costs.brokerage_bps,
+      brokerageMinimum: wire.costs.brokerage_minimum,
+      slippageBps: wire.costs.slippage_bps,
+      currencySpreadBps: wire.costs.currency_spread_bps,
+    },
+    cash: wire.cash,
+    holdings: (wire.holdings ?? []).map((holding) => ({
+      instrumentId: holding.instrument_id, ticker: holding.ticker, name: holding.name,
+      currency: holding.currency, quantity: holding.quantity, cost: holding.cost,
+      value: holding.value ?? null, unrealised: holding.unrealised ?? null,
+      session: holding.session ?? null, absenceReason: holding.absence_reason ?? null,
+      comparison: {
+        series: holding.comparison.series,
+        holdingReturn: holding.comparison.holding_return ?? null,
+        benchmarkReturn: holding.comparison.benchmark_return ?? null,
+        absenceReason: holding.comparison.absence_reason ?? null,
+      },
+    })),
+    orders: (wire.orders ?? []).map((order) => ({
+      id: order.id, intentId: order.intent_id, instrumentId: order.instrument_id,
+      ticker: order.ticker, name: order.name, currency: order.currency,
+      direction: order.direction, quantity: order.quantity,
+      expectedPrice: order.expected_price, placedSession: order.placed_session,
+      state: order.state, absenceReason: order.absence_reason ?? null,
+      placedAt: order.placed_at, settledAt: order.settled_at ?? null,
+      // An order that did not fill carries no fill at all rather than a zeroed one: "it cost
+      // nothing" is a different claim from "it did not happen".
+      fill: order.fill
+        ? {
+          fillSession: order.fill.fill_session, openPrice: order.fill.open_price,
+          quantity: order.fill.quantity, costs: order.fill.costs,
+          cashEffect: order.fill.cash_effect, conversionRate: order.fill.conversion_rate,
+          barDiverged: order.fill.bar_diverged === true, filledAt: order.fill.filled_at,
+        }
+        : null,
+    })),
+    totals: {
+      value: wire.total.value ?? null, cost: wire.total.cost,
+      unrealised: wire.total.unrealised ?? null, realised: wire.total.realised,
+      totalReturn: wire.total.total_return ?? null, complete: wire.total.complete,
+      incompleteReason: wire.total.incomplete_reason ?? null,
+    },
+    isASimulation: wire.is_a_simulation !== false,
+  };
+}
+
+/** The account, what it holds, and how it has done. Null when the person has not opened one. */
+export async function fetchPaperAccount(
+  fetcher: Fetcher = fetch,
+  signal?: AbortSignal,
+): Promise<PaperAccount | null> {
+  const response = await fetcher('/api/v1/paper-account', { signal });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error('Unable to load your paper account.');
+  return toPaperAccount(await response.json() as PaperAccountWire);
+}
+
+/** Open the account. Once: its terms cannot be changed afterwards. */
+export async function openPaperAccount(
+  startingCash: string,
+  accountingCurrency: string,
+  csrfToken: string,
+  fetcher: Fetcher = fetch,
+): Promise<PaperAccount> {
+  const response = await fetcher('/api/v1/paper-account', {
+    method: 'POST', headers: writeHeaders(csrfToken),
+    body: JSON.stringify({ starting_cash: startingCash, accounting_currency: accountingCurrency }),
+  });
+  if (!response.ok) throw await toTradeRefusal(response);
+  return toPaperAccount(await response.json() as PaperAccountWire);
+}
+
+/**
+ * Promote an intent into a pending order.
+ *
+ * The only way an order comes into existence. It fills at the open of the first stored session
+ * after the one it was placed in — a price that did not exist when it was placed.
+ */
+export async function promotePaperOrder(
+  intentId: string,
+  csrfToken: string,
+  fetcher: Fetcher = fetch,
+): Promise<PaperAccount> {
+  const response = await fetcher('/api/v1/paper-account/orders', {
+    method: 'POST', headers: writeHeaders(csrfToken),
+    body: JSON.stringify({ intent_id: intentId }),
+  });
+  if (!response.ok) throw await toTradeRefusal(response);
+  return toPaperAccount(await response.json() as PaperAccountWire);
+}
+
+/** Cancel a pending order. A filled one is permanent. */
+export async function cancelPaperOrder(
+  orderId: string,
+  csrfToken: string,
+  fetcher: Fetcher = fetch,
+): Promise<PaperAccount> {
+  const response = await fetcher(`/api/v1/paper-account/orders/${encodeURIComponent(orderId)}`, {
+    method: 'DELETE', headers: writeHeaders(csrfToken),
+  });
+  if (!response.ok) throw await toTradeRefusal(response);
+  return toPaperAccount(await response.json() as PaperAccountWire);
 }

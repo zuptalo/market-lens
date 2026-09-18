@@ -236,8 +236,8 @@ func TestFeatureEngineMigrationsUpgradeVersionSixteen(t *testing.T) {
 	}
 	// The upgrade runs every migration, so this tracks the head of the ordered set. It exists
 	// to catch a migration that failed to apply, not to pin a number.
-	if latest != 28 {
-		t.Errorf("schema is at version %d after upgrade, want 28", latest)
+	if latest != 29 {
+		t.Errorf("schema is at version %d after upgrade, want 29", latest)
 	}
 }
 

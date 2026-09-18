@@ -34,7 +34,7 @@ without a reviewed feature spec and valid red test.
 | 4 | Deterministic strategies and signals | Shipped | [015](specs/015-strategies-and-signals/spec.md) | Milestone 3 | Versioned momentum/trend strategy, parameters, immutable actions/scores/confidence/explanations and reproducibility. |
 | 5 | Reproducible backtesting | Shipped | [021](specs/021-reproducible-backtesting/spec.md) | Milestone 4; benchmark data | Historical simulation, accounting, brokerage/FX/slippage, benchmarks, metrics, curves, and traceable trades/signals. |
 | 6 | Personal tracking, portfolio, and risk engine | Complete | [022](specs/022-personal-portfolio/spec.md) (holdings), [023](specs/023-personal-risk-limits/spec.md) (limits) and [025](specs/025-order-intents/spec.md) (order intents) shipped | Security-A; Milestone 4; preferably Milestone 5 evidence | User-owned holdings/trades/tracking rules, positions, cash/P&L/exposures, independent limits/rejections/modifications, and order intents. |
-| 7 | Paper trading | Backlog | Not yet specified | Milestones 1, 4, and 6 | Permanent simulated orders/trades and forward performance using shared strategy/risk/accounting. |
+| 7 | Paper trading | Complete | [026](specs/026-paper-trading/spec.md) shipped | Milestones 1, 4, and 6 | Permanent simulated orders/trades and forward performance using shared strategy/risk/accounting. |
 | Notifications-A | Email and Web Push alerts | Backlog | Not yet specified | Security-A; Experience-A; explainable signals and user tracking | Granular consented alerts, quiet/frequency controls, per-device revocation, minimum private payloads, and provider-outage resilience. |
 | 8 | Advanced analysis | Deferred | Not yet specified | Trusted Milestones 1–7 | Hourly data, more markets/strategies, comparisons, richer costs, fundamentals, news, notifications. |
 | 9 | Machine-learning experimentation | Deferred | Not yet specified | Trusted deterministic platform | Time-aware research and out-of-sample classification/ranking compared with deterministic baselines. |
@@ -198,6 +198,32 @@ resulting position rather than refused, because an intent is a thought and a not
 thought is a strange one — while the same sale recorded as a trade stays refused, since that is a
 claim about the past. And a settled intent carries no consequence at all rather than a zeroed one,
 because "it would do nothing" is a different claim from "the question is no longer asked".
+
+**Milestone 7 is paper trading**, and feature 026 is the answer to the one question nothing else
+here could ask: would the decisions somebody actually made have worked? Forward, on prices nobody
+had seen when the order was placed.
+
+Three decisions shaped it, and each was put to the owner before planning. A fill uses the **open of
+the session after** the order was placed, which is feature 021's rule kept rather than re-argued —
+it is the only price in the stored data that provably did not exist at the time. The account moves
+on a **scheduled pass after each import**, because a track record that only accrues when somebody
+visits is not a track record. And orders come **only from promoted intents**, which keeps feature
+025's authorship reversal intact in the place a convincing equity curve would do the most damage.
+
+Two things it settled that the rest of the product had avoided. **Cash is tracked**, unlike feature
+022 — the product recorded every movement of this account, so the figure is exact rather than
+invented, which makes this the single surface in the product that reports a **total return**, and
+makes running out of money a real outcome rather than an impossibility. And **a fill is stored
+rather than derived**: everything else user-owned here is recomputed on read, but a fill is a
+statement about a moment, and re-deriving it would let a corrected bar silently rewrite history. A
+later correction is reported as a divergence instead.
+
+What it deliberately does not do is **run a strategy forward**. Everything needed for that now
+exists — orders, fills, a scheduled pass, somewhere to keep the result — which is exactly why the
+exclusion is written as a requirement with a test behind it rather than left unmentioned. Feature
+021 measured `momentum_trend` over ten years and found it lost to two of its three benchmarks;
+turning that into an equity curve that looks like a track record should cost a reviewed
+specification, not a scheduler change.
 
 Feature 024 then replaced the Overview, which had been a foundation-stage stub telling signed-in
 owners that shipped features "will be implemented from future specifications". It now answers the

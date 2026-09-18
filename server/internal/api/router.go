@@ -106,6 +106,7 @@ type Dependencies struct {
 	Portfolio               PortfolioService
 	Risk                    RiskService
 	Intents                 IntentsService
+	Paper                   PaperService
 	FindingDecisions        FindingDecider
 	Events                  EventReader
 	EventHeartbeat          time.Duration
@@ -208,6 +209,16 @@ func NewRouter(deps Dependencies) http.Handler {
 			httpx.RequireCSRF(recordIntentHandler(deps.Intents)))
 		protected.Handle("PATCH /api/v1/order-intents/{id}",
 			httpx.RequireCSRF(settleIntentHandler(deps.Intents)))
+	}
+	if deps.Paper != nil {
+		protected.HandleFunc("GET /api/v1/paper-account", getPaperAccountHandler(deps.Paper))
+		protected.Handle("POST /api/v1/paper-account",
+			httpx.RequireCSRF(openPaperAccountHandler(deps.Paper)))
+		protected.HandleFunc("GET /api/v1/paper-account/orders", getPaperAccountHandler(deps.Paper))
+		protected.Handle("POST /api/v1/paper-account/orders",
+			httpx.RequireCSRF(promotePaperOrderHandler(deps.Paper)))
+		protected.Handle("DELETE /api/v1/paper-account/orders/{id}",
+			httpx.RequireCSRF(cancelPaperOrderHandler(deps.Paper)))
 	}
 	if deps.Events != nil {
 		protected.HandleFunc("GET /api/v1/events", eventsHandler(deps.Events, deps.EventHeartbeat,
