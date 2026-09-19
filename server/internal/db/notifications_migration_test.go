@@ -232,3 +232,57 @@ func TestTheDueIndexMatchesTheQueryThatReadsIt(t *testing.T) {
 		t.Errorf("the delivery query does not use its own index:\n%s", plan.String())
 	}
 }
+
+// TestAVersionIsRecordedOnceHoweverManyPodsSeeIt.
+//
+// A deployment notification has to fire once per version, not once per process start. Keel rolls
+// pods and a crash loop restarts them, so "tell somebody when the version changed" has to be a
+// claim about the version rather than about this instance having booted.
+//
+// The primary key is what makes that true without coordination: whichever pod inserts first is the
+// one that announces, and the others find the row already there.
+func TestAVersionIsRecordedOnceHoweverManyPodsSeeIt(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.Open(t)
+	if err := db.Migrate(ctx, pool); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	claim := func(version, summary string) int64 {
+		tag, err := pool.Exec(ctx, `INSERT INTO deployed_versions (version, summary)
+			VALUES ($1, $2) ON CONFLICT DO NOTHING`, version, summary)
+		if err != nil {
+			t.Fatalf("record %s: %v", version, err)
+		}
+		return tag.RowsAffected()
+	}
+
+	if claim("0.23.4", "fix(notify): something") != 1 {
+		t.Errorf("the first pod to see a version did not claim it")
+	}
+	if claim("0.23.4", "fix(notify): something") != 0 {
+		t.Errorf("a second pod claimed a version that was already recorded")
+	}
+	// A different version is a different claim — including a rollback, which is worth being told
+	// about for exactly the same reason an upgrade is.
+	if claim("0.23.3", "the previous one") != 1 {
+		t.Errorf("a rollback was not treated as a change")
+	}
+
+	var recorded int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM deployed_versions`).Scan(&recorded); err != nil {
+		t.Fatal(err)
+	}
+	if recorded != 2 {
+		t.Errorf("%d versions recorded, want 2", recorded)
+	}
+
+	// A version with nothing to say about it is still a version.
+	if _, err := pool.Exec(ctx, `INSERT INTO deployed_versions (version) VALUES ('0.23.5')`); err != nil {
+		t.Errorf("a version with no summary was refused: %v", err)
+	}
+	// An empty version is not.
+	if _, err := pool.Exec(ctx, `INSERT INTO deployed_versions (version) VALUES ('')`); err == nil {
+		t.Errorf("an empty version was recorded")
+	}
+}

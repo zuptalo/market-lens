@@ -75,6 +75,10 @@ const kindWording: Record<NotificationKind, { title: string; detail: string }> =
     title: 'Market data did not arrive',
     detail: 'An import did not complete, so some screens are reading older data than they look like they are.',
   },
+  release_deployed: {
+    title: 'Market Lens was updated',
+    detail: 'A new version started serving, and what the release said about it. Nothing you have stored is affected by an update.',
+  },
   signal_change: {
     title: 'A strategy changed its view',
     detail: 'What a strategy makes of an instrument changed. It is a strategy output, not advice, and this product has no view on what to do about it.',

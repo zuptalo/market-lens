@@ -37,6 +37,7 @@ for (const viewport of VIEWPORTS) {
     await expect(settings).toContainText('A decision is waiting');
     await expect(settings).toContainText('A paper order settled');
     await expect(settings).toContainText('A strategy changed its view');
+    await expect(settings).toContainText('Market Lens was updated');
 
     // Quiet hours, and what they actually do — held, not dropped.
     await expect(settings).toContainText(/quiet hours/i);

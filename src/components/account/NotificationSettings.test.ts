@@ -14,6 +14,8 @@ function settingsWire(overrides: Record<string, unknown> = {}) {
       { kind: 'paper_fill', channel: 'web_push', enabled: false },
       { kind: 'signal_change', channel: 'email', enabled: false },
       { kind: 'signal_change', channel: 'web_push', enabled: false },
+      { kind: 'release_deployed', channel: 'email', enabled: false },
+      { kind: 'release_deployed', channel: 'web_push', enabled: false },
     ],
     quiet_hours: { starts_at: '22:00', ends_at: '07:00', timezone: 'Europe/Stockholm' },
     nothing_is_on_by_default: true,
@@ -108,9 +110,10 @@ describe('NotificationSettings', () => {
     await flushPromises();
     const switches = wrapper.findAllComponents({ name: 'ToggleSwitch' });
     // Six preferences plus nothing else: quiet hours is a time range, not a switch.
-    expect(switches.length).toBeGreaterThanOrEqual(6);
+    expect(switches.length).toBeGreaterThanOrEqual(8);
     const text = wrapper.text();
-    for (const label of ['A decision is waiting', 'A paper order settled', 'A strategy changed its view']) {
+    for (const label of ['A decision is waiting', 'A paper order settled',
+      'A strategy changed its view', 'Market Lens was updated']) {
       expect(text).toContain(label);
     }
   });

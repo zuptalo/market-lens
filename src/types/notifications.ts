@@ -9,7 +9,8 @@ export type NotificationKind =
   | 'decision_waiting'
   | 'paper_fill'
   | 'pipeline_failure'
-  | 'signal_change';
+  | 'signal_change'
+  | 'release_deployed';
 
 export type NotificationChannel = 'email' | 'web_push';
 
