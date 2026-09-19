@@ -50,6 +50,14 @@ import (
 
 var version = "dev"
 
+// releaseSummary is the one line the release said about itself — the squashed pull request title,
+// baked in beside the version at build time.
+//
+// Baked in rather than fetched: asking GitHub what changed would mean a token, a network call on a
+// path that runs at start-up, and a new way for a deployment to look broken. The release already
+// knows this line, and it is the only detail a notification needs.
+var releaseSummary = ""
+
 // The identity service is what serves owner integration administration. Stating it here means
 // a signature drift is a build failure rather than a nil dependency discovered in a browser.
 var _ api.IntegrationAdministration = (*identity.Service)(nil)
@@ -1318,6 +1326,20 @@ func run() error {
 			slog.Default().Error("the notification delivery loop stopped", "error", err)
 		}
 	}()
+
+	// Tell whoever asked that a new version is serving.
+	//
+	// Once per version rather than once per start: pods roll and crash loops restart, and the claim
+	// being made is about the version. Whichever process records it first is the one that announces,
+	// decided by a primary key rather than by coordination.
+	//
+	// A failure here must not stop the process starting. Nobody is worse off for not being told
+	// about a deployment than they would be for the deployment not happening.
+	if announced, err := notificationService.AnnounceVersion(ctx, version, releaseSummary); err != nil {
+		slog.Default().Error("could not announce the running version", "version", version, "error", err)
+	} else if announced {
+		slog.Default().Info("a new version is serving", "version", version, "summary", releaseSummary)
+	}
 
 	validator, err := newSetupCredentialValidator(cfg.MarketData.RequestTimeout)
 	if err != nil {

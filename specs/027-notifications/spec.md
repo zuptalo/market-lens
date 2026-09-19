@@ -78,8 +78,8 @@ and only once, and that a permanently failing one ends as failed rather than dis
 
 - **FR-001** Every notification kind is off for every person until they switch it on, per channel.
   A newly created account has nothing enabled and receives nothing.
-- **FR-002** The four kinds are: `decision_waiting`, `paper_fill`, `pipeline_failure`,
-  `signal_change`. The two channels are `email` and `web_push`.
+- **FR-002** The kinds are: `decision_waiting`, `paper_fill`, `pipeline_failure`, `signal_change`
+  and `release_deployed`. The two channels are `email` and `web_push`.
 - **FR-003** `pipeline_failure` is offered to the owner only, because it is the only kind nobody
   else can act on. It is absent from a member's preferences rather than present and refused.
 - **FR-004** A person sets quiet hours as a start time, an end time and a timezone. A notification
@@ -87,6 +87,24 @@ and only once, and that a permanently failing one ends as failed rather than dis
   early.
 - **FR-005** Every email carries a one-click unsubscribe for the kind that sent it, usable without
   signing in, and it changes exactly that one preference.
+
+### Deployments
+
+- **FR-029** A person may ask to be told when a new version of this product starts serving, and
+  what the release said about it. It is offered to everybody rather than to the owner alone: a
+  deployment changes the product under every person using it, unlike an import failure that only
+  the owner can act on.
+- **FR-030** The telling is once **per version**, not once per process start. Pods roll and crash
+  loops restart; announcing per start would turn one deployment into a stream of identical
+  messages. Whichever process records a version first is the one that announces it, decided by a
+  primary key rather than by coordination.
+- **FR-031** A version change in either direction is announced. A rollback is worth knowing about
+  for exactly the reason an upgrade is.
+- **FR-032** A build that was not produced by the release pipeline is not a deployment and is never
+  announced.
+- **FR-033** What changed is stated from what the release itself recorded, carried in the build.
+  Nothing asks an external service at start-up: that would mean a credential, a network call on the
+  start-up path, and a new way for a deployment to look broken.
 
 ### Web Push
 
@@ -155,7 +173,8 @@ and only once, and that a permanently failing one ends as failed rather than dis
 
 ## Success criteria
 
-- **SC-001** A new account has eight preferences, all off, and receives nothing until it asks.
+- **SC-001** A new account has ten preferences, all off, and receives nothing until it asks.
+- **SC-009** One version produces one telling however many times the process starts.
 - **SC-002** A notification raised inside quiet hours is delivered after the window ends, once —
   and within a minute of the window ending, not at whatever hour some other job happens to run.
 - **SC-003** A delivery attempted twice is sent once, proved by a sender that counts.

@@ -41,6 +41,7 @@ var pushWording = map[Kind]struct{ title, body, path string }{
 	KindPaperFill:       {"A paper order settled", "Open Market Lens to see what happened.", "/paper"},
 	KindPipelineFailure: {"Market data did not arrive", "Open Market Lens to see the run.", "/operations"},
 	KindSignalChange:    {"A strategy changed its view", "Open Market Lens to read it.", "/signals"},
+	KindReleaseDeployed: {"Market Lens was updated", "Open it to see what changed.", "/account"},
 }
 
 func buildPushPayload(kind Kind, count int) ([]byte, error) {
@@ -119,6 +120,20 @@ func emailWording(kind Kind, count int, detail map[string]string) (string, strin
 				"where it came out behind. Market Lens takes no view on what to do about this.",
 			orUnknown(strategy), orUnknown(ticker), orUnknown(from), orUnknown(to))
 		return fmt.Sprintf("%s: a strategy view changed", orUnknown(ticker)), body, nil
+	case KindReleaseDeployed:
+		// The detail is the point: "a new version" on its own tells nobody anything they can use.
+		// One line, because that is what a release commit is, and because somebody reading this on
+		// a phone is reading a notification rather than a changelog.
+		version := detail["version"]
+		summary := strings.TrimSpace(detail["summary"])
+		body := fmt.Sprintf("Market Lens is now running version %s.", version)
+		if summary != "" {
+			body += "\n\n" + summary
+		} else {
+			body += "\n\nNothing was recorded about what changed in this one."
+		}
+		body += "\n\nNothing you have stored is affected by an update, and nothing needs doing."
+		return fmt.Sprintf("Market Lens %s is live", version), body, nil
 	}
 	return "", "", fmt.Errorf("no email wording for %q", kind)
 }

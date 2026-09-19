@@ -9,7 +9,7 @@ func TestLoadMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(migrations) != 31 || migrations[0].version != 1 || migrations[0].name != "0001_baseline.sql" ||
+	if len(migrations) != 32 || migrations[0].version != 1 || migrations[0].name != "0001_baseline.sql" ||
 		migrations[1].version != 2 || migrations[1].name != "0002_instruments.sql" ||
 		migrations[2].version != 3 || migrations[2].name != "0003_nordic_universe.sql" ||
 		migrations[3].version != 4 || migrations[3].name != "0004_market_data.sql" ||
@@ -39,7 +39,8 @@ func TestLoadMigrations(t *testing.T) {
 		migrations[27].version != 28 || migrations[27].name != "0028_order_intents.sql" ||
 		migrations[28].version != 29 || migrations[28].name != "0029_paper_trading.sql" ||
 		migrations[29].version != 30 || migrations[29].name != "0030_notifications.sql" ||
-		migrations[30].version != 31 || migrations[30].name != "0031_notifications_due_index.sql" {
+		migrations[30].version != 31 || migrations[30].name != "0031_notifications_due_index.sql" ||
+		migrations[31].version != 32 || migrations[31].name != "0032_deployed_versions.sql" {
 		t.Fatalf("unexpected migrations: %#v", migrations)
 	}
 }

@@ -10,6 +10,8 @@ Open **Account settings → Notifications**. Everything starts off. Four kinds, 
 - **Market data did not arrive** — offered to the owner alone, because nobody else can act on it.
 - **A strategy changed its view** — what a strategy makes of an instrument moved. It is a strategy
   output, not advice, and the message says so.
+- **Market Lens was updated** — a new version started serving, with the line the release recorded
+  about what changed. Once per version, not once per pod, and a rollback counts as a change.
 
 Turning one off stops it immediately, on every device.
 

@@ -47,7 +47,16 @@ jobs:
           major=${version%%.*}
           remainder=${version#*.}
           minor=${remainder%%.*}
+          # The squashed PR title is the one line that says what this release is. It is baked into
+          # the image beside the version so the running product can say what changed without asking
+          # GitHub — which would mean a token, a network call, and a new way to fail.
+          #
+          # Quotes and backslashes are stripped rather than escaped: this value passes through a
+          # build argument into a shell `go build -ldflags="..."`, and a stray quote there breaks
+          # the build rather than producing a odd-looking notification.
+          summary=$(printf '%s' "$title" | tr -d '"\\`$' | cut -c1-200)
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "summary=$summary" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "major=$major" >> "$GITHUB_OUTPUT"
           echo "major_minor=$major.$minor" >> "$GITHUB_OUTPUT"
@@ -147,7 +156,9 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          build-args: VERSION=${{ steps.version.outputs.version }}
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+            SUMMARY=${{ steps.version.outputs.summary }}
           cache-from: type=gha,scope=market-lens-image
           cache-to: type=gha,mode=max,scope=market-lens-image
           provenance: mode=max

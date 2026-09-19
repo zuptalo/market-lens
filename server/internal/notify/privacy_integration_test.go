@@ -216,13 +216,22 @@ func TestOneKindIsOfferedToTheOwnerAlone(t *testing.T) {
 			t.Errorf("a member is offered %s", preference.Kind)
 		}
 	}
-	if len(member.Preferences) != 6 {
-		t.Errorf("a member is offered %d switches, want three kinds on two channels", len(member.Preferences))
+	// Counted from the kinds themselves rather than written down, so adding one does not break a
+	// test about who is offered what.
+	ownerOnly := 0
+	for _, kind := range notify.Kinds {
+		if notify.OwnerOnlyKinds[kind] {
+			ownerOnly++
+		}
+	}
+	channels := len(notify.Channels)
+	if want := (len(notify.Kinds) - ownerOnly) * channels; len(member.Preferences) != want {
+		t.Errorf("a member is offered %d switches, want %d", len(member.Preferences), want)
 	}
 
 	owner := f.settings(ownerID)
-	if len(owner.Preferences) != 8 {
-		t.Errorf("the owner is offered %d switches, want four kinds on two channels", len(owner.Preferences))
+	if want := len(notify.Kinds) * channels; len(owner.Preferences) != want {
+		t.Errorf("the owner is offered %d switches, want %d", len(owner.Preferences), want)
 	}
 
 	// And asking for it directly is refused rather than quietly stored.

@@ -126,6 +126,7 @@ var permittedKeys = map[Kind]map[string]bool{
 	KindPaperFill:       {"ticker": true, "outcome": true},
 	KindPipelineFailure: {"provider": true, "stage": true},
 	KindSignalChange:    {"ticker": true, "from": true, "to": true, "strategy": true},
+	KindReleaseDeployed: {"version": true, "summary": true},
 }
 
 // Never, on any kind. A holding, a quantity, a valuation, a return or a balance is what somebody

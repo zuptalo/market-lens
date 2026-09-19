@@ -3,6 +3,7 @@
 FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS web
 WORKDIR /web
 ARG VERSION=dev
+ARG SUMMARY=""
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY index.html tsconfig.json vite.config.ts ./
@@ -13,13 +14,14 @@ RUN APP_VERSION="${VERSION}" npm run build
 FROM --platform=$BUILDPLATFORM golang:1.26-bookworm AS server
 WORKDIR /src
 ARG VERSION=dev
+ARG SUMMARY=""
 COPY server/go.mod server/go.sum ./
 RUN go mod download
 COPY server/ ./
 ARG TARGETOS
 ARG TARGETARCH
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
-    go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" \
+    go build -trimpath -ldflags="-s -w -X main.version=${VERSION} -X 'main.releaseSummary=${SUMMARY}'" \
     -o /out/market-lens ./cmd/market-lens
 
 FROM alpine:3.24

@@ -145,6 +145,8 @@ const routes = new Map(Object.entries({
       { kind: 'pipeline_failure', channel: 'web_push', enabled: false },
       { kind: 'signal_change', channel: 'email', enabled: false },
       { kind: 'signal_change', channel: 'web_push', enabled: false },
+      { kind: 'release_deployed', channel: 'email', enabled: true },
+      { kind: 'release_deployed', channel: 'web_push', enabled: false },
     ],
     quiet_hours: { starts_at: '22:00', ends_at: '07:00', timezone: 'Europe/Stockholm' },
     nothing_is_on_by_default: true,

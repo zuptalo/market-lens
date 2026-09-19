@@ -25,6 +25,7 @@ const kindWording: Record<NotificationKind, string> = {
   paper_fill: 'when a paper order settles',
   pipeline_failure: 'when market data does not arrive',
   signal_change: 'when a strategy changes its view',
+  release_deployed: 'when Market Lens is updated',
 };
 
 const channelWording: Record<NotificationChannel, string> = {

@@ -42,10 +42,15 @@ const (
 	// KindSignalChange: a strategy's view of an instrument changed. States the two views and the
 	// strategy's caveat; never what to do.
 	KindSignalChange Kind = "signal_change"
+	// KindReleaseDeployed: a new version of this product started serving. Offered to everybody
+	// rather than the owner alone, because a deployment changes the product under every person
+	// using it — unlike an import failure, which only the owner can act on.
+	KindReleaseDeployed Kind = "release_deployed"
 )
 
 // Kinds is every kind, in the order a person reads them.
-var Kinds = []Kind{KindDecisionWaiting, KindPaperFill, KindPipelineFailure, KindSignalChange}
+var Kinds = []Kind{KindDecisionWaiting, KindPaperFill, KindPipelineFailure, KindSignalChange,
+	KindReleaseDeployed}
 
 // OwnerOnlyKinds are offered to the owner and absent for everybody else — absent rather than
 // present and refused, because a switch that cannot be switched is a worse answer than no switch.

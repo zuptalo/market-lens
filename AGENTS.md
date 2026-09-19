@@ -285,6 +285,13 @@ What it leaves behind:
   alerts knowing they edge toward advice; that guard is what makes it safe, and narrowing it would
   break this feature first. Note the guard reads *string literals containing a space*, so a
   forbidden-word list must use single words.
+- **A deployment announces itself once per version, not once per start** (`notify.AnnounceVersion`,
+  `deployed_versions`). Pods roll and crash loops restart, so the claim is about the version;
+  a primary key decides which process announces, the same shape as the signing and push keys. The
+  line describing the change is the squashed PR title, baked into the image by the release workflow
+  as `-X main.releaseSummary` — asking GitHub at start-up would mean a token, a network call on the
+  start-up path, and a new way for a deployment to look broken. **A kind lives in a check
+  constraint**, so adding one is a migration on two tables.
 - **Delivery runs on its own clock, not the import's.** The feature engine and the paper fills hang
   off the market-data import because they have nothing to do until new prices exist. Notifications
   are different: quiet hours end and retry backoffs expire on their own schedule. Tying delivery to
