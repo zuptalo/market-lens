@@ -14,12 +14,12 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Market Lens" />
     <!--
-      use-credentials because this deployment answers 401 for every path without a session. A
-      manifest link is fetched without credentials by default, so the browser would get the 401,
-      conclude there is no manifest, and refuse to install the app - while every other request on
-      the page succeeded, because those carry the cookie.
+      No crossorigin attribute: the manifest is served without a session, like the icon and the
+      service worker beside it. It was briefly fetched with credentials instead, which works only
+      while somebody is already signed in - and the moment a browser wants to install the app is
+      not reliably one of those.
     -->
-    <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/favicon.svg" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>Market Lens</title>

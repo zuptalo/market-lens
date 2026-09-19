@@ -154,6 +154,10 @@ func NewRouter(deps Dependencies) http.Handler {
 		// The service worker must be served from the origin root to be allowed the whole scope, and
 		// it is fetched by the browser without the page's session.
 		public.Handle("GET /sw.js", spaHandler(deps.StaticDir))
+		// The manifest is fetched before anybody has signed in, and a browser that cannot read it
+		// concludes there is no manifest rather than that it was refused — so the product looks
+		// uninstallable rather than protected. It holds a name, two colours and an icon path.
+		public.Handle("GET /manifest.webmanifest", spaHandler(deps.StaticDir))
 		public.Handle("GET /assets/", authenticationShell)
 		public.Handle("GET /favicon.svg", authenticationShell)
 	}
@@ -313,6 +317,7 @@ func NewRouter(deps Dependencies) http.Handler {
 		// The service worker is fetched by the browser without the page's session, and must come
 		// from the origin root to be allowed the whole scope.
 		root.Handle("GET /sw.js", public)
+		root.Handle("GET /manifest.webmanifest", public)
 		root.Handle("GET /assets/", public)
 		root.Handle("GET /favicon.svg", public)
 	}

@@ -457,3 +457,52 @@ func TestAnonymousNavigationIsSentToSignInWhileDataStaysRefused(t *testing.T) {
 		}
 	}
 }
+
+// TestTheInstallableAssetsAreReachableWithoutASession.
+//
+// A browser fetches these three before anybody has signed in, and it fetches them the way it
+// fetches any static file — so requiring a session makes the product look uninstallable rather
+// than protected.
+//
+// The manifest was the odd one out. The icon and the service worker were public and it was not,
+// which was an accident rather than a decision: it holds a name, two colours and an icon path, and
+// a browser that cannot read it concludes there is no manifest at all.
+func TestTheInstallableAssetsAreReachableWithoutASession(t *testing.T) {
+	staticDir := t.TempDir()
+	for name, contents := range map[string]string{
+		"index.html":           "auth shell",
+		"favicon.svg":          "icon",
+		"sw.js":                "the service worker",
+		"manifest.webmanifest": `{"name":"Market Lens"}`,
+	} {
+		if err := os.WriteFile(filepath.Join(staticDir, name), []byte(contents), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	router := NewRouter(Dependencies{Database: databaseStub{}, StaticDir: staticDir})
+
+	for path, expected := range map[string]string{
+		"/favicon.svg":          "icon",
+		"/sw.js":                "the service worker",
+		"/manifest.webmanifest": `{"name":"Market Lens"}`,
+	} {
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		if recorder.Code != http.StatusOK {
+			t.Errorf("GET %s without a session answered %d", path, recorder.Code)
+			continue
+		}
+		if recorder.Body.String() != expected {
+			t.Errorf("GET %s served %q", path, recorder.Body.String())
+		}
+	}
+
+	// And nothing else became public along with them.
+	for _, guarded := range []string{"/", "/account", "/paper", "/api/v1/notifications/preferences"} {
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, guarded, nil))
+		if recorder.Code != http.StatusUnauthorized {
+			t.Errorf("GET %s answered %d without a session", guarded, recorder.Code)
+		}
+	}
+}
