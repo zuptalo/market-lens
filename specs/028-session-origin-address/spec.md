@@ -138,9 +138,12 @@ any account but their own.
   configured trusted-proxy network: then it is the first address in the forwarded chain that is
   not itself a trusted proxy. A forwarded header arriving from an untrusted peer is ignored
   entirely (D1).
-- **FR-006** The trusted-proxy networks are non-secret deployment configuration, empty by default,
-  and an unparseable or absent value means nothing is trusted rather than everything. A malformed
-  forwarded chain is discarded whole; the product never records a partially parsed address.
+- **FR-006** The trusted-proxy networks are non-secret deployment configuration, empty by default:
+  an absent value trusts nothing, which is the right answer in development. A value that does not
+  parse stops the process with a message naming the variable and the entry that failed — amended
+  during planning, because a trust list that silently failed to parse produces a screen full of
+  plausible internal addresses that nobody would ever question. A malformed forwarded chain is
+  discarded whole; the product never records a partially parsed address.
 
 ### Showing
 
