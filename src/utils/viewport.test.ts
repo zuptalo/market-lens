@@ -64,15 +64,14 @@ describe('the installable document', () => {
   const html = readFileSync(join(process.cwd(), 'index.html'), 'utf8');
 
   /**
-   * This deployment answers 401 for every path without a session, the manifest included. A manifest
-   * link is fetched *without* credentials by default, so the browser gets the 401, decides there is
-   * no manifest, and the app is not installable — while every other request on the page succeeds,
-   * because those carry the cookie.
+   * A manifest link is fetched *without* credentials by default, and the moment a browser wants to
+   * install the app is not reliably a moment when somebody is signed in. The server serves it
+   * without a session, like the icon and the service worker, so the link asks for it plainly.
    */
-  it('asks for the manifest with the session the rest of the page uses', () => {
+  it('asks for the manifest the way a browser fetches one', () => {
     const link = html.match(/<link[^>]*rel="manifest"[^>]*>/)?.[0];
     expect(link, 'no manifest is linked, so nothing is installable').toBeTruthy();
-    expect(link).toContain('crossorigin="use-credentials"');
+    expect(link).not.toContain('crossorigin');
   });
 
   it('lets the page reach under the notch and pays it back in the shell', () => {
