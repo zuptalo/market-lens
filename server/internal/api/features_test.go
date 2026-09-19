@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -324,7 +325,7 @@ func TestFeatureEndpointsRequireAnActiveSession(t *testing.T) {
 	for name, err := range map[string]error{"revoked session": auth.ErrAuthenticationRequired, "deactivated member": auth.ErrMemberLocked} {
 		t.Run(name, func(t *testing.T) {
 			deps := Dependencies{Features: &featureReaderStub{}}
-			deps.Authenticator = sessionAuthenticatorFunc(func(context.Context, string) (auth.Principal, error) {
+			deps.Authenticator = sessionAuthenticatorFunc(func(context.Context, string, netip.Addr) (auth.Principal, error) {
 				return auth.Principal{}, err
 			})
 			router := NewRouter(deps)
@@ -512,7 +513,7 @@ func TestFeatureRunsEndpointRequiresAnActiveSession(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			stub := &featureRunReaderStub{runs: seededFeatureRuns()}
 			deps := Dependencies{Features: stub}
-			deps.Authenticator = sessionAuthenticatorFunc(func(context.Context, string) (auth.Principal, error) {
+			deps.Authenticator = sessionAuthenticatorFunc(func(context.Context, string, netip.Addr) (auth.Principal, error) {
 				return auth.Principal{}, err
 			})
 			response := performRequest(NewRouter(deps), path)

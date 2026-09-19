@@ -3,6 +3,7 @@ package marketdata_test
 import (
 	"context"
 	"net/http"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -45,6 +46,6 @@ func addMarketDataTestSession(request *http.Request) {
 
 type marketDataSessionAuthenticator func(context.Context, string) (auth.Principal, error)
 
-func (function marketDataSessionAuthenticator) AuthenticateSession(ctx context.Context, token string) (auth.Principal, error) {
+func (function marketDataSessionAuthenticator) AuthenticateSession(ctx context.Context, token string, _ netip.Addr) (auth.Principal, error) {
 	return function(ctx, token)
 }

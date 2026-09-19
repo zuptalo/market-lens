@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -362,7 +363,7 @@ type principalStub struct {
 	sessionID string
 }
 
-func (stub principalStub) AuthenticateSession(_ context.Context, token string) (auth.Principal, error) {
+func (stub principalStub) AuthenticateSession(_ context.Context, token string, _ netip.Addr) (auth.Principal, error) {
 	if token != "active-session-secret" {
 		return auth.Principal{}, auth.ErrAuthenticationRequired
 	}

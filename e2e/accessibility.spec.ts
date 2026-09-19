@@ -369,10 +369,15 @@ async function mockAccount(page: Page, authenticated: boolean): Promise<void> {
   await page.route('**/api/v1/account', (route) => authenticated
     ? route.fulfill({ json: owner })
     : route.fulfill({ status: 401, json: { error: { code: 'authentication_required', message: 'Authentication is required.' } } }));
+  // The longest address this screen can ever be asked to show: a full-length IPv6, 39 characters
+  // with no word boundary to break at. The viewport tests below are the ones that prove it folds
+  // at 320 CSS pixels instead of widening the page.
   await page.route('**/api/v1/account/sessions', (route) => route.fulfill({ json: { items: [{
     id: '20000000-0000-4000-8000-000000000001', current: true, device_label: 'Chrome on macOS',
     created_at: '2026-08-31T08:00:00Z', last_seen_at: '2026-08-31T08:01:00Z',
     idle_expires_at: liveSessionExpiry.idle, absolute_expires_at: liveSessionExpiry.absolute, revoked: false,
+    created_from: '2001:0db8:85a3:0000:0000:8a2e:0370:7334',
+    last_seen_from: '2001:0db8:85a3:0000:0000:8a2e:0370:7334',
   }] } }));
   await page.route('**/api/v1/owner/members', (route) => route.fulfill({ json: { members: [{
     id: '10000000-0000-4000-8000-000000000601', email: 'member@example.com', display_name: 'Member',

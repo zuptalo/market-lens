@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -266,7 +267,7 @@ func TestBacktestReadsAreRefusedWithoutASession(t *testing.T) {
 // not the token, which is why this is asserted here rather than trusted to the session's lifetime.
 func TestBacktestReadsAreRefusedToADeactivatedAccount(t *testing.T) {
 	deps := Dependencies{Backtests: &backtestReaderStub{}}
-	deps.Authenticator = sessionAuthenticatorFunc(func(context.Context, string) (auth.Principal, error) {
+	deps.Authenticator = sessionAuthenticatorFunc(func(context.Context, string, netip.Addr) (auth.Principal, error) {
 		return auth.Principal{}, auth.ErrAuthenticationRequired
 	})
 	router := NewRouter(deps)

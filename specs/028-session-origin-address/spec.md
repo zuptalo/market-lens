@@ -1,7 +1,7 @@
 # Feature Specification: The address a session was last seen from
 
 **Feature**: 028 | **Branch**: `028-session-origin-address` | **Milestone**: Security-A
-**Status**: planned — two decisions resolved by the owner (D1, D2); no open clarifications
+**Status**: in-progress — two decisions resolved by the owner (D1, D2); no open clarifications
 **Created**: 2026-09-19
 
 **Input**: "Signed-in devices should show the network address each session was last seen from,
@@ -207,14 +207,15 @@ any account but their own.
 
 ## Responsive UI Behavior *(mandatory)*
 
-- **Mobile (320–767 CSS px)**: the stacked Device cell carries the device name on the first line
-  and the address beneath it in a secondary, smaller weight. A full IPv6 address is 39 characters
-  and must wrap rather than widen the page; at 360×800 and at 320 CSS px the list scrolls
-  vertically only.
-- **Tablet (768–1023 CSS px)**: as the table layout, with the address in the Device column beneath
-  the name; verified at 768×1024.
-- **Desktop (1024+ CSS px)**: the address sits in its own column between Device and Last active;
-  verified at 1440×900.
+- **Mobile (320–767 CSS px)**: below the table breakpoint every cell becomes a labelled block, so
+  the address arrives as its own line reading *Last seen from  203.0.113.12*. It is a column
+  rather than a second line under the device name for exactly that reason: stacked, a bare address
+  under a device name is a number with nothing saying what it is. A full IPv6 address is 39
+  characters with no word boundary, so it folds rather than widening the page; at 360×800 and at
+  320 CSS px the list scrolls vertically only.
+- **Tablet (768–1023 CSS px)**: real columns, the address between Device and Last active; verified
+  at 768×1024.
+- **Desktop (1024+ CSS px)**: the same columns with more room; verified at 1440×900.
 - **Input and accessibility**: the address is selectable text reachable by keyboard, not a tooltip
   and not hover-revealed. It is announced as part of the row, and the Revoke control's accessible
   name continues to identify the device it will revoke.

@@ -1363,7 +1363,8 @@ func run() error {
 	paperService := paper.NewService(paper.NewRepository(pool), intentsService, portfolioService,
 		slog.Default())
 	handler := api.NewRouter(api.Dependencies{
-		Database: pool, AllowedOrigins: cfg.AllowedOrigins, StaticDir: cfg.StaticDir, Version: version,
+		Database: pool, AllowedOrigins: cfg.AllowedOrigins, TrustedProxies: cfg.TrustedProxies,
+		StaticDir: cfg.StaticDir, Version: version,
 		Authenticator: authenticationService, Identity: identityService, Authentication: authenticationService,
 		Integrations:     credentials.NewRepository(pool),
 		IntegrationAdmin: identityService,

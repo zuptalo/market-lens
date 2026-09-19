@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/mail"
+	"net/netip"
 	"strings"
 	"time"
 	"unicode"
@@ -90,8 +91,10 @@ type BootstrapRequest struct {
 	DisplayName string
 	DeviceLabel string
 	Origin      string
-	EODHDAPIKey string
-	SMTP        SMTPSetupConfiguration
+	// ClientAddress is the address this session will be listed as having been created from.
+	ClientAddress netip.Addr
+	EODHDAPIKey   string
+	SMTP          SMTPSetupConfiguration
 }
 
 type BootstrapResult struct {
@@ -242,6 +245,7 @@ func (service *Service) BootstrapOwner(ctx context.Context, request BootstrapReq
 		CSRFDigest:  service.secrets.Digest(auth.PurposeCSRF, csrfToken),
 		CreatedAt:   now, LastSeenAt: now, IdleExpiresAt: idleExpiresAt, AbsoluteExpiresAt: absoluteExpiresAt,
 		DeviceLabel: request.DeviceLabel, OriginDigest: service.secrets.Digest(auth.PurposeOrigin, request.Origin),
+		CreatedFrom: request.ClientAddress, LastSeenFrom: request.ClientAddress,
 	}
 	audit := SecurityAuditEvent{
 		OccurredAt: now, EventType: "owner.setup.v1", SubjectUserID: userID, SessionID: sessionID,

@@ -7,6 +7,7 @@ import (
 	"market-lens/server/internal/auth"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -239,7 +240,7 @@ func TestAcceptingAFindingIsOwnerOnly(t *testing.T) {
 
 	t.Run("a member may not", func(t *testing.T) {
 		deps := Dependencies{FindingDecisions: &findingDeciderStub{}}
-		deps.Authenticator = sessionAuthenticatorFunc(func(context.Context, string) (auth.Principal, error) {
+		deps.Authenticator = sessionAuthenticatorFunc(func(context.Context, string, netip.Addr) (auth.Principal, error) {
 			return auth.Principal{
 				UserID: "10000000-0000-4000-8000-000000000002", Role: "member",
 				SessionID: "20000000-0000-4000-8000-000000000002", VerifyCSRF: func(string) bool { return true },
@@ -256,7 +257,7 @@ func TestAcceptingAFindingIsOwnerOnly(t *testing.T) {
 	} {
 		t.Run(name+" may not", func(t *testing.T) {
 			deps := Dependencies{FindingDecisions: &findingDeciderStub{}}
-			deps.Authenticator = sessionAuthenticatorFunc(func(context.Context, string) (auth.Principal, error) {
+			deps.Authenticator = sessionAuthenticatorFunc(func(context.Context, string, netip.Addr) (auth.Principal, error) {
 				return auth.Principal{}, err
 			})
 			if response := performPost(NewRouter(deps), path); response.Code != http.StatusUnauthorized {

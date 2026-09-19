@@ -77,7 +77,11 @@ test('retries provider validation then completes encrypted owner setup without b
 
   await (await navigationLink(page, 'Account')).click();
   await expect(page.getByRole('heading', { name: 'Account settings' })).toBeVisible();
+  // The two facts a person audits with: which browser, and where from. Neither is the six-line
+  // user-agent string the server actually sent.
   await expect(page.getByText('Chrome on Linux')).toBeVisible();
+  await expect(page.getByText('Mozilla/5.0')).toHaveCount(0);
+  await expect(page.getByText('198.51.100.4')).toBeVisible();
   await page.getByRole('button', { name: 'Revoke Chrome on Linux' }).click();
   await expect(page.getByText('Session revoked')).toBeVisible();
 });
@@ -130,10 +134,14 @@ async function mockOwnerAPI(
   });
   await page.route('**/api/v1/account/sessions', async (route) => {
     if (route.request().method() === 'DELETE') return route.fulfill({ status: 204 });
+    // The server sends the user-agent string as the browser wrote it, not a friendly name: the
+    // screen derives the name, and a fixture that pre-derived it would test nothing.
     return route.fulfill({ json: { items: [{
-      id: '20000000-0000-4000-8000-000000000001', current: false, device_label: 'Chrome on Linux',
+      id: '20000000-0000-4000-8000-000000000001', current: false,
+      device_label: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36',
       created_at: '2026-08-30T08:00:00Z', last_seen_at: '2026-08-30T08:01:00Z',
       idle_expires_at: liveSessionExpiry.idle, absolute_expires_at: liveSessionExpiry.absolute, revoked: false,
+      created_from: '203.0.113.12', last_seen_from: '198.51.100.4',
     }] } });
   });
   await page.route('**/api/v1/account/sessions/*', (route) => route.fulfill({ status: 204 }));

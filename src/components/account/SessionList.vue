@@ -67,6 +67,17 @@ const endedCount = computed(() => props.sessions.length - active.value.length);
           <Tag v-if="data.current" class="current-session" value="Current session" severity="info" />
         </template>
       </Column>
+      <!--
+        The fact a device name cannot carry. Its own column rather than a second line under the
+        name, because below the table breakpoint every cell becomes a labelled block, and a bare
+        address stacked under a device name would be a number with nothing saying what it is.
+      -->
+      <Column header="Last seen from" :pt="{ bodyCell: { 'data-label': 'Last seen from' } }">
+        <template #body="{ data }">
+          <span v-if="data.lastSeenFrom" class="session-list__address">{{ data.lastSeenFrom }}</span>
+          <span v-else class="session-list__unrecorded">Not recorded</span>
+        </template>
+      </Column>
       <Column header="Last active" :pt="{ bodyCell: { 'data-label': 'Last active' } }">
         <template #body="{ data }">
           <time :datetime="data.lastSeenAt">{{ formatDateTime(data.lastSeenAt) }}</time>

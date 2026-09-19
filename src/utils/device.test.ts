@@ -37,6 +37,17 @@ describe('describeDevice', () => {
   });
 
   /**
+   * A label that is not a user-agent string at all must survive untouched. Reading "Chrome on
+   * Linux" as a user agent finds the word Linux and answers "Linux", throwing away the more
+   * specific name it was already given.
+   */
+  it('leaves a label that is not a user-agent string alone', () => {
+    expect(describeDevice('Chrome on Linux')).toBe('Chrome on Linux');
+    expect(describeDevice('Kamran-iPhone')).toBe('Kamran-iPhone');
+    expect(describeDevice('Mac, added 2026-09-19')).toBe('Mac, added 2026-09-19');
+  });
+
+  /**
    * A label nobody can parse is still evidence on a security screen. Dropping it would hide
    * exactly the session a person most needs to see: the one that does not look like a browser.
    */

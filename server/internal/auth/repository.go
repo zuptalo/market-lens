@@ -7,6 +7,7 @@ import (
 	"errors"
 	"hash/fnv"
 	"io"
+	"net/netip"
 	"time"
 
 	clientevents "market-lens/server/internal/events"
@@ -62,11 +63,11 @@ func (repository *Repository) CreateOwnerSession(ctx context.Context, account Ac
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO sessions
 		(id,user_id,token_digest,csrf_digest,created_at,last_seen_at,idle_expires_at,absolute_expires_at,
-		revoked_at,revoked_reason,device_label,origin_digest)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NULL,NULL,$9,$10)`,
+		revoked_at,revoked_reason,device_label,origin_digest,created_ip,last_seen_ip)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NULL,NULL,$9,$10,$11,$12)`,
 		session.ID, session.UserID, session.TokenDigest, session.CSRFDigest, session.CreatedAt,
 		session.LastSeenAt, session.IdleExpiresAt, session.AbsoluteExpiresAt, session.DeviceLabel,
-		session.OriginDigest); err != nil {
+		session.OriginDigest, StoredAddress(session.CreatedFrom), StoredAddress(session.LastSeenFrom)); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO security_audit_events
@@ -88,14 +89,17 @@ func (repository *Repository) SessionByDigest(ctx context.Context, digest []byte
 	var session Session
 	var account Account
 	var revokedReason *string
+	var createdFrom, lastSeenFrom *netip.Addr
 	err := repository.pool.QueryRow(ctx, `SELECT
 		s.id::text,s.user_id::text,s.token_digest,s.csrf_digest,s.created_at,s.last_seen_at,
 		s.idle_expires_at,s.absolute_expires_at,s.revoked_at,s.revoked_reason,s.device_label,s.origin_digest,
+		s.created_ip,s.last_seen_ip,
 		u.email,u.display_name,u.role,u.status,u.email_verified_at
 		FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_digest=$1`, digest).Scan(
 		&session.ID, &session.UserID, &session.TokenDigest, &session.CSRFDigest, &session.CreatedAt,
 		&session.LastSeenAt, &session.IdleExpiresAt, &session.AbsoluteExpiresAt, &session.RevokedAt,
-		&revokedReason, &session.DeviceLabel, &session.OriginDigest, &account.Email, &account.DisplayName,
+		&revokedReason, &session.DeviceLabel, &session.OriginDigest, &createdFrom, &lastSeenFrom,
+		&account.Email, &account.DisplayName,
 		&account.Role, &account.Status, &account.EmailVerifiedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Session{}, Account{}, ErrAuthenticationRequired
@@ -107,6 +111,7 @@ func (repository *Repository) SessionByDigest(ctx context.Context, digest []byte
 	if revokedReason != nil {
 		session.RevokedReason = RevokeReason(*revokedReason)
 	}
+	session.CreatedFrom, session.LastSeenFrom = readAddress(createdFrom), readAddress(lastSeenFrom)
 	return session, account, nil
 }
 
@@ -116,14 +121,17 @@ func (repository *Repository) SessionByID(ctx context.Context, sessionID string)
 	var session Session
 	var account Account
 	var revokedReason *string
+	var createdFrom, lastSeenFrom *netip.Addr
 	err := repository.pool.QueryRow(ctx, `SELECT
 		s.id::text,s.user_id::text,s.token_digest,s.csrf_digest,s.created_at,s.last_seen_at,
 		s.idle_expires_at,s.absolute_expires_at,s.revoked_at,s.revoked_reason,s.device_label,s.origin_digest,
+		s.created_ip,s.last_seen_ip,
 		u.email,u.display_name,u.role,u.status,u.email_verified_at
 		FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=$1`, sessionID).Scan(
 		&session.ID, &session.UserID, &session.TokenDigest, &session.CSRFDigest, &session.CreatedAt,
 		&session.LastSeenAt, &session.IdleExpiresAt, &session.AbsoluteExpiresAt, &session.RevokedAt,
-		&revokedReason, &session.DeviceLabel, &session.OriginDigest, &account.Email, &account.DisplayName,
+		&revokedReason, &session.DeviceLabel, &session.OriginDigest, &createdFrom, &lastSeenFrom,
+		&account.Email, &account.DisplayName,
 		&account.Role, &account.Status, &account.EmailVerifiedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Session{}, Account{}, ErrAuthenticationRequired
@@ -135,12 +143,17 @@ func (repository *Repository) SessionByID(ctx context.Context, sessionID string)
 	if revokedReason != nil {
 		session.RevokedReason = RevokeReason(*revokedReason)
 	}
+	session.CreatedFrom, session.LastSeenFrom = readAddress(createdFrom), readAddress(lastSeenFrom)
 	return session, account, nil
 }
 
 func (repository *Repository) UpdateSessionActivity(ctx context.Context, session Session) error {
-	result, err := repository.pool.Exec(ctx, `UPDATE sessions SET last_seen_at=$1,idle_expires_at=$2
-		WHERE id=$3 AND revoked_at IS NULL`, session.LastSeenAt, session.IdleExpiresAt, session.ID)
+	// The address rides in the statement that already runs on every authenticated request, so the
+	// hot path gains no round trip and the two facts can never disagree about which request they
+	// describe.
+	result, err := repository.pool.Exec(ctx, `UPDATE sessions SET last_seen_at=$1,idle_expires_at=$2,last_seen_ip=$3
+		WHERE id=$4 AND revoked_at IS NULL`, session.LastSeenAt, session.IdleExpiresAt,
+		StoredAddress(session.LastSeenFrom), session.ID)
 	if err != nil {
 		return err
 	}
@@ -163,7 +176,7 @@ func (repository *Repository) Account(ctx context.Context, userID string) (Accou
 
 func (repository *Repository) ListSessions(ctx context.Context, userID string) ([]Session, error) {
 	rows, err := repository.pool.Query(ctx, `SELECT id::text,user_id::text,token_digest,csrf_digest,created_at,last_seen_at,
-		idle_expires_at,absolute_expires_at,revoked_at,revoked_reason,device_label,origin_digest
+		idle_expires_at,absolute_expires_at,revoked_at,revoked_reason,device_label,origin_digest,created_ip,last_seen_ip
 		FROM sessions WHERE user_id=$1 ORDER BY created_at DESC,id DESC`, userID)
 	if err != nil {
 		return nil, err
@@ -173,14 +186,17 @@ func (repository *Repository) ListSessions(ctx context.Context, userID string) (
 	for rows.Next() {
 		var session Session
 		var revokedReason *string
+		var createdFrom, lastSeenFrom *netip.Addr
 		if err := rows.Scan(&session.ID, &session.UserID, &session.TokenDigest, &session.CSRFDigest,
 			&session.CreatedAt, &session.LastSeenAt, &session.IdleExpiresAt, &session.AbsoluteExpiresAt,
-			&session.RevokedAt, &revokedReason, &session.DeviceLabel, &session.OriginDigest); err != nil {
+			&session.RevokedAt, &revokedReason, &session.DeviceLabel, &session.OriginDigest,
+			&createdFrom, &lastSeenFrom); err != nil {
 			return nil, err
 		}
 		if revokedReason != nil {
 			session.RevokedReason = RevokeReason(*revokedReason)
 		}
+		session.CreatedFrom, session.LastSeenFrom = readAddress(createdFrom), readAddress(lastSeenFrom)
 		sessions = append(sessions, session)
 	}
 	return sessions, rows.Err()
@@ -683,11 +699,12 @@ func (repository *Repository) VerifyMemberChallenge(ctx context.Context, params 
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO sessions
 			(id,user_id,token_digest,csrf_digest,created_at,last_seen_at,idle_expires_at,absolute_expires_at,
-			revoked_at,revoked_reason,device_label,origin_digest)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NULL,NULL,$9,$10)`,
+			revoked_at,revoked_reason,device_label,origin_digest,created_ip,last_seen_ip)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NULL,NULL,$9,$10,$11,$12)`,
 			params.Session.ID, params.UserID, params.Session.TokenDigest, params.Session.CSRFDigest,
 			params.Session.CreatedAt, params.Session.LastSeenAt, params.Session.IdleExpiresAt,
-			params.Session.AbsoluteExpiresAt, params.Session.DeviceLabel, params.Session.OriginDigest); err != nil {
+			params.Session.AbsoluteExpiresAt, params.Session.DeviceLabel, params.Session.OriginDigest,
+			StoredAddress(params.Session.CreatedFrom), StoredAddress(params.Session.LastSeenFrom)); err != nil {
 			return VerifyMemberChallengeResult{}, err
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO security_audit_events
@@ -1112,4 +1129,26 @@ func (repository *Repository) RotateSigningKey(ctx context.Context, newKey []byt
 		return SigningKeyRecord{}, errors.New("commit the instance signing key rotation")
 	}
 	return record, nil
+}
+
+// StoredAddress turns a Go address into what the inet column holds. netip.Addr's zero value means
+// "not recorded", and a column that says nothing is the honest way to store it — a placeholder
+// would be a value nobody could tell apart from an address.
+//
+// Exported because sessions are also written by the identity package, at bootstrap and at
+// invitation acceptance, and a second copy of this rule is a second chance to get it wrong.
+func StoredAddress(address netip.Addr) *netip.Addr {
+	if !address.IsValid() {
+		return nil
+	}
+	normalized := address.Unmap().WithZone("")
+	return &normalized
+}
+
+// readAddress is the same journey back: a null column is the invalid zero value.
+func readAddress(address *netip.Addr) netip.Addr {
+	if address == nil {
+		return netip.Addr{}
+	}
+	return *address
 }

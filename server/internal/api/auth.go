@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -57,10 +58,10 @@ func completeOwnerSetupHandler(service OwnerIdentity, secureCookies bool) http.H
 		if decodeAuthenticationJSON(writer, request, &input) != nil {
 			return
 		}
-		device, origin := authenticationClientMetadata(request)
+		device, origin, clientAddress := authenticationClientMetadata(request)
 		result, err := service.BootstrapOwner(request.Context(), identity.BootstrapRequest{
 			Capability: input.Capability, Email: input.Email, Password: input.Password, DisplayName: input.DisplayName,
-			DeviceLabel: device, Origin: origin,
+			DeviceLabel: device, Origin: origin, ClientAddress: clientAddress,
 			EODHDAPIKey: input.EODHDAPIKey,
 			SMTP: identity.SMTPSetupConfiguration{
 				Host: input.SMTP.Host, Port: input.SMTP.Port, From: input.SMTP.From,
@@ -109,9 +110,10 @@ func ownerLoginHandler(service OwnerAuthentication, secureCookies bool) http.Han
 		if decodeAuthenticationJSON(writer, request, &input) != nil {
 			return
 		}
-		device, origin := authenticationClientMetadata(request)
+		device, origin, clientAddress := authenticationClientMetadata(request)
 		result, err := service.LoginOwner(request.Context(), auth.OwnerLoginRequest{
 			Email: input.Email, Password: input.Password, DeviceLabel: device, Origin: origin,
+			ClientAddress: clientAddress,
 		})
 		if err != nil {
 			if errors.Is(err, auth.ErrAuthenticationFailed) {
@@ -143,7 +145,7 @@ func signInStartHandler(service OwnerAuthentication) http.HandlerFunc {
 		if decodeAuthenticationJSON(writer, request, &input) != nil {
 			return
 		}
-		_, origin := authenticationClientMetadata(request)
+		_, origin, _ := authenticationClientMetadata(request)
 		result, err := service.StartSignIn(request.Context(), auth.SignInStartRequest{Email: input.Email, Origin: origin})
 		if err != nil {
 			var limited *auth.RateLimitedError
@@ -240,7 +242,14 @@ func decodeAuthenticationJSON(writer http.ResponseWriter, request *http.Request,
 	return nil
 }
 
-func authenticationClientMetadata(request *http.Request) (device, origin string) {
+// authenticationClientMetadata is what a sign-in records about where it came from: the label the
+// browser gave itself, and the address the request actually arrived from.
+//
+// The address is the one resolved at the edge, not the peer. Behind a reverse proxy the peer is the
+// proxy, so digesting it made every audit row on this deployment carry the same origin — the one
+// thing the digest existed to distinguish. The origin string feeds that keyed digest; the address
+// is stored as it is and shown to the person whose session it is.
+func authenticationClientMetadata(request *http.Request) (device, origin string, address netip.Addr) {
 	device = strings.TrimSpace(request.UserAgent())
 	if device == "" {
 		device = "Unknown device"
@@ -248,7 +257,13 @@ func authenticationClientMetadata(request *http.Request) (device, origin string)
 	if len(device) > 160 {
 		device = device[:160]
 	}
-	origin = request.RemoteAddr
+	address = httpx.ClientAddressFromContext(request)
+	if address.IsValid() {
+		return device, address.String(), address
+	}
+	// No resolvable address. The digest still needs an input, and "unknown" is an honest one:
+	// nothing is stored in the address column at all.
+	origin = strings.TrimSpace(request.RemoteAddr)
 	if host, _, err := net.SplitHostPort(request.RemoteAddr); err == nil {
 		origin = host
 	}
@@ -258,7 +273,7 @@ func authenticationClientMetadata(request *http.Request) (device, origin string)
 	if len(origin) > 256 {
 		origin = origin[:256]
 	}
-	return device, origin
+	return device, origin, netip.Addr{}
 }
 
 // writeSetupFieldErrors reports every field the operator must fix in one response. An

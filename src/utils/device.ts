@@ -38,6 +38,13 @@ const PLATFORMS: ReadonlyArray<readonly [RegExp, string]> = [
   [/\b(?:Linux|X11)\b/, 'Linux'],
 ];
 
+/**
+ * A user-agent string always carries at least one `product/version` token. A label that has none is
+ * not one — it is a name somebody or something else chose, and reading it as a user agent finds
+ * the word Linux inside "Chrome on Linux" and answers with the less specific half.
+ */
+const PRODUCT_VERSION = /[A-Za-z][A-Za-z0-9._-]*\/[0-9]/;
+
 function match(userAgent: string, table: ReadonlyArray<readonly [RegExp, string]>): string | null {
   for (const [pattern, name] of table) if (pattern.test(userAgent)) return name;
   return null;
@@ -46,6 +53,7 @@ function match(userAgent: string, table: ReadonlyArray<readonly [RegExp, string]
 export function describeDevice(deviceLabel: string | null | undefined): string {
   const userAgent = (deviceLabel ?? '').trim();
   if (userAgent === '') return UNKNOWN;
+  if (!PRODUCT_VERSION.test(userAgent)) return userAgent;
   const browser = match(userAgent, BROWSERS);
   const platform = match(userAgent, PLATFORMS);
   if (browser && platform) return `${browser} on ${platform}`;

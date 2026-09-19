@@ -161,7 +161,7 @@ func TestSessionsSurviveARestartThatRebuildsEveryService(t *testing.T) {
 	fixture := newAccountFixtureWithKey(t, pool, resolution.Key)
 	owner := fixture.bootstrapOwner(t)
 
-	principal, err := fixture.auth.AuthenticateSession(ctx, owner.SessionToken)
+	principal, err := fixture.auth.AuthenticateSession(ctx, owner.SessionToken, testClientAddress)
 	if err != nil {
 		t.Fatalf("session rejected before the restart: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestSessionsSurviveARestartThatRebuildsEveryService(t *testing.T) {
 	fixture.secrets = secrets
 	fixture.rebuild(t, fixture.mailbox)
 
-	principal, err = fixture.auth.AuthenticateSession(ctx, owner.SessionToken)
+	principal, err = fixture.auth.AuthenticateSession(ctx, owner.SessionToken, testClientAddress)
 	if err != nil {
 		t.Fatalf("session issued before the restart was refused after it: %v", err)
 	}
@@ -261,7 +261,7 @@ func TestRotatingTheSigningKeyEndsEverySessionAndIsAudited(t *testing.T) {
 	}
 	fixture := newAccountFixtureWithKey(t, pool, resolution.Key)
 	owner := fixture.bootstrapOwner(t)
-	if _, err := fixture.auth.AuthenticateSession(ctx, owner.SessionToken); err != nil {
+	if _, err := fixture.auth.AuthenticateSession(ctx, owner.SessionToken, testClientAddress); err != nil {
 		t.Fatalf("session rejected before rotation: %v", err)
 	}
 
@@ -298,7 +298,7 @@ func TestRotatingTheSigningKeyEndsEverySessionAndIsAudited(t *testing.T) {
 	}
 	fixture.secrets = secrets
 	fixture.rebuild(t, fixture.mailbox)
-	if _, err := fixture.auth.AuthenticateSession(ctx, owner.SessionToken); err == nil {
+	if _, err := fixture.auth.AuthenticateSession(ctx, owner.SessionToken, testClientAddress); err == nil {
 		t.Fatal("a session issued under the old key was accepted after rotation")
 	}
 
@@ -449,7 +449,7 @@ func TestFailedSigningKeyRotationLeavesThePreviousKeyInForce(t *testing.T) {
 	if !bytes.Equal(storedKey, resolution.Key) || generation != 1 {
 		t.Fatal("a failed rotation left the installation on a different key")
 	}
-	if _, err := fixture.auth.AuthenticateSession(ctx, owner.SessionToken); err != nil {
+	if _, err := fixture.auth.AuthenticateSession(ctx, owner.SessionToken, testClientAddress); err != nil {
 		t.Fatalf("a failed rotation ended a session: %v", err)
 	}
 
@@ -579,7 +579,7 @@ func TestSigningKeyNeverAppearsAnywhereAcrossACompleteLifecycle(t *testing.T) {
 	}
 	fixture := newAccountFixtureWithKey(t, pool, resolution.Key)
 	owner := fixture.bootstrapOwner(t)
-	if _, err := fixture.auth.AuthenticateSession(ctx, owner.SessionToken); err != nil {
+	if _, err := fixture.auth.AuthenticateSession(ctx, owner.SessionToken, testClientAddress); err != nil {
 		t.Fatal(err)
 	}
 	fixture.clock.Advance(time.Minute)

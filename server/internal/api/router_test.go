@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"testing"
 
 	"market-lens/server/internal/auth"
@@ -47,7 +48,7 @@ func TestUnknownAPIRouteReturnsJSON404(t *testing.T) {
 }
 
 func authenticatedDependencies(dependencies Dependencies) Dependencies {
-	dependencies.Authenticator = sessionAuthenticatorFunc(func(_ context.Context, token string) (auth.Principal, error) {
+	dependencies.Authenticator = sessionAuthenticatorFunc(func(_ context.Context, token string, _ netip.Addr) (auth.Principal, error) {
 		if token != "test-session" {
 			return auth.Principal{}, auth.ErrAuthenticationRequired
 		}

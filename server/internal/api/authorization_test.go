@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -89,10 +90,10 @@ func TestApplicationAndSharedDataRoutesDenyAnonymousExpiredAndRevokedSessions(t 
 		authenticator SessionAuthenticator
 	}{
 		{name: "anonymous"},
-		{name: "expired", cookie: "expired-session", authenticator: sessionAuthenticatorFunc(func(context.Context, string) (auth.Principal, error) {
+		{name: "expired", cookie: "expired-session", authenticator: sessionAuthenticatorFunc(func(context.Context, string, netip.Addr) (auth.Principal, error) {
 			return auth.Principal{}, auth.ErrAuthenticationRequired
 		})},
-		{name: "revoked", cookie: "revoked-session", authenticator: sessionAuthenticatorFunc(func(context.Context, string) (auth.Principal, error) {
+		{name: "revoked", cookie: "revoked-session", authenticator: sessionAuthenticatorFunc(func(context.Context, string, netip.Addr) (auth.Principal, error) {
 			return auth.Principal{}, auth.ErrAuthenticationRequired
 		})},
 	}
@@ -119,7 +120,7 @@ func TestApplicationAndSharedDataRoutesDenyAnonymousExpiredAndRevokedSessions(t 
 }
 
 func TestActiveSessionCanReadSharedRoutesWhileLivenessRemainsPublic(t *testing.T) {
-	authenticator := sessionAuthenticatorFunc(func(_ context.Context, token string) (auth.Principal, error) {
+	authenticator := sessionAuthenticatorFunc(func(_ context.Context, token string, _ netip.Addr) (auth.Principal, error) {
 		if token != "active-session" {
 			return auth.Principal{}, auth.ErrAuthenticationRequired
 		}
@@ -149,10 +150,10 @@ func TestActiveSessionCanReadSharedRoutesWhileLivenessRemainsPublic(t *testing.T
 	}
 }
 
-type sessionAuthenticatorFunc func(context.Context, string) (auth.Principal, error)
+type sessionAuthenticatorFunc func(context.Context, string, netip.Addr) (auth.Principal, error)
 
-func (function sessionAuthenticatorFunc) AuthenticateSession(ctx context.Context, token string) (auth.Principal, error) {
-	return function(ctx, token)
+func (function sessionAuthenticatorFunc) AuthenticateSession(ctx context.Context, token string, address netip.Addr) (auth.Principal, error) {
+	return function(ctx, token, address)
 }
 
 // ownerAdministrationRoutes is every route whose authority is instance ownership rather than
