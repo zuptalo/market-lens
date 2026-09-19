@@ -38,9 +38,10 @@ func verifyMemberCodeHandler(service MemberAuthentication, secureCookies bool) h
 		if decodeAuthenticationJSON(writer, request, &input) != nil {
 			return
 		}
-		device, origin := authenticationClientMetadata(request)
+		device, origin, clientAddress := authenticationClientMetadata(request)
 		result, err := service.VerifyMemberCode(request.Context(), auth.MemberCodeVerifyRequest{
 			Email: input.Email, Code: input.Code, DeviceLabel: device, Origin: origin,
+			ClientAddress: clientAddress,
 		})
 		if err != nil {
 			var limited *auth.RateLimitedError

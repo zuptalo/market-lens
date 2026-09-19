@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -310,7 +311,7 @@ func TestSignalEndpointsRequireAnActiveSession(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			deps := Dependencies{Signals: &signalReaderStub{}}
-			deps.Authenticator = sessionAuthenticatorFunc(func(context.Context, string) (auth.Principal, error) {
+			deps.Authenticator = sessionAuthenticatorFunc(func(context.Context, string, netip.Addr) (auth.Principal, error) {
 				return auth.Principal{}, err
 			})
 			router := NewRouter(deps)

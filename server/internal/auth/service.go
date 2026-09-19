@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	netmail "net/mail"
+	"net/netip"
 	"strings"
 	"time"
 	"unicode"
@@ -55,6 +56,9 @@ type OwnerLoginRequest struct {
 	Password    string
 	DeviceLabel string
 	Origin      string
+	// ClientAddress is what the person will read on their own device list. Origin above is the
+	// same fact on its way into a keyed digest; this one is stored as it is.
+	ClientAddress netip.Addr
 }
 
 const GenericSignInMessage = "If you have an account, you should receive an email with a six-digit passcode."
@@ -117,10 +121,11 @@ func NewService(dependencies ServiceDependencies) (*Service, error) {
 
 // MemberCodeVerifyRequest carries one six-digit member sign-in attempt.
 type MemberCodeVerifyRequest struct {
-	Email       string
-	Code        string
-	DeviceLabel string
-	Origin      string
+	Email         string
+	Code          string
+	DeviceLabel   string
+	Origin        string
+	ClientAddress netip.Addr
 }
 
 // RateLimitedError reports a refused attempt with a deliberately coarse retry hint.
@@ -266,6 +271,7 @@ func (service *Service) VerifyMemberCode(ctx context.Context, request MemberCode
 		CSRFDigest:  service.secrets.Digest(PurposeCSRF, csrfToken),
 		CreatedAt:   now, LastSeenAt: now, IdleExpiresAt: idleExpiresAt, AbsoluteExpiresAt: absoluteExpiresAt,
 		DeviceLabel: request.DeviceLabel, OriginDigest: service.secrets.Digest(PurposeOrigin, request.Origin),
+		CreatedFrom: request.ClientAddress, LastSeenFrom: request.ClientAddress,
 	}
 	if err := session.Validate(); err != nil {
 		return AuthenticationResult{}, ErrAuthenticationFailed
@@ -338,6 +344,7 @@ func (service *Service) LoginOwner(ctx context.Context, request OwnerLoginReques
 		CSRFDigest:  service.secrets.Digest(PurposeCSRF, csrfToken),
 		CreatedAt:   now, LastSeenAt: now, IdleExpiresAt: idleExpiresAt, AbsoluteExpiresAt: absoluteExpiresAt,
 		DeviceLabel: request.DeviceLabel, OriginDigest: service.secrets.Digest(PurposeOrigin, request.Origin),
+		CreatedFrom: request.ClientAddress, LastSeenFrom: request.ClientAddress,
 	}
 	if err := session.Validate(); err != nil {
 		return AuthenticationResult{}, ErrAuthenticationFailed
@@ -360,7 +367,11 @@ func (service *Service) LoginOwner(ctx context.Context, request OwnerLoginReques
 	}, nil
 }
 
-func (service *Service) AuthenticateSession(ctx context.Context, token string) (Principal, error) {
+// AuthenticateSession admits a request and records that it happened: the activity timestamp, and
+// the address the request came from. The address is a parameter rather than something read out of
+// the context because this interface is the one place every authenticated request passes through,
+// and a security-relevant input should be visible at the call site.
+func (service *Service) AuthenticateSession(ctx context.Context, token string, clientAddress netip.Addr) (Principal, error) {
 	if token == "" || len(token) > 512 {
 		return Principal{}, ErrAuthenticationRequired
 	}
@@ -379,6 +390,9 @@ func (service *Service) AuthenticateSession(ctx context.Context, token string) (
 	if err := session.Touch(now, service.ownerIdleTimeout); err != nil {
 		return Principal{}, ErrAuthenticationRequired
 	}
+	// Written as determined, including when it is unknown. The column means the address of the
+	// most recent request; keeping an older one beside a fresh timestamp would be a quiet lie.
+	session.LastSeenFrom = clientAddress
 	if err := service.repository.UpdateSessionActivity(ctx, session); err != nil {
 		if errors.Is(err, ErrAuthenticationRequired) {
 			return Principal{}, ErrAuthenticationRequired

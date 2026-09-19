@@ -245,7 +245,7 @@ func TestOneInstallationFromBootstrapToLockoutRecoveryAndRestart(t *testing.T) {
 	if err := fixture.auth.RevokeAllSessions(ctx, member.User.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.auth.AuthenticateSession(ctx, restored.SessionToken); !errors.Is(err, auth.ErrAuthenticationRequired) {
+	if _, err := fixture.auth.AuthenticateSession(ctx, restored.SessionToken, testClientAddress); !errors.Is(err, auth.ErrAuthenticationRequired) {
 		t.Fatalf("a revoked session still authenticated: %v", err)
 	}
 

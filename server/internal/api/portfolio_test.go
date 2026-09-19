@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -276,7 +277,7 @@ func TestPortfolioIsRefusedWithoutASession(t *testing.T) {
 // A deactivated account holds a session token that has not expired. The persisted record decides.
 func TestPortfolioIsRefusedToADeactivatedAccount(t *testing.T) {
 	deps := Dependencies{Portfolio: &portfolioServiceStub{}}
-	deps.Authenticator = sessionAuthenticatorFunc(func(context.Context, string) (auth.Principal, error) {
+	deps.Authenticator = sessionAuthenticatorFunc(func(context.Context, string, netip.Addr) (auth.Principal, error) {
 		return auth.Principal{}, auth.ErrAuthenticationRequired
 	})
 	router := NewRouter(deps)

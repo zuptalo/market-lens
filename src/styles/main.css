@@ -283,6 +283,13 @@ html { scrollbar-gutter: stable; }
 .sessions { display: grid; gap: .75rem; margin: 0; padding: 0; list-style: none; }
 .sessions li { display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-width: 0; padding: 1rem; border-radius: .75rem; background: color-mix(in srgb, currentColor 6%, transparent); }
 .sessions p { margin: .35rem 0 0; color: color-mix(in srgb, currentColor 68%, transparent); font-size: .85rem; }
+/* An address is read character by character, so it is set in the face that gives 0 and O, and 1
+   and l, different shapes. break-all rather than break-word: a full IPv6 address is 39 characters
+   with no word boundary to break at, and at 320 CSS pixels it has to fold rather than widen the
+   page. This is our own text, not a control the theme owns. */
+.session-list__address { font-family: var(--p-font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace); word-break: break-all; }
+/* Said in words, and quietly: a session with no recorded address is ordinary, not an error. */
+.session-list__unrecorded { color: color-mix(in srgb, currentColor 68%, transparent); }
 .current-session { display: inline-flex; margin-left: .5rem; padding: .2rem .45rem; border-radius: 999px; background: color-mix(in srgb, #0f766e 15%, transparent); font-size: .72rem; font-weight: 750; }
 /*
  * The navigation takes its own row below the desktop width.

@@ -236,7 +236,7 @@ func TestMemberCodeVerificationEstablishesASessionAndFailsUniformly(t *testing.T
 	if result.SessionToken == "" || result.CSRFToken == "" || result.SessionToken == result.CSRFToken {
 		t.Fatal("member verification did not return distinct session and CSRF tokens")
 	}
-	principal, err := service.AuthenticateSession(context.Background(), result.SessionToken)
+	principal, err := service.AuthenticateSession(context.Background(), result.SessionToken, testClientAddress)
 	if err != nil {
 		t.Fatal(err)
 	}

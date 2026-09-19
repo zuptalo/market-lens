@@ -217,12 +217,12 @@ func TestSimultaneousRevocationAndAuthenticationNeverLeavesAUsableSession(t *tes
 	// unusable once revocation has returned.
 	runConcurrently(concurrentWorkers, func(index int) error {
 		if index%2 == 0 {
-			_, err := fixture.auth.AuthenticateSession(ctx, signedIn.SessionToken)
+			_, err := fixture.auth.AuthenticateSession(ctx, signedIn.SessionToken, testClientAddress)
 			return err
 		}
 		return fixture.auth.RevokeAllSessions(ctx, member)
 	})
-	if _, err := fixture.auth.AuthenticateSession(ctx, signedIn.SessionToken); !errors.Is(err, auth.ErrAuthenticationRequired) {
+	if _, err := fixture.auth.AuthenticateSession(ctx, signedIn.SessionToken, testClientAddress); !errors.Is(err, auth.ErrAuthenticationRequired) {
 		t.Fatalf("a revoked session still authenticated: %v", err)
 	}
 	if err := fixture.auth.RevalidateSession(ctx, signedIn.Session.ID); !errors.Is(err, auth.ErrAuthenticationRequired) {

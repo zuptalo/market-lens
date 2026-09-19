@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 
@@ -208,7 +209,7 @@ func TestRiskIsRefusedWithoutASession(t *testing.T) {
 
 func TestRiskIsRefusedToADeactivatedAccount(t *testing.T) {
 	deps := Dependencies{Risk: &riskServiceStub{}}
-	deps.Authenticator = sessionAuthenticatorFunc(func(context.Context, string) (auth.Principal, error) {
+	deps.Authenticator = sessionAuthenticatorFunc(func(context.Context, string, netip.Addr) (auth.Principal, error) {
 		return auth.Principal{}, auth.ErrAuthenticationRequired
 	})
 	router := NewRouter(deps)

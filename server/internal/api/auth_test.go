@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -157,7 +158,7 @@ func TestGenericSignInReplacesPublicOwnerRecoveryEndpoints(t *testing.T) {
 func TestOwnerIntegrationStatusReturnsOnlySafeReadinessMetadata(t *testing.T) {
 	router := NewRouter(Dependencies{
 		Database: databaseStub{},
-		Authenticator: sessionAuthenticatorFunc(func(context.Context, string) (auth.Principal, error) {
+		Authenticator: sessionAuthenticatorFunc(func(context.Context, string, netip.Addr) (auth.Principal, error) {
 			return auth.Principal{
 				UserID: "10000000-0000-4000-8000-000000000001",
 				Role:   "owner", SessionID: "20000000-0000-4000-8000-000000000001",
@@ -221,7 +222,7 @@ func TestAccountSessionAndLogoutHTTPContractsRequireSessionAndCSRF(t *testing.T)
 			{ID: otherSessionID, DeviceLabel: "Other browser", CreatedAt: now, LastSeenAt: now, IdleExpiresAt: now.Add(8 * time.Hour), AbsoluteExpiresAt: now.Add(30 * 24 * time.Hour)},
 		},
 	}
-	authenticator := sessionAuthenticatorFunc(func(_ context.Context, token string) (auth.Principal, error) {
+	authenticator := sessionAuthenticatorFunc(func(_ context.Context, token string, _ netip.Addr) (auth.Principal, error) {
 		if token != "active-session-secret" {
 			return auth.Principal{}, auth.ErrAuthenticationRequired
 		}
@@ -470,7 +471,7 @@ func TestOwnerIntegrationStatusReportsInstanceConfigurationWithoutSecrets(t *tes
 		t.Run(tt.name, func(t *testing.T) {
 			router := NewRouter(Dependencies{
 				Database: databaseStub{},
-				Authenticator: sessionAuthenticatorFunc(func(context.Context, string) (auth.Principal, error) {
+				Authenticator: sessionAuthenticatorFunc(func(context.Context, string, netip.Addr) (auth.Principal, error) {
 					return auth.Principal{
 						UserID: "10000000-0000-4000-8000-000000000001",
 						Role:   "owner", SessionID: "20000000-0000-4000-8000-000000000001",
@@ -567,7 +568,7 @@ func TestInstanceConfigurationIsNeverServedBelowOwner(t *testing.T) {
 		t.Run(principal.name, func(t *testing.T) {
 			router := NewRouter(Dependencies{
 				Database: databaseStub{},
-				Authenticator: sessionAuthenticatorFunc(func(context.Context, string) (auth.Principal, error) {
+				Authenticator: sessionAuthenticatorFunc(func(context.Context, string, netip.Addr) (auth.Principal, error) {
 					return auth.Principal{
 						UserID: "10000000-0000-4000-8000-000000000002",
 						Role:   principal.role, SessionID: "20000000-0000-4000-8000-000000000002",
@@ -593,7 +594,7 @@ func TestInstanceConfigurationIsNeverServedBelowOwner(t *testing.T) {
 	// An anonymous request must not reach it either.
 	router := NewRouter(Dependencies{
 		Database: databaseStub{},
-		Authenticator: sessionAuthenticatorFunc(func(context.Context, string) (auth.Principal, error) {
+		Authenticator: sessionAuthenticatorFunc(func(context.Context, string, netip.Addr) (auth.Principal, error) {
 			return auth.Principal{}, auth.ErrAuthenticationRequired
 		}),
 		Authentication:        &ownerAuthenticationStub{},
@@ -768,7 +769,7 @@ func TestOwnerIntegrationsAreEditable(t *testing.T) {
 	ownerRouter := func(stub *integrationAdminStub) http.Handler {
 		return NewRouter(Dependencies{
 			Database: databaseStub{},
-			Authenticator: sessionAuthenticatorFunc(func(context.Context, string) (auth.Principal, error) {
+			Authenticator: sessionAuthenticatorFunc(func(context.Context, string, netip.Addr) (auth.Principal, error) {
 				return auth.Principal{
 					UserID: "10000000-0000-4000-8000-000000000001", Role: "owner",
 					SessionID:  "20000000-0000-4000-8000-000000000001",
@@ -844,7 +845,7 @@ func TestOwnerIntegrationsAreEditable(t *testing.T) {
 		stub := &integrationAdminStub{}
 		memberRouter := NewRouter(Dependencies{
 			Database: databaseStub{},
-			Authenticator: sessionAuthenticatorFunc(func(context.Context, string) (auth.Principal, error) {
+			Authenticator: sessionAuthenticatorFunc(func(context.Context, string, netip.Addr) (auth.Principal, error) {
 				return auth.Principal{
 					UserID: "10000000-0000-4000-8000-000000000002", Role: "member",
 					SessionID:  "20000000-0000-4000-8000-000000000002",
@@ -912,7 +913,7 @@ func (stub *integrationAdminStub) IntegrationSettings(_ context.Context,
 func TestOwnerIntegrationSettingsAreReadableAndSecretFree(t *testing.T) {
 	router := NewRouter(Dependencies{
 		Database: databaseStub{},
-		Authenticator: sessionAuthenticatorFunc(func(context.Context, string) (auth.Principal, error) {
+		Authenticator: sessionAuthenticatorFunc(func(context.Context, string, netip.Addr) (auth.Principal, error) {
 			return auth.Principal{
 				UserID: "10000000-0000-4000-8000-000000000001", Role: "owner",
 				SessionID: "20000000-0000-4000-8000-000000000001",
@@ -1011,7 +1012,7 @@ func TestIntegrationChecksReportEachIntegrationSeparately(t *testing.T) {
 			stub := &integrationAdminStub{outcomes: tt.outcomes, err: tt.err}
 			router := NewRouter(Dependencies{
 				Database: databaseStub{},
-				Authenticator: sessionAuthenticatorFunc(func(context.Context, string) (auth.Principal, error) {
+				Authenticator: sessionAuthenticatorFunc(func(context.Context, string, netip.Addr) (auth.Principal, error) {
 					return auth.Principal{
 						UserID: "10000000-0000-4000-8000-000000000001", Role: "owner",
 						SessionID:  "20000000-0000-4000-8000-000000000001",

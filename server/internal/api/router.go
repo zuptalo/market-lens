@@ -4,6 +4,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -18,7 +19,7 @@ type Database interface {
 }
 
 type SessionAuthenticator interface {
-	AuthenticateSession(context.Context, string) (auth.Principal, error)
+	AuthenticateSession(context.Context, string, netip.Addr) (auth.Principal, error)
 }
 
 type OwnerIdentity interface {
@@ -84,18 +85,23 @@ type InstanceConfiguration struct {
 }
 
 type Dependencies struct {
-	Database                Database
-	Authenticator           SessionAuthenticator
-	Identity                OwnerIdentity
-	Authentication          OwnerAuthentication
-	Integrations            IntegrationStatusReader
-	IntegrationAdmin        IntegrationAdministration
-	InstanceConfiguration   InstanceConfiguration
-	MemberAuth              MemberAuthentication
-	Members                 MemberAdministration
-	Invitations             InvitationAdministration
-	SecureCookies           bool
-	AllowedOrigins          []string
+	Database              Database
+	Authenticator         SessionAuthenticator
+	Identity              OwnerIdentity
+	Authentication        OwnerAuthentication
+	Integrations          IntegrationStatusReader
+	IntegrationAdmin      IntegrationAdministration
+	InstanceConfiguration InstanceConfiguration
+	MemberAuth            MemberAuthentication
+	Members               MemberAdministration
+	Invitations           InvitationAdministration
+	SecureCookies         bool
+	AllowedOrigins        []string
+	// TrustedProxies names the networks whose X-Forwarded-For header this deployment believes.
+	// Empty means nothing is trusted, which is the right answer when the server is reached
+	// directly; behind an ingress it is the difference between recording the client's address and
+	// recording the ingress's, identically, for every device.
+	TrustedProxies          []netip.Prefix
 	StaticDir               string
 	Version                 string
 	MarketData              MarketDataReader
@@ -322,7 +328,8 @@ func NewRouter(deps Dependencies) http.Handler {
 		root.Handle("GET /favicon.svg", public)
 	}
 	root.Handle("/", authenticateSession(deps.Authenticator, protected))
-	return httpx.Chain(root, httpx.Recover, httpx.Log, httpx.CORS(deps.AllowedOrigins))
+	return httpx.Chain(root, httpx.Recover, httpx.Log, httpx.CORS(deps.AllowedOrigins),
+		httpx.ResolveClientAddress(deps.TrustedProxies))
 }
 
 func authenticateSession(authenticator SessionAuthenticator, next http.Handler) http.Handler {
@@ -337,7 +344,8 @@ func authenticateSession(authenticator SessionAuthenticator, next http.Handler) 
 			protected.ServeHTTP(writer, request)
 			return
 		}
-		principal, err := authenticator.AuthenticateSession(request.Context(), cookie.Value)
+		principal, err := authenticator.AuthenticateSession(request.Context(), cookie.Value,
+			httpx.ClientAddressFromContext(request))
 		if err != nil {
 			protected.ServeHTTP(writer, request)
 			return

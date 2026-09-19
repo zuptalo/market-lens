@@ -3,6 +3,7 @@ package auth
 import (
 	"encoding/hex"
 	"errors"
+	"net/netip"
 	"strings"
 	"time"
 	"unicode"
@@ -36,6 +37,11 @@ type Session struct {
 	RevokedReason     RevokeReason
 	DeviceLabel       string
 	OriginDigest      []byte
+	// CreatedFrom and LastSeenFrom are the client addresses feature 028 records. The zero value of
+	// netip.Addr is invalid, which is exactly the "not recorded" state and needs no second field:
+	// every session created before that feature shipped has one, and fills it in on its next use.
+	CreatedFrom  netip.Addr
+	LastSeenFrom netip.Addr
 }
 
 type SessionSummary struct {
@@ -47,6 +53,8 @@ type SessionSummary struct {
 	IdleExpiresAt     time.Time
 	AbsoluteExpiresAt time.Time
 	Revoked           bool
+	CreatedFrom       netip.Addr
+	LastSeenFrom      netip.Addr
 }
 
 func (session Session) Validate() error {
@@ -116,6 +124,7 @@ func (session Session) Summary(currentSessionID string) SessionSummary {
 		ID: session.ID, Current: session.ID == currentSessionID, DeviceLabel: session.DeviceLabel,
 		CreatedAt: session.CreatedAt, LastSeenAt: session.LastSeenAt, IdleExpiresAt: session.IdleExpiresAt,
 		AbsoluteExpiresAt: session.AbsoluteExpiresAt, Revoked: session.RevokedAt != nil,
+		CreatedFrom: session.CreatedFrom, LastSeenFrom: session.LastSeenFrom,
 	}
 }
 

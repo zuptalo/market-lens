@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -91,7 +92,7 @@ func TestOwnerSessionAuthenticationExpiryAndRevocation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	principal, err := service.AuthenticateSession(context.Background(), login.SessionToken)
+	principal, err := service.AuthenticateSession(context.Background(), login.SessionToken, testClientAddress)
 	if err != nil || principal.UserID != login.Account.ID || principal.SessionID != login.Session.ID ||
 		!principal.VerifyCSRF(login.CSRFToken) || principal.VerifyCSRF("wrong") {
 		t.Fatalf("authenticated principal = %#v err=%v", principal, err)
@@ -109,7 +110,7 @@ func TestOwnerSessionAuthenticationExpiryAndRevocation(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertScopedEventCount(t, pool, "session.revoked.v1", principal.UserID, principal.SessionID, 1)
-	if _, err := service.AuthenticateSession(context.Background(), login.SessionToken); !errors.Is(err, auth.ErrAuthenticationRequired) {
+	if _, err := service.AuthenticateSession(context.Background(), login.SessionToken, testClientAddress); !errors.Is(err, auth.ErrAuthenticationRequired) {
 		t.Fatalf("revoked session authentication error = %v", err)
 	}
 
@@ -121,7 +122,7 @@ func TestOwnerSessionAuthenticationExpiryAndRevocation(t *testing.T) {
 		t.Fatal(err)
 	}
 	clock.Advance(8 * time.Hour)
-	if _, err := service.AuthenticateSession(context.Background(), second.SessionToken); !errors.Is(err, auth.ErrAuthenticationRequired) {
+	if _, err := service.AuthenticateSession(context.Background(), second.SessionToken, testClientAddress); !errors.Is(err, auth.ErrAuthenticationRequired) {
 		t.Fatalf("idle-expired session authentication error = %v", err)
 	}
 
@@ -134,11 +135,11 @@ func TestOwnerSessionAuthenticationExpiryAndRevocation(t *testing.T) {
 		t.Fatal(err)
 	}
 	clock.Advance(15 * 24 * time.Hour)
-	if _, err := absoluteService.AuthenticateSession(context.Background(), absoluteSession.SessionToken); err != nil {
+	if _, err := absoluteService.AuthenticateSession(context.Background(), absoluteSession.SessionToken, testClientAddress); err != nil {
 		t.Fatalf("session did not renew before absolute expiry: %v", err)
 	}
 	clock.Advance(15 * 24 * time.Hour)
-	if _, err := absoluteService.AuthenticateSession(context.Background(), absoluteSession.SessionToken); !errors.Is(err, auth.ErrAuthenticationRequired) {
+	if _, err := absoluteService.AuthenticateSession(context.Background(), absoluteSession.SessionToken, testClientAddress); !errors.Is(err, auth.ErrAuthenticationRequired) {
 		t.Fatalf("absolute-expired session authentication error = %v", err)
 	}
 
@@ -153,7 +154,7 @@ func TestOwnerSessionAuthenticationExpiryAndRevocation(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertScopedEventCount(t, pool, "sessions.revoked.v1", activeAgain.Account.ID, activeAgain.Account.ID, 1)
-	if _, err := absoluteService.AuthenticateSession(context.Background(), activeAgain.SessionToken); !errors.Is(err, auth.ErrAuthenticationRequired) {
+	if _, err := absoluteService.AuthenticateSession(context.Background(), activeAgain.SessionToken, testClientAddress); !errors.Is(err, auth.ErrAuthenticationRequired) {
 		t.Fatalf("all-device-revoked session authentication error = %v", err)
 	}
 }
@@ -244,3 +245,7 @@ func newOwnerAuthService(t *testing.T, pool *pgxpool.Pool, clock *authtest.Clock
 	}
 	return service, hasher
 }
+
+// The address a test request arrives from. Any valid address will do; a zero one would be the
+// "not recorded" state and would quietly stop these tests exercising what is stored.
+var testClientAddress = netip.MustParseAddr("203.0.113.12")

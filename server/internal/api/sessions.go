@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"net/netip"
 	"time"
 
 	"market-lens/server/internal/auth"
@@ -110,6 +111,11 @@ type sessionResponse struct {
 	IdleExpiresAt     time.Time `json:"idle_expires_at"`
 	AbsoluteExpiresAt time.Time `json:"absolute_expires_at"`
 	Revoked           bool      `json:"revoked"`
+	// The two addresses feature 028 records. A pointer because null is a meaning here: not
+	// recorded, which every session created before that feature shipped is until its next use.
+	// An empty string would read as an address nobody could place.
+	CreatedFrom  *string `json:"created_from"`
+	LastSeenFrom *string `json:"last_seen_from"`
 }
 
 func newSessionResponse(session auth.SessionSummary) sessionResponse {
@@ -117,5 +123,18 @@ func newSessionResponse(session auth.SessionSummary) sessionResponse {
 		ID: session.ID, Current: session.Current, DeviceLabel: session.DeviceLabel,
 		CreatedAt: session.CreatedAt, LastSeenAt: session.LastSeenAt, IdleExpiresAt: session.IdleExpiresAt,
 		AbsoluteExpiresAt: session.AbsoluteExpiresAt, Revoked: session.Revoked,
+		CreatedFrom:  reportedAddress(session.CreatedFrom),
+		LastSeenFrom: reportedAddress(session.LastSeenFrom),
 	}
+}
+
+// reportedAddress is the address as the person will read it, or nothing at all. netip.Addr's zero
+// value is invalid, which is the "not recorded" state, and it is reported as null rather than as
+// something that could be mistaken for an address.
+func reportedAddress(address netip.Addr) *string {
+	if !address.IsValid() {
+		return nil
+	}
+	text := address.String()
+	return &text
 }

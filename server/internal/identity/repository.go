@@ -136,11 +136,12 @@ func (repository *Repository) CompleteBootstrap(ctx context.Context, params Comp
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO sessions
 		(id,user_id,token_digest,csrf_digest,created_at,last_seen_at,idle_expires_at,absolute_expires_at,
-		revoked_at,revoked_reason,device_label,origin_digest)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NULL,NULL,$9,$10)`,
+		revoked_at,revoked_reason,device_label,origin_digest,created_ip,last_seen_ip)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NULL,NULL,$9,$10,$11,$12)`,
 		params.Session.ID, params.Session.UserID, params.Session.TokenDigest, params.Session.CSRFDigest,
 		params.Session.CreatedAt, params.Session.LastSeenAt, params.Session.IdleExpiresAt,
-		params.Session.AbsoluteExpiresAt, params.Session.DeviceLabel, params.Session.OriginDigest); err != nil {
+		params.Session.AbsoluteExpiresAt, params.Session.DeviceLabel, params.Session.OriginDigest,
+		auth.StoredAddress(params.Session.CreatedFrom), auth.StoredAddress(params.Session.LastSeenFrom)); err != nil {
 		return err
 	}
 	result, err := tx.Exec(ctx, `UPDATE auth_capabilities SET consumed_at=$1
@@ -578,11 +579,12 @@ func (repository *Repository) AcceptInvitation(ctx context.Context, params Accep
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO sessions
 		(id,user_id,token_digest,csrf_digest,created_at,last_seen_at,idle_expires_at,absolute_expires_at,
-		revoked_at,revoked_reason,device_label,origin_digest)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NULL,NULL,$9,$10)`,
+		revoked_at,revoked_reason,device_label,origin_digest,created_ip,last_seen_ip)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NULL,NULL,$9,$10,$11,$12)`,
 		params.Session.ID, params.UserID, params.Session.TokenDigest, params.Session.CSRFDigest,
 		params.Session.CreatedAt, params.Session.LastSeenAt, params.Session.IdleExpiresAt,
-		params.Session.AbsoluteExpiresAt, params.Session.DeviceLabel, params.Session.OriginDigest); err != nil {
+		params.Session.AbsoluteExpiresAt, params.Session.DeviceLabel, params.Session.OriginDigest,
+		auth.StoredAddress(params.Session.CreatedFrom), auth.StoredAddress(params.Session.LastSeenFrom)); err != nil {
 		return User{}, err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO security_audit_events

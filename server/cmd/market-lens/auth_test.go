@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -396,7 +397,7 @@ func TestNewAuthenticationServiceAcceptsSessionCreatedBySharedIdentityConfigurat
 	if err != nil {
 		t.Fatal(err)
 	}
-	principal, err := authenticationService.AuthenticateSession(context.Background(), created.SessionToken)
+	principal, err := authenticationService.AuthenticateSession(context.Background(), created.SessionToken, testClientAddress)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -487,7 +488,7 @@ func TestResolvedSigningKeyReachesBothServicesAcrossARestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	principal, err := authenticationService.AuthenticateSession(ctx, created.SessionToken)
+	principal, err := authenticationService.AuthenticateSession(ctx, created.SessionToken, testClientAddress)
 	if err != nil {
 		t.Fatalf("session issued before the restart was refused after it: %v", err)
 	}
@@ -725,3 +726,7 @@ func boolToInt(value bool) int {
 	}
 	return 0
 }
+
+// The address a test request arrives from. Any valid address will do; a zero one would be the
+// "not recorded" state and would quietly stop these tests exercising what is stored.
+var testClientAddress = netip.MustParseAddr("203.0.113.12")

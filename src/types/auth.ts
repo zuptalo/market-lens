@@ -61,6 +61,13 @@ export interface Session {
   idleExpiresAt: string;
   absoluteExpiresAt: string;
   revoked: boolean;
+  /**
+   * The addresses this session was created from and last seen from, or null when the server never
+   * recorded one — which is every session that existed before it started. Null is a meaning here,
+   * so the screen says so in words rather than showing something that reads like an address.
+   */
+  createdFrom: string | null;
+  lastSeenFrom: string | null;
 }
 
 export interface AuthState {

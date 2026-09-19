@@ -207,3 +207,46 @@ func TestMaxReachIsBoundedAndRefused(t *testing.T) {
 		})
 	}
 }
+
+// Behind the ingress this value is the difference between recording every device's own address and
+// recording Traefik's, identically, for all of them (feature 028, D1).
+func TestLoadParsesTrustedProxies(t *testing.T) {
+	t.Setenv("PORT", "8081")
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("TRUSTED_PROXIES", " 10.42.0.0/16 , 10.43.0.7 ")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.TrustedProxies) != 2 ||
+		cfg.TrustedProxies[0].String() != "10.42.0.0/16" || cfg.TrustedProxies[1].String() != "10.43.0.7/32" {
+		t.Fatalf("unexpected trusted proxies: %v", cfg.TrustedProxies)
+	}
+}
+
+func TestTrustedProxiesDefaultToTrustingNothing(t *testing.T) {
+	t.Setenv("PORT", "8081")
+	t.Setenv("DATABASE_URL", "postgres://example")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.TrustedProxies) != 0 {
+		t.Fatalf("nothing should be trusted by default, got %v", cfg.TrustedProxies)
+	}
+}
+
+// Refused rather than quietly ignored. A trust list that silently failed to parse produces a
+// screen full of plausible internal addresses that nobody would ever question (FR-006).
+func TestLoadRefusesAMalformedTrustedProxy(t *testing.T) {
+	t.Setenv("PORT", "8081")
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("TRUSTED_PROXIES", "10.42.0.0/16,the-ingress")
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected a malformed trusted proxy to stop startup")
+	}
+	if !strings.Contains(err.Error(), "TRUSTED_PROXIES") || !strings.Contains(err.Error(), "the-ingress") {
+		t.Fatalf("error must name the variable and the entry that failed: %v", err)
+	}
+}

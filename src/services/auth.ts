@@ -302,6 +302,17 @@ function invitationFromWire(value: unknown): Invitation {
   };
 }
 
+/**
+ * An address, or nothing. Absent and null both mean the server never recorded one; anything else
+ * that is not a string is a response this client does not understand, and a security screen is the
+ * last place to start guessing what a malformed field meant.
+ */
+function addressFromWire(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'string') throw invalidResponse();
+  return value;
+}
+
 function sessionFromWire(value: unknown): Session {
   const wire = value as Record<string, unknown>;
   if (!wire || typeof wire.id !== 'string' || typeof wire.current !== 'boolean' || typeof wire.device_label !== 'string' ||
@@ -309,7 +320,8 @@ function sessionFromWire(value: unknown): Session {
       typeof wire.absolute_expires_at !== 'string' || typeof wire.revoked !== 'boolean') throw invalidResponse();
   return { id: wire.id, current: wire.current, deviceLabel: wire.device_label, createdAt: wire.created_at,
     lastSeenAt: wire.last_seen_at, idleExpiresAt: wire.idle_expires_at,
-    absoluteExpiresAt: wire.absolute_expires_at, revoked: wire.revoked };
+    absoluteExpiresAt: wire.absolute_expires_at, revoked: wire.revoked,
+    createdFrom: addressFromWire(wire.created_from), lastSeenFrom: addressFromWire(wire.last_seen_from) };
 }
 
 // An omitted password is the difference between "keep the stored one" and "remove

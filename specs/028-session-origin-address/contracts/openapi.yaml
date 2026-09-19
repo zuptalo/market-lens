@@ -1,0 +1,72 @@
+openapi: 3.1.0
+info:
+  title: Market Lens Session Origin
+  version: 1.0.0
+  description: >
+    The addresses a session was created from and last seen from, added to the existing session list.
+    Both are private to the account that owns the session: no owner, administrator, or other member
+    can read them on any path, and no event payload carries one.
+servers:
+  - url: /api/v1
+x-market-lens-access-boundary:
+  user_private:
+    - /account/sessions
+  rule: >
+    The session list is scoped to the caller's own user_id in the query that builds it. The two
+    address fields are returned nowhere else — not in member administration, not in an export, and
+    not in session.created.v1 or session.revoked.v1.
+
+paths:
+  /account/sessions:
+    get:
+      summary: The devices signed in to this account
+      responses:
+        "200":
+          description: This account's sessions, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Session" }
+        "401": { description: No active session }
+
+components:
+  schemas:
+    Session:
+      type: object
+      required:
+        [id, current, device_label, created_at, last_seen_at, idle_expires_at,
+         absolute_expires_at, revoked, created_from, last_seen_from]
+      properties:
+        id: { type: string, format: uuid }
+        current:
+          type: boolean
+          description: Whether this is the session making the request
+        device_label:
+          type: string
+          description: >
+            The user-agent string as the client sent it, bounded to 160 characters. The client
+            derives a readable device name from it; the server does not interpret it.
+        created_at: { type: string, format: date-time }
+        last_seen_at: { type: string, format: date-time }
+        idle_expires_at: { type: string, format: date-time }
+        absolute_expires_at: { type: string, format: date-time }
+        revoked: { type: boolean }
+        created_from:
+          type: [string, "null"]
+          description: >
+            The client address of the request that created this session, in canonical form, or null
+            when it was not recorded — which is the case for every session created before this
+            feature shipped.
+          examples: ["203.0.113.12", "2001:db8::8a2e:370:7334", null]
+        last_seen_from:
+          type: [string, "null"]
+          description: >
+            The client address of the most recent request that authenticated this session, or null
+            when it was not recorded. Behind a reverse proxy this is the client's own address only
+            when the proxy is named in TRUSTED_PROXIES; otherwise it is the proxy's.
+          examples: ["203.0.113.12", null]

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -20,6 +21,8 @@ type AcceptInvitationRequest struct {
 	DisplayName string
 	DeviceLabel string
 	Origin      string
+	// ClientAddress is the address this session will be listed as having been created from.
+	ClientAddress netip.Addr
 }
 
 // invitationURL builds the absolute link carried by the invitation email. The capability lives
@@ -184,6 +187,7 @@ func (service *Service) AcceptInvitation(ctx context.Context, request AcceptInvi
 		CSRFDigest:  service.secrets.Digest(auth.PurposeCSRF, csrfToken),
 		CreatedAt:   now, LastSeenAt: now, IdleExpiresAt: idleExpiresAt, AbsoluteExpiresAt: absoluteExpiresAt,
 		DeviceLabel: request.DeviceLabel, OriginDigest: service.secrets.Digest(auth.PurposeOrigin, request.Origin),
+		CreatedFrom: request.ClientAddress, LastSeenFrom: request.ClientAddress,
 	}
 	if err := session.Validate(); err != nil {
 		return BootstrapResult{}, ErrInvitationUnavailable

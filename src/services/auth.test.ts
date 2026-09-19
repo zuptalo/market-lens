@@ -162,3 +162,35 @@ function response(status: number, body?: unknown): Pick<Response, 'ok' | 'status
     json: async () => body,
   };
 }
+
+describe('session addresses', () => {
+  function client(item: Record<string, unknown>) {
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ items: [item] }), {
+      status: 200, headers: { 'content-type': 'application/json' },
+    }));
+    return new AuthClient(fetcher as unknown as typeof fetch);
+  }
+
+  const base = {
+    id: 'ses-1', current: true, device_label: 'Firefox', created_at: '2026-09-19T05:00:00Z',
+    last_seen_at: '2026-09-19T06:00:00Z', idle_expires_at: '2026-09-19T14:00:00Z',
+    absolute_expires_at: '2026-10-19T05:00:00Z', revoked: false,
+  };
+
+  it('reads the address a session was last seen from', async () => {
+    const sessions = await client({ ...base, created_from: '203.0.113.12', last_seen_from: '198.51.100.4' }).sessions();
+    expect(sessions[0]).toMatchObject({ createdFrom: '203.0.113.12', lastSeenFrom: '198.51.100.4' });
+  });
+
+  // Null is the answer for every session that existed before the server started recording this.
+  // It must survive as null rather than becoming a string nobody can place.
+  it('keeps an unrecorded address absent', async () => {
+    const sessions = await client({ ...base, created_from: null, last_seen_from: null }).sessions();
+    expect(sessions[0].lastSeenFrom).toBeNull();
+    expect(sessions[0].createdFrom).toBeNull();
+  });
+
+  it('refuses a session whose address is neither a string nor absent', async () => {
+    await expect(client({ ...base, created_from: null, last_seen_from: 12 }).sessions()).rejects.toThrow();
+  });
+});

@@ -368,6 +368,15 @@ locale grouping — 1 234 567 is right either way — but dates do not.
 `display-mode: standalone`). In a browser tab pinch-zoom stays available, because taking it away
 takes it from the person who needed it to read.
 
+Signed-in devices names the device rather than printing the user-agent string, and shows the
+address each session was last seen from (`specs/028-session-origin-address/`). Two things there
+outlive the feature. `TRUSTED_PROXIES` must name the ingress network or the product records the
+proxy's address for every device identically — behind Traefik, `RemoteAddr` is never the client,
+and the same mistake had silently made every `origin_digest` in the audit log identical since the
+first production deployment. And an address is kept for the life of the session row, revoked or
+expired, which is an owner decision (D2) and the one place this codebase stores a plaintext
+network address rather than a keyed digest.
+
 Two constraints that outlive any single feature:
 
 - `AUTH_SECRET` is self-provisioned and database-resident, while `EXTERNAL_CREDENTIAL_KEY`

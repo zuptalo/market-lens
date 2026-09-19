@@ -16,6 +16,8 @@ function session(overrides: Partial<Session> = {}): Session {
     idleExpiresAt: '2026-09-03T13:27:00Z',
     absoluteExpiresAt: '2026-10-03T05:26:00Z',
     revoked: false,
+    createdFrom: '203.0.113.12',
+    lastSeenFrom: '203.0.113.12',
     ...overrides,
   };
 }
@@ -37,6 +39,33 @@ describe('SessionList', () => {
   // Production accumulated one of these per release: a session that can no longer authenticate,
   // never revoked because nothing was wrong with it, listed as a signed-in device with a Revoke
   // button. Somebody auditing their devices saw ten when they had one.
+  // The fact that separates two rows a device name cannot: two people on Chrome on a Mac produce
+  // the same name, and a stolen session looks exactly like the person it was stolen from.
+  it('shows the address the session was last seen from', () => {
+    const wrapper = mountList([session({ lastSeenFrom: '198.51.100.4' })]);
+    expect(wrapper.text()).toContain('198.51.100.4');
+  });
+
+  // Every session that existed before the server started recording this has none, and a screen
+  // that invented something address-shaped would be worse than one that says so.
+  it('says so in words when no address was recorded', () => {
+    const wrapper = mountList([session({ lastSeenFrom: null })]);
+    expect(wrapper.text()).toContain('Not recorded');
+    expect(wrapper.text()).not.toContain('null');
+  });
+
+  // A phone showed one signed-in device as six lines of Mozilla boilerplate, which is how a
+  // screen for recognising your own devices becomes unreadable on the device you are holding.
+  it('names the device rather than printing the user-agent string', () => {
+    const wrapper = mountList([session({
+      deviceLabel: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 ' +
+        '(KHTML, like Gecko) Version/27.0 Mobile/15E148 Safari/604.1',
+    })]);
+    expect(wrapper.text()).toContain('Safari on iPhone');
+    expect(wrapper.text()).not.toContain('Mozilla/5.0');
+    expect(wrapper.find('button[aria-label="Revoke Safari on iPhone"]').exists()).toBe(true);
+  });
+
   it('does not present an idle-expired session as a signed-in device', () => {
     const expired = session({
       id: 'ses-old', deviceLabel: 'Chrome on an old day',

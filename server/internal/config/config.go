@@ -3,10 +3,13 @@ package config
 
 import (
 	"fmt"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"market-lens/server/internal/httpx"
 )
 
 type MarketDataConfig struct {
@@ -30,9 +33,14 @@ type MarketDataConfig struct {
 }
 
 type Config struct {
-	Port                string
-	DatabaseURL         string
-	AllowedOrigins      []string
+	Port           string
+	DatabaseURL    string
+	AllowedOrigins []string
+	// TrustedProxies names the networks whose X-Forwarded-For header this deployment believes.
+	// Empty means nothing is trusted, which is correct when the server is reached directly and
+	// wrong the moment an ingress is in front of it: every session would then be recorded as
+	// having come from the ingress.
+	TrustedProxies      []netip.Prefix
 	Environment         string
 	StaticDir           string
 	ShutdownTimeout     time.Duration
@@ -55,10 +63,17 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	trustedProxies, err := httpx.ParseTrustedProxies(splitCSV(os.Getenv("TRUSTED_PROXIES")))
+	if err != nil {
+		// Named rather than swallowed: an unparsed trust list looks exactly like a working one
+		// from the outside, and the screen it feeds would never admit anything was wrong.
+		return Config{}, fmt.Errorf("TRUSTED_PROXIES is invalid: %w", err)
+	}
 	cfg := Config{
 		Port:                valueOrDefault("PORT", "8080"),
 		DatabaseURL:         valueOrDefault("DATABASE_URL", "postgres://market_lens:market_lens@localhost:5432/market_lens?sslmode=disable"),
 		AllowedOrigins:      splitCSV(valueOrDefault("ALLOWED_ORIGINS", "http://localhost:5173")),
+		TrustedProxies:      trustedProxies,
 		Environment:         environment,
 		StaticDir:           strings.TrimSpace(os.Getenv("STATIC_DIR")),
 		ShutdownTimeout:     10 * time.Second,

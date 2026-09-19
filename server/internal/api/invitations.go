@@ -171,10 +171,10 @@ func acceptInvitationHandler(service InvitationAdministration, secureCookies boo
 		if decodeAuthenticationJSON(writer, request, &input) != nil {
 			return
 		}
-		device, origin := authenticationClientMetadata(request)
+		device, origin, clientAddress := authenticationClientMetadata(request)
 		result, err := service.AcceptInvitation(request.Context(), identity.AcceptInvitationRequest{
 			Capability: input.Capability, Email: input.Email, DisplayName: input.DisplayName,
-			DeviceLabel: device, Origin: origin,
+			DeviceLabel: device, Origin: origin, ClientAddress: clientAddress,
 		})
 		if err != nil {
 			switch {
