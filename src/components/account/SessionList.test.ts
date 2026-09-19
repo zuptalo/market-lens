@@ -37,6 +37,18 @@ describe('SessionList', () => {
   // Production accumulated one of these per release: a session that can no longer authenticate,
   // never revoked because nothing was wrong with it, listed as a signed-in device with a Revoke
   // button. Somebody auditing their devices saw ten when they had one.
+  // A phone showed one signed-in device as six lines of Mozilla boilerplate, which is how a
+  // screen for recognising your own devices becomes unreadable on the device you are holding.
+  it('names the device rather than printing the user-agent string', () => {
+    const wrapper = mountList([session({
+      deviceLabel: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 ' +
+        '(KHTML, like Gecko) Version/27.0 Mobile/15E148 Safari/604.1',
+    })]);
+    expect(wrapper.text()).toContain('Safari on iPhone');
+    expect(wrapper.text()).not.toContain('Mozilla/5.0');
+    expect(wrapper.find('button[aria-label="Revoke Safari on iPhone"]').exists()).toBe(true);
+  });
+
   it('does not present an idle-expired session as a signed-in device', () => {
     const expired = session({
       id: 'ses-old', deviceLabel: 'Chrome on an old day',

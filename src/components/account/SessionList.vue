@@ -7,6 +7,7 @@ import Panel from 'primevue/panel';
 import Tag from 'primevue/tag';
 import type { Session } from '@/types/auth';
 import { formatDateTime } from '@/utils/datetime';
+import { describeDevice } from '@/utils/device';
 
 const props = defineProps<{ sessions: Session[]; busy?: boolean }>();
 defineEmits<{ revoke: [sessionID: string]; revokeAll: []; logout: [] }>();
@@ -62,7 +63,7 @@ const endedCount = computed(() => props.sessions.length - active.value.length);
     >
       <Column header="Device" :pt="{ bodyCell: { 'data-label': 'Device' } }">
         <template #body="{ data }">
-          <strong>{{ data.deviceLabel }}</strong>
+          <strong>{{ describeDevice(data.deviceLabel) }}</strong>
           <Tag v-if="data.current" class="current-session" value="Current session" severity="info" />
         </template>
       </Column>
@@ -75,7 +76,7 @@ const endedCount = computed(() => props.sessions.length - active.value.length);
         <template #body="{ data }">
           <Button
             type="button" size="small" severity="danger" label="Revoke"
-            :disabled="busy" :aria-label="`Revoke ${data.deviceLabel}`"
+            :disabled="busy" :aria-label="`Revoke ${describeDevice(data.deviceLabel)}`"
             @click="$emit('revoke', data.id)" />
         </template>
       </Column>
