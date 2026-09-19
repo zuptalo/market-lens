@@ -36,6 +36,13 @@ type pushPayload struct {
 	Count int    `json:"count"`
 }
 
+// signalCaveat is said once per message however many instruments it names. Stored here rather than
+// in the strategy row because it is about the product's relationship to the reader — that this is
+// an output and not a recommendation — and every template that mentions a view must carry it.
+const signalCaveat = "This is a strategy output, not advice. Its weights are stated rather than " +
+	"fitted, and backtesting has measured it over ten years against the markets it trades in, " +
+	"where it came out behind. Market Lens takes no view on what to do about this."
+
 var pushWording = map[Kind]struct{ title, body, path string }{
 	KindDecisionWaiting: {"Something is waiting for you", "Open Market Lens to see what.", "/"},
 	KindPaperFill:       {"A paper order settled", "Open Market Lens to see what happened.", "/paper"},
@@ -49,8 +56,15 @@ func buildPushPayload(kind Kind, count int) ([]byte, error) {
 	if !known {
 		return nil, fmt.Errorf("no push wording for %q", kind)
 	}
+	body := wording.body
+	// A count is the only thing a push may say about how much happened, so it has to appear in
+	// words as well as in the field. One message reading exactly like a single change is how
+	// eleven of them came to be sent in the first place.
+	if kind == KindSignalChange && count > 1 {
+		body = fmt.Sprintf("%d views changed. Open Market Lens to read them.", count)
+	}
 	return json.Marshal(pushPayload{
-		Kind: string(kind), Title: wording.title, Body: wording.body,
+		Kind: string(kind), Title: wording.title, Body: body,
 		Path: wording.path, Count: count,
 	})
 }
@@ -60,8 +74,8 @@ func buildPushPayload(kind Kind, count int) ([]byte, error) {
 // The closing lines are not decoration: every message says the person asked for it and how to stop,
 // because a message that does not is one somebody reports as spam rather than unsubscribes from.
 func buildEmail(recipient string, kind Kind, count int, detail map[string]string,
-	baseURL, unsubscribeToken string) (mail.Message, error) {
-	subject, body, err := emailWording(kind, count, detail)
+	items []map[string]string, baseURL, unsubscribeToken string) (mail.Message, error) {
+	subject, body, err := emailWording(kind, count, detail, items)
 	if err != nil {
 		return mail.Message{}, err
 	}
@@ -75,7 +89,8 @@ func buildEmail(recipient string, kind Kind, count int, detail map[string]string
 	return mail.Message{To: recipient, Subject: subject, Text: body}, nil
 }
 
-func emailWording(kind Kind, count int, detail map[string]string) (string, string, error) {
+func emailWording(kind Kind, count int, detail map[string]string,
+	items []map[string]string) (string, string, error) {
 	switch kind {
 	case KindDecisionWaiting:
 		thing := "decision"
@@ -108,18 +123,35 @@ func emailWording(kind Kind, count int, detail map[string]string) (string, strin
 				"the run and its error.", nil
 
 	case KindSignalChange:
-		// The one that needed constraining. It states the two views and the strategy's caveat, and
+		// The one that needed constraining. It states the views and the strategy's caveat, and
 		// contains no imperative: what a person does about it is not this product's business.
-		ticker := detail["ticker"]
-		from, to := detail["from"], detail["to"]
-		strategy := detail["strategy"]
+		//
+		// One message for a session, however many instruments moved. It used to be one each, and
+		// eleven changes on one session filled a phone with eleven identical messages — identical
+		// because a push may not name an instrument, which is the field that told them apart.
+		changes := items
+		if len(changes) == 0 {
+			// A telling raised before this was collapsed, still sitting in the queue.
+			changes = []map[string]string{detail}
+		}
+		if len(changes) == 1 {
+			single := changes[0]
+			body := fmt.Sprintf(
+				"The %s strategy's view of %s changed from %s to %s.\n\n%s",
+				orUnknown(single["strategy"]), orUnknown(single["ticker"]),
+				orUnknown(single["from"]), orUnknown(single["to"]), signalCaveat)
+			return fmt.Sprintf("%s: a strategy view changed", orUnknown(single["ticker"])), body, nil
+		}
+		var lines strings.Builder
+		for _, changed := range changes {
+			fmt.Fprintf(&lines, "  %s: %s to %s\n",
+				orUnknown(changed["ticker"]), orUnknown(changed["from"]), orUnknown(changed["to"]))
+		}
 		body := fmt.Sprintf(
-			"The %s strategy's view of %s changed from %s to %s.\n\n"+
-				"This is a strategy output, not advice. Its weights are stated rather than fitted, "+
-				"and backtesting has measured it over ten years against the markets it trades in, "+
-				"where it came out behind. Market Lens takes no view on what to do about this.",
-			orUnknown(strategy), orUnknown(ticker), orUnknown(from), orUnknown(to))
-		return fmt.Sprintf("%s: a strategy view changed", orUnknown(ticker)), body, nil
+			"The %s strategy changed its view of %d instruments on its latest session.\n\n"+
+				"%s\nThe Signals screen has the reasoning behind each one.\n\n%s",
+			orUnknown(changes[0]["strategy"]), len(changes), lines.String(), signalCaveat)
+		return fmt.Sprintf("%d strategy views changed", len(changes)), body, nil
 	case KindReleaseDeployed:
 		// The detail is the point: "a new version" on its own tells nobody anything they can use.
 		// One line, because that is what a release commit is, and because somebody reading this on

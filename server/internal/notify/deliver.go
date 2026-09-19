@@ -16,13 +16,16 @@ import (
 
 // due is one notification ready to be sent, with everything sending it needs.
 type due struct {
-	id         string
-	userID     string
-	email      string
-	kind       Kind
-	channel    Channel
-	count      int
-	detail     map[string]string
+	id      string
+	userID  string
+	email   string
+	kind    Kind
+	channel Channel
+	count   int
+	detail  map[string]string
+	// items carries a collapsed telling's per-change list. Held to the same per-kind schema as
+	// detail when it was raised, and never handed to a push payload.
+	items      []map[string]string
 	attempts   int
 	subjectKey string
 }
@@ -77,7 +80,7 @@ func (s *Service) sendOne(ctx context.Context, notification due) error {
 			return err
 		}
 		message, err := buildEmail(notification.email, notification.kind, notification.count,
-			notification.detail, s.baseURL, token)
+			notification.detail, notification.items, s.baseURL, token)
 		if err != nil {
 			return err
 		}
@@ -161,9 +164,7 @@ func (r *Repository) due(ctx context.Context, now time.Time) ([]due, error) {
 			&notification.attempts, &notification.subjectKey); err != nil {
 			return nil, fmt.Errorf("scan a notification: %w", err)
 		}
-		if err := json.Unmarshal([]byte(detail), &notification.detail); err != nil {
-			notification.detail = map[string]string{}
-		}
+		notification.detail, notification.items = decodeDetail(detail)
 		pending = append(pending, notification)
 	}
 	return pending, rows.Err()
@@ -272,3 +273,30 @@ func (s *Service) History(ctx context.Context, userID string) ([]Record, error) 
 
 var _ = base64.RawURLEncoding
 var _ = pgx.ErrNoRows
+
+// decodeDetail reads what a template may say from what was stored.
+//
+// Flat string fields, plus an optional list under "items" for a telling that collapsed several
+// changes into one. Anything it cannot read becomes nothing rather than an error: a message that
+// says less is recoverable, and one that is never sent because its detail would not parse is not.
+func decodeDetail(encoded string) (map[string]string, []map[string]string) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(encoded), &raw); err != nil {
+		return map[string]string{}, nil
+	}
+	fields := make(map[string]string, len(raw))
+	var items []map[string]string
+	for key, value := range raw {
+		if key == "items" {
+			if err := json.Unmarshal(value, &items); err != nil {
+				items = nil
+			}
+			continue
+		}
+		var text string
+		if err := json.Unmarshal(value, &text); err == nil {
+			fields[key] = text
+		}
+	}
+	return fields, items
+}

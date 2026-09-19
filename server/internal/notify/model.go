@@ -148,6 +148,10 @@ type Raise struct {
 	// Detail is the minimum a template needs. What may appear here is asserted per kind: a push
 	// carries a kind and a count, an email may add a ticker, and neither may hold a figure.
 	Detail map[string]string
+	// Items is the same thing, several times over, for a telling that collapses more than one
+	// change into one message. Each item is held to the same per-kind schema as Detail — a list
+	// is not a way around it — and a push never carries them.
+	Items []map[string]string
 	// Audience narrows a raise to particular people. Empty means everybody who consented — which
 	// is right for a shared change like a pipeline failure, and wrong for a paper fill.
 	Audience []UUID

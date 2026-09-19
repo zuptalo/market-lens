@@ -32,7 +32,24 @@ func RaiseIn(ctx context.Context, tx pgx.Tx, raise Raise, now time.Time) (int, e
 	if err != nil {
 		return 0, err
 	}
-	encoded, err := json.Marshal(detail)
+	// A list is not a way around the schema: every item is held to the same per-kind rule as the
+	// flat detail, so a collapsed telling cannot carry what a single one may not.
+	payload := make(map[string]any, len(detail)+1)
+	for key, value := range detail {
+		payload[key] = value
+	}
+	if len(raise.Items) > 0 {
+		items := make([]map[string]string, 0, len(raise.Items))
+		for _, item := range raise.Items {
+			cleaned, err := permittedDetail(raise.Kind, item)
+			if err != nil {
+				return 0, err
+			}
+			items = append(items, cleaned)
+		}
+		payload["items"] = items
+	}
+	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return 0, fmt.Errorf("encode the detail: %w", err)
 	}
@@ -186,8 +203,9 @@ func (s *Service) RaiseImportFailure(ctx context.Context, provider string) error
 // and a strategy changing its view, are properties of stored data that the nightly pass rewrites
 // wholesale — so the honest boundary is the pass itself, and this runs at the end of it.
 //
-// The consequence is that decisions collapse into one telling: "four decisions are waiting" rather
-// than four separate messages, which is what somebody actually wants at seven in the morning.
+// Both collapse into one telling: "four decisions are waiting" rather than four messages, and one
+// telling for a session's signal changes rather than one per instrument — which is what somebody
+// actually wants at seven in the morning, and what eleven identical pushes on one phone proved.
 func (s *Service) Survey(ctx context.Context) error {
 	if s == nil || s.repository == nil {
 		return errors.New("notification service is not configured")
@@ -228,41 +246,63 @@ func (s *Service) Survey(ctx context.Context) error {
 			JOIN strategies st ON st.id = s.strategy_id
 			WHERE s.action IS NOT NULL
 		)
-		SELECT i.ticker, latest.action, previous.action, latest.strategy
+		SELECT i.ticker, latest.action, previous.action, latest.strategy, latest.session_date::text
 		FROM ranked latest
 		JOIN ranked previous
 		  ON previous.instrument_id = latest.instrument_id AND previous.rank = 2
 		JOIN instruments i ON i.id = latest.instrument_id
 		WHERE latest.rank = 1 AND latest.action <> previous.action
-		  AND latest.session_date = (SELECT max(session_date) FROM signals)`)
+		  AND latest.session_date = (SELECT max(session_date) FROM signals)
+		ORDER BY i.ticker`)
 	if err != nil {
 		return fmt.Errorf("read what changed: %w", err)
 	}
-	type change struct{ ticker, to, from, strategy string }
-	var changes []change
+	var session string
+	var changes []map[string]string
 	for rows.Next() {
-		var found change
-		if err := rows.Scan(&found.ticker, &found.to, &found.from, &found.strategy); err != nil {
+		var ticker, to, from, strategy, sessionDate string
+		if err := rows.Scan(&ticker, &to, &from, &strategy, &sessionDate); err != nil {
 			rows.Close()
 			return fmt.Errorf("scan a change: %w", err)
 		}
-		changes = append(changes, found)
+		session = sessionDate
+		changes = append(changes, map[string]string{
+			"ticker": ticker, "from": from, "to": to, "strategy": strategy,
+		})
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	for _, changed := range changes {
-		if _, err := RaiseIn(ctx, tx, Raise{
-			Kind:       KindSignalChange,
-			SubjectKey: changed.ticker,
-			Count:      1,
-			Detail: map[string]string{
-				"ticker": changed.ticker, "from": changed.from,
-				"to": changed.to, "strategy": changed.strategy,
-			},
-		}, time.Now().UTC()); err != nil {
-			return err
+
+	// One telling for the session, however many instruments moved.
+	//
+	// It used to be one per instrument. Eleven changed on 2026-09-19 and eleven identical pushes
+	// arrived on one phone — identical because a push payload may not carry an instrument name, so
+	// the one field that told them apart is deliberately stripped. The count goes in the push and
+	// the list goes in the email, which is what this same pass already does for decisions waiting.
+	//
+	// Keyed by the session so a second pass over it says nothing twice, while somebody who
+	// consents afterwards still hears about the next session rather than this one.
+	if len(changes) > 0 {
+		// Claim the session first. Whichever pass inserts the row is the one that raises; a second
+		// pass over the same session finds it taken and says nothing, including for somebody who
+		// switched the kind on in between.
+		claim, err := tx.Exec(ctx, `INSERT INTO signal_change_sessions (session_date, changes)
+			VALUES ($1::date, $2) ON CONFLICT (session_date) DO NOTHING`, session, len(changes))
+		if err != nil {
+			return fmt.Errorf("claim the session: %w", err)
+		}
+		if claim.RowsAffected() == 1 {
+			if _, err := RaiseIn(ctx, tx, Raise{
+				Kind:       KindSignalChange,
+				SubjectKey: "signals:" + session,
+				Count:      len(changes),
+				Detail:     map[string]string{"strategy": changes[0]["strategy"]},
+				Items:      changes,
+			}, time.Now().UTC()); err != nil {
+				return err
+			}
 		}
 	}
 	return tx.Commit(ctx)
