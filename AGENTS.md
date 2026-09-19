@@ -285,6 +285,14 @@ What it leaves behind:
   alerts knowing they edge toward advice; that guard is what makes it safe, and narrowing it would
   break this feature first. Note the guard reads *string literals containing a space*, so a
   forbidden-word list must use single words.
+- **Delivery runs on its own clock, not the import's.** The feature engine and the paper fills hang
+  off the market-data import because they have nothing to do until new prices exist. Notifications
+  are different: quiet hours end and retry backoffs expire on their own schedule. Tying delivery to
+  the nightly import satisfied "a pass that runs in process" and broke two stated behaviours — a
+  message held until 07:00 arrived that evening, and a three-minute retry waited a day. Both passed
+  their own tests, which move the clock by hand; **what was never asserted was how often anything
+  calls the pass**. `scheduler.Notifications` ticks every minute, and
+  `TestDeliveryDoesNotWaitForTheNightlyImport` fails if it ever stops looping.
 - **The unsubscribe link needs no session**, because one that does is one people do not use — they
   mark the mail as spam instead. It is an HMAC over the instance signing key with its own
   `auth.PurposeUnsubscribe`, names one person, kind and channel, and can only ever turn off.

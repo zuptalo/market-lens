@@ -2,6 +2,7 @@ package db_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -180,4 +181,54 @@ func seedUserForNotifications(t *testing.T, pool *pgxpool.Pool) string {
 		VALUES ($1, 'notify@example.com', 'notify@example.com', 'Notify', 'owner', 'active', now(), now(), now())`,
 		id)
 	return id
+}
+
+// TestTheDueIndexMatchesTheQueryThatReadsIt.
+//
+// The pass asks for pending and failed together, because a failed notification is one waiting for
+// its next attempt rather than one that has stopped. An index covering only 'pending' left every
+// pass scanning the table — invisible while delivery ran nightly, and not invisible now that it
+// runs every minute.
+func TestTheDueIndexMatchesTheQueryThatReadsIt(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.Open(t)
+	if err := db.Migrate(ctx, pool); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	user := seedUserForNotifications(t, pool)
+
+	// Enough rows that the planner has a reason to prefer an index.
+	mustExec(t, ctx, pool, `INSERT INTO notifications
+		(id, user_id, kind, channel, subject_key, state, available_at)
+		SELECT gen_random_uuid(), $1, 'paper_fill', 'email', 'order-' || n,
+		       CASE WHEN n % 3 = 0 THEN 'failed' WHEN n % 3 = 1 THEN 'pending' ELSE 'sent' END,
+		       now() - (n || ' minutes')::interval
+		FROM generate_series(1, 4000) n
+		WHERE n % 3 <> 2`, user)
+	mustExec(t, ctx, pool, `ANALYZE notifications`)
+
+	// EXPLAIN answers a row per line, and the node that matters is rarely the first.
+	rows, err := pool.Query(ctx, `EXPLAIN (FORMAT TEXT)
+		SELECT id FROM notifications
+		WHERE state IN ('pending', 'failed') AND available_at <= now()
+		ORDER BY available_at LIMIT 500`)
+	if err != nil {
+		t.Fatalf("explain: %v", err)
+	}
+	var plan strings.Builder
+	for rows.Next() {
+		var line string
+		if err := rows.Scan(&line); err != nil {
+			rows.Close()
+			t.Fatal(err)
+		}
+		plan.WriteString(line + "\n")
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(plan.String(), "notifications_due_idx") {
+		t.Errorf("the delivery query does not use its own index:\n%s", plan.String())
+	}
 }
