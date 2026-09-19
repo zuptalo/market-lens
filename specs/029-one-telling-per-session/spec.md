@@ -126,8 +126,13 @@ session again, and assert nothing arrives.
 - **Expected red reason**: three rows are found where one was expected — a behavioural failure
   against the current per-instrument loop, not a compile error.
 - **Green evidence**: `make verify`, plus the existing privacy and consent suites unchanged.
-- **Database migration proof**: none required. The `count` and `detail` columns already exist and
-  the change is in what is written to them. N/A.
+- **Database migration proof**: two migrations. `0034` adds the table that records which sessions
+  have been told about, proved by a test that claims one twice and asserts the second claim takes
+  nothing. `0035` is a data correction: an installation upgrading into this has a session that
+  already produced one telling per instrument and no claim to show for it, so the first pass after
+  the upgrade would say the whole thing once more. A test seeds that exact state — migrations
+  through 34, old-style tellings keyed by ticker — and asserts the upgrade claims the session,
+  while a clean installation claims nothing.
 
 ## Responsive UI Behavior
 
@@ -156,6 +161,8 @@ continue to apply to the collapsed form.
 - **SC-002** The email names all eleven instruments with both views each; the push names none.
 - **SC-003** A session already told about produces nothing on a second pass.
 - **SC-004** A person who consents after a session was raised receives nothing for that session.
+- **SC-007** Upgrading an installation that has already sent per-instrument tellings produces no
+  further telling about the session those were about.
 - **SC-005** No push payload contains a ticker, asserted across every kind.
 - **SC-006** The collapsed email passes the advice-vocabulary guard, and says once that it is a
   strategy output rather than advice.
