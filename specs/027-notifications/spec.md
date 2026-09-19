@@ -107,8 +107,13 @@ and only once, and that a permanently failing one ends as failed rather than dis
 
 - **FR-011** A notification is written in the same transaction as the change that caused it. If the
   change rolls back, so does the notification.
-- **FR-012** Delivery is attempted by a pass that runs in process. A notification is delivered at
-  most once per channel, enforced by stored state rather than by the pass being careful.
+- **FR-012** Delivery is attempted by a pass that runs in process, **on its own short interval**
+  rather than alongside any other scheduled work. A notification is delivered at most once per
+  channel, enforced by stored state rather than by the pass being careful.
+- **FR-012a** The interval is short enough that a notification released from quiet hours, and one
+  whose retry backoff has expired, are both sent within a minute of becoming due. Tying delivery to
+  the nightly market-data import satisfied "in process" and broke both: a message held until 07:00
+  arrived that evening, and a three-minute backoff waited a day.
 - **FR-013** A failed attempt is retried with a widening gap. After a stated number of attempts the
   notification is `failed`, with the reason kept.
 - **FR-014** A person can read what was sent to them, when, and what failed — without the payload,
@@ -151,7 +156,8 @@ and only once, and that a permanently failing one ends as failed rather than dis
 ## Success criteria
 
 - **SC-001** A new account has eight preferences, all off, and receives nothing until it asks.
-- **SC-002** A notification raised inside quiet hours is delivered after the window ends, once.
+- **SC-002** A notification raised inside quiet hours is delivered after the window ends, once —
+  and within a minute of the window ending, not at whatever hour some other job happens to run.
 - **SC-003** A delivery attempted twice is sent once, proved by a sender that counts.
 - **SC-004** A revoked subscription receives nothing further, and a gone endpoint removes itself.
 - **SC-005** No push payload and no email body contains a monetary figure, a quantity, or a holding,

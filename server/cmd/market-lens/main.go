@@ -1299,6 +1299,26 @@ func run() error {
 		go func() { jobErrors <- job.Run(ctx) }()
 	}
 
+	// Delivery runs on its own clock, not the market-data import's.
+	//
+	// The other passes hang off the import because they have nothing to do until new prices exist.
+	// This one is different: quiet hours end and retry backoffs expire on their own schedule, and
+	// neither has anything to do with market data. Tying delivery to a nightly import meant a
+	// message held until 07:00 actually arrived that evening, and a three-minute retry waited a day.
+	//
+	// It runs whether or not the import scheduler is enabled, because a deployment that imports
+	// nothing still has notifications to deliver.
+	deliveries, err := scheduler.NewNotifications(notificationService,
+		scheduler.DefaultDeliveryInterval, slog.Default())
+	if err != nil {
+		return err
+	}
+	go func() {
+		if err := deliveries.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			slog.Default().Error("the notification delivery loop stopped", "error", err)
+		}
+	}()
+
 	validator, err := newSetupCredentialValidator(cfg.MarketData.RequestTimeout)
 	if err != nil {
 		return err

@@ -15,7 +15,8 @@ Turning one off stops it immediately, on every device.
 
 ## Quiet hours
 
-A start time, an end time and a zone. Anything raised inside the window is **held until it ends** —
+A start time, an end time and a zone. Delivery runs every minute, so a message released at the end
+of the window arrives then rather than whenever some other job next happens to run. Anything raised inside the window is **held until it ends** —
 not sent early, and not dropped. A window whose end is before its start crosses midnight, which is
 the ordinary case, and the zone is stored rather than an offset so the window follows the clock on
 your wall through daylight saving.
