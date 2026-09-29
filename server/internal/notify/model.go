@@ -46,15 +46,18 @@ const (
 	// rather than the owner alone, because a deployment changes the product under every person
 	// using it — unlike an import failure, which only the owner can act on.
 	KindReleaseDeployed Kind = "release_deployed"
+	// KindMarketDataFallback: prices started, or stopped, coming from the fallback provider because
+	// the primary refused authentication (feature 030). The owner's alone: only they can renew.
+	KindMarketDataFallback Kind = "market_data_fallback"
 )
 
 // Kinds is every kind, in the order a person reads them.
 var Kinds = []Kind{KindDecisionWaiting, KindPaperFill, KindPipelineFailure, KindSignalChange,
-	KindReleaseDeployed}
+	KindReleaseDeployed, KindMarketDataFallback}
 
 // OwnerOnlyKinds are offered to the owner and absent for everybody else — absent rather than
 // present and refused, because a switch that cannot be switched is a worse answer than no switch.
-var OwnerOnlyKinds = map[Kind]bool{KindPipelineFailure: true}
+var OwnerOnlyKinds = map[Kind]bool{KindPipelineFailure: true, KindMarketDataFallback: true}
 
 // Channel is where a notification goes.
 type Channel string

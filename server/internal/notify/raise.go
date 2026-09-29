@@ -69,9 +69,9 @@ func RaiseIn(ctx context.Context, tx pgx.Tx, raise Raise, now time.Time) (int, e
 		JOIN users u ON u.id = p.user_id AND u.status = 'active'
 		LEFT JOIN notification_quiet_hours q ON q.user_id = p.user_id
 		WHERE p.kind = $1 AND p.enabled
-		  AND (u.role = 'owner' OR $1 <> 'pipeline_failure')
+		  AND (u.role = 'owner' OR NOT ($1 = ANY($3::text[])))
 		  AND (cardinality($2::uuid[]) = 0 OR p.user_id = ANY($2::uuid[]))`,
-		string(raise.Kind), audienceIDs(raise.Audience))
+		string(raise.Kind), audienceIDs(raise.Audience), ownerOnlyKindNames())
 	if err != nil {
 		return 0, fmt.Errorf("read who asked: %w", err)
 	}
@@ -139,11 +139,12 @@ func audienceIDs(audience []UUID) []string {
 // browser collects it, and an email leaves the building entirely. So what may travel is listed per
 // kind, and anything else is refused here rather than caught in review of a template later.
 var permittedKeys = map[Kind]map[string]bool{
-	KindDecisionWaiting: {"area": true},
-	KindPaperFill:       {"ticker": true, "outcome": true},
-	KindPipelineFailure: {"provider": true, "stage": true},
-	KindSignalChange:    {"ticker": true, "from": true, "to": true, "strategy": true},
-	KindReleaseDeployed: {"version": true, "summary": true},
+	KindDecisionWaiting:    {"area": true},
+	KindPaperFill:          {"ticker": true, "outcome": true},
+	KindPipelineFailure:    {"provider": true, "stage": true},
+	KindSignalChange:       {"ticker": true, "from": true, "to": true, "strategy": true},
+	KindReleaseDeployed:    {"version": true, "summary": true},
+	KindMarketDataFallback: {"state": true},
 }
 
 // Never, on any kind. A holding, a quantity, a valuation, a return or a balance is what somebody
@@ -175,6 +176,44 @@ func permittedDetail(kind Kind, detail map[string]string) (map[string]string, er
 // Its own transaction, unlike every other raise here: the import already failed and rolled back
 // whatever it was doing, so there is no caller transaction to join — and the telling is exactly the
 // thing that must survive the failure.
+// ownerOnlyKindNames is OwnerOnlyKinds as the raise query reads it, so a kind offered to the owner
+// alone is also raised for the owner alone — even if a preference row somehow existed for somebody
+// else.
+func ownerOnlyKindNames() []string {
+	names := make([]string, 0, len(OwnerOnlyKinds))
+	for kind, only := range OwnerOnlyKinds {
+		if only {
+			names = append(names, string(kind))
+		}
+	}
+	return names
+}
+
+// RaiseFallback tells the owner that prices started, or stopped, coming from the fallback provider
+// (feature 030), inside the transaction that records the change.
+//
+// Once per change. The caller records each change once already; the subject key names the period
+// by the session it began on, so the same change raised again finds itself and says nothing.
+func RaiseFallback(ctx context.Context, tx pgx.Tx, entered bool, instruments int, since string, now time.Time) (int, error) {
+	state := "ended"
+	if entered {
+		state = "entered"
+	}
+	subject := "fallback:" + state + ":" + since
+	var told bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM notifications
+		WHERE kind = $1 AND subject_key = $2)`, string(KindMarketDataFallback), subject).Scan(&told); err != nil {
+		return 0, fmt.Errorf("check whether the fallback change was told: %w", err)
+	}
+	if told {
+		return 0, nil
+	}
+	return RaiseIn(ctx, tx, Raise{
+		Kind: KindMarketDataFallback, SubjectKey: subject, Count: instruments,
+		Detail: map[string]string{"state": state},
+	}, now)
+}
+
 func (s *Service) RaiseImportFailure(ctx context.Context, provider string) error {
 	if s == nil || s.repository == nil {
 		return errors.New("notification service is not configured")

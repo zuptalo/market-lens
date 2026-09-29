@@ -10,7 +10,8 @@ export type NotificationKind =
   | 'paper_fill'
   | 'pipeline_failure'
   | 'signal_change'
-  | 'release_deployed';
+  | 'release_deployed'
+  | 'market_data_fallback';
 
 export type NotificationChannel = 'email' | 'web_push';
 

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+
+	"market-lens/server/internal/instruments"
 )
 
 // FallbackMappingState is what the mapping audit concluded about one instrument (FR-011).
@@ -101,4 +103,49 @@ func (r *Repository) FallbackAuditEntries(ctx context.Context, universe string) 
 		entries = append(entries, entry)
 	}
 	return entries, rows.Err()
+}
+
+// ReconciliationDifference is one fallback price a primary run replaced (FR-022). Both remain
+// recoverable: the primary's as the bar, the fallback's as its revision.
+type ReconciliationDifference struct {
+	Ticker          string
+	Session         SessionDate
+	FallbackClose   Decimal
+	PrimaryClose    Decimal
+	BeyondTolerance bool
+}
+
+// ReconciliationDifferences lists the fallback prices the given run replaced, with the primary's.
+func (r *Repository) ReconciliationDifferences(ctx context.Context, runID instruments.UUID) ([]ReconciliationDifference, error) {
+	rows, err := r.pool.Query(ctx, `SELECT i.ticker, v.session_date::text, v.close::text, b.close::text
+		FROM price_bar_revisions v
+		JOIN daily_price_bars b ON b.instrument_id = v.instrument_id AND b.session_date = v.session_date
+		JOIN instruments i ON i.id = v.instrument_id
+		WHERE v.superseding_run_id = $1 AND v.provider = $2 AND b.provider <> $2
+		ORDER BY i.ticker, v.session_date`, runID.String(), FallbackProvider)
+	if err != nil {
+		return nil, fmt.Errorf("read what reconciliation replaced: %w", err)
+	}
+	defer rows.Close()
+	var differences []ReconciliationDifference
+	for rows.Next() {
+		var difference ReconciliationDifference
+		var session, fallbackClose, primaryClose string
+		if err := rows.Scan(&difference.Ticker, &session, &fallbackClose, &primaryClose); err != nil {
+			return nil, err
+		}
+		difference.Session = SessionDate(session)
+		if difference.FallbackClose, err = ParseDecimal(fallbackClose); err != nil {
+			return nil, err
+		}
+		if difference.PrimaryClose, err = ParseDecimal(primaryClose); err != nil {
+			return nil, err
+		}
+		// The audit's own rule, with the primary as the reference.
+		difference.BeyondTolerance = ClassifyFallbackMapping(FallbackMappingEvidence{
+			Symbol: "-", StoredClose: &difference.PrimaryClose, ObservedClose: &difference.FallbackClose,
+		}) == MappingMismatched
+		differences = append(differences, difference)
+	}
+	return differences, rows.Err()
 }

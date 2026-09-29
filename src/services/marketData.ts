@@ -1,4 +1,5 @@
 import type {
+  FallbackState,
   BacktestConfiguration,
   BacktestDetail,
   BacktestEquityCurve,
@@ -378,6 +379,29 @@ export async function fetchFeatureRuns(fetcher: Fetcher = fetch, signal?: AbortS
   }));
 }
 
+interface FallbackStateWire {
+  active?: unknown;
+  since?: unknown;
+  instruments?: unknown;
+  pending_reconciliation?: unknown;
+}
+
+/** The banner's snapshot. Live changes arrive as market_data_fallback.changed.v1. */
+export async function fetchFallbackState(fetcher: Fetcher = fetch, signal?: AbortSignal): Promise<FallbackState> {
+  const response = await fetcher('/api/v1/market-data/fallback', { signal });
+  if (!response.ok) throw new Error('Unable to load where prices come from.');
+  const body = await response.json() as FallbackStateWire;
+  if (typeof body.active !== 'boolean' || typeof body.instruments !== 'number' ||
+      typeof body.pending_reconciliation !== 'boolean' ||
+      (body.since !== null && typeof body.since !== 'string')) {
+    throw new Error('Unable to load where prices come from.');
+  }
+  return {
+    active: body.active, since: body.since as string | null, instruments: body.instruments,
+    pendingReconciliation: body.pending_reconciliation,
+  };
+}
+
 export async function fetchRecentImports(fetcher: Fetcher = fetch, signal?: AbortSignal): Promise<ImportRunSummary[]> {
   const response = await fetcher('/api/v1/market-data/imports?limit=20', { signal });
   if (!response.ok) throw new Error('Unable to load recent market-data imports.');
@@ -404,6 +428,7 @@ const publicImportErrorSummaries = new Set([
   'Market-data storage request failed.',
   'Market-data validation failed.',
   'Market-data import scope is already active.',
+  'Fallback prices were held back: a split or dividend needs the primary provider.',
   'One instrument failed safely.',
 ]);
 
@@ -455,6 +480,9 @@ export const MARKET_DATA_EVENT_TYPES = [
   // A person's simulated account. Published when an order is promoted, cancelled or filled — the
   // last of which happens on the server after an import, with nobody watching.
   'paper_account.changed.v1',
+  // Whether prices are coming from the fallback provider (feature 030). Shared, and published
+  // once per change, so the banner appears and clears without a reload.
+  'market_data_fallback.changed.v1',
 ] as const;
 
 /** What a market-data event says about the change it reports. */

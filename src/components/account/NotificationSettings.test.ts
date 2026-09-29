@@ -276,3 +276,25 @@ describe('NotificationSettings', () => {
     expect(wrapper.text().toLowerCase()).toContain('unable to load');
   });
 });
+
+describe('the owner-only kinds', () => {
+  beforeEach(() => { stubBrowser(); });
+
+  /**
+   * Feature 030 offers the owner a sixth kind. A kind the screen has no wording for used to throw
+   * while rendering, which would take the owner's whole settings page down the moment the server
+   * offered it.
+   */
+  it('names the fallback notice in words', async () => {
+    stubFetch({ settings: settingsWire({ preferences: [
+      { kind: 'pipeline_failure', channel: 'email', enabled: false },
+      { kind: 'market_data_fallback', channel: 'email', enabled: false },
+      { kind: 'market_data_fallback', channel: 'web_push', enabled: false },
+    ] }) });
+    const wrapper = mount(NotificationSettings, { global });
+    await flushPromises();
+    const text = wrapper.text();
+    expect(text).toContain('Prices come from the fallback provider');
+    expect(text.toLowerCase()).toContain('subscription');
+  });
+});

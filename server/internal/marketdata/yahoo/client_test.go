@@ -212,3 +212,21 @@ func TestResolveReportsCurrencyAndZone(t *testing.T) {
 		t.Errorf("resolved = %#v", resolved)
 	}
 }
+
+// The audit's question: what does the source report for this symbol on this one session. Unlike
+// Daily it is not held back by an action — a dividend on the day does not make the close unknown.
+func TestCloseOnReportsTheCurrencyAndCloseOfOneSession(t *testing.T) {
+	client := serve(t, 200, fixture(`{"dividends":{"1790578800":{"amount":0.51,"date":1790578800}}}`), nil)
+	session, _ := marketdata.ParseSessionDate("2026-09-28")
+	currency, closeValue, err := client.CloseOn(context.Background(), "TELIA.ST", session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if currency != "SEK" || closeValue == nil || closeValue.String() != "45.38" {
+		t.Errorf("close on = %s %v", currency, closeValue)
+	}
+	missing, _ := marketdata.ParseSessionDate("2026-09-27")
+	if _, closeValue, err := client.CloseOn(context.Background(), "TELIA.ST", missing); err != nil || closeValue != nil {
+		t.Errorf("a session the source has no price for gave %v %v", closeValue, err)
+	}
+}

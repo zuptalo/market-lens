@@ -350,3 +350,28 @@ func TestTheAuditReadsTheNewestPrimaryClose(t *testing.T) {
 		t.Error("INVE-B is missing from the audit")
 	}
 }
+
+// FR-022. What reconciliation replaced, session by session: the fallback's close, the primary's,
+// and whether they disagree by more than half a percent.
+func TestReconciliationReportsWhatItReplaced(t *testing.T) {
+	pool := migratedPool(t)
+	primary := primaryRun(t, pool, marketdata.DailyPage{Bars: []marketdata.ProviderBar{
+		bar(t, "2024-04-02", "51.75", "51.75", 100, "primary-0402")}})
+	storeFallbackBar(t, pool, primary, "2024-04-03")
+	reconciled := primaryRun(t, pool, marketdata.DailyPage{Bars: []marketdata.ProviderBar{
+		bar(t, "2024-04-02", "51.75", "51.75", 100, "primary-0402"),
+		bar(t, "2024-04-03", "54", "54", 100, "primary-0403")}})
+
+	differences, err := marketdata.NewRepository(pool).ReconciliationDifferences(context.Background(), reconciled.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(differences) != 1 {
+		t.Fatalf("differences = %#v", differences)
+	}
+	got := differences[0]
+	if got.Ticker != "INVE-B" || got.Session.String() != "2024-04-03" || got.FallbackClose.String() != "53.1" ||
+		got.PrimaryClose.String() != "54" || !got.BeyondTolerance {
+		t.Errorf("difference = %#v", got)
+	}
+}

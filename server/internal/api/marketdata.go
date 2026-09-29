@@ -22,6 +22,11 @@ type MarketDataReader interface {
 	ListQualityFindings(context.Context, FindingFilter) ([]marketdata.QualityFinding, error)
 }
 
+// FallbackReader is the fallback state as last recorded (feature 030).
+type FallbackReader interface {
+	State(context.Context) (marketdata.FallbackState, error)
+}
+
 // FindingDecider records an owner's judgement that a condition is a limitation of the data. It is
 // the only mutation this surface has, and it is deliberately separate from the reader: reading
 // findings is for everyone, deciding about them is not.

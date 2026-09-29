@@ -79,6 +79,10 @@ const kindWording: Record<NotificationKind, { title: string; detail: string }> =
     title: 'Market Lens was updated',
     detail: 'A new version started serving, and what the release said about it. Nothing you have stored is affected by an update.',
   },
+  market_data_fallback: {
+    title: 'Prices come from the fallback provider',
+    detail: 'The market-data provider refused Market Lens — what an expired subscription looks like — and prices started, or stopped, coming from the fallback provider.',
+  },
   signal_change: {
     title: 'A strategy changed its view',
     detail: 'What a strategy makes of an instrument changed. It is a strategy output, not advice, and this product has no view on what to do about it.',

@@ -1,12 +1,15 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import Button from 'primevue/button';
 import Drawer from 'primevue/drawer';
 import Tag from 'primevue/tag';
+import FallbackBanner from '@/components/FallbackBanner.vue';
 import { useTheme } from '@/composables/useTheme';
 import { buildVersion } from '@/utils/version';
 import { useAuth } from '@/composables/useAuth';
+import { fetchFallbackState, MarketDataLive, type LiveEventSource } from '@/services/marketData';
+import type { FallbackState } from '@/types/marketData';
 
 /**
  * The shell, and the one place this product decides how navigation behaves on a phone.
@@ -39,6 +42,49 @@ const menuOpen = ref(false);
 watch(() => route.fullPath, () => { menuOpen.value = false; });
 
 function closeMenu(): void { menuOpen.value = false; }
+
+/*
+ * Where prices come from (feature 030). The shell owns it because it is true of every screen: while
+ * prices come from the fallback provider, whatever page is open is showing some of them.
+ *
+ * A snapshot on sign-in, then the named change event. A snapshot that cannot be read shows nothing
+ * rather than an error: this is a notice about the data, and failing to load it must not stand in
+ * front of the page itself.
+ */
+const fallback = ref<FallbackState | null>(null);
+
+async function loadFallback(): Promise<void> {
+  try {
+    fallback.value = await fetchFallbackState();
+  } catch {
+    // Keep what is known; the next change event or visit tries again.
+  }
+}
+
+function browserEventSource(url: string, lastEventId: string): LiveEventSource {
+  const endpoint = lastEventId ? `${url}?last_event_id=${encodeURIComponent(lastEventId)}` : url;
+  return new EventSource(endpoint, { withCredentials: true }) as unknown as LiveEventSource;
+}
+
+const fallbackLive = new MarketDataLive({
+  sourceFactory: browserEventSource,
+  onRefresh: (entityType) => { if (entityType === 'market_data_fallback') void loadFallback(); },
+  onState: () => {},
+  reconnectDelayMs: 5_000,
+  staleAfterMs: 30_000,
+});
+
+watch(() => auth.state.status, (status) => {
+  if (status === 'authenticated') {
+    void loadFallback();
+    fallbackLive.start();
+  } else {
+    fallbackLive.stop();
+    fallback.value = null;
+  }
+}, { immediate: true });
+
+onBeforeUnmount(() => fallbackLive.stop());
 </script>
 
 <template>
@@ -127,6 +173,7 @@ function closeMenu(): void { menuOpen.value = false; }
         </div>
       </Drawer>
     </header>
+    <FallbackBanner :state="fallback" />
     <main class="app-content"><slot /></main>
   </div>
 </template>

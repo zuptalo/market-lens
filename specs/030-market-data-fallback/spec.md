@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-29
 
-**Status**: planned
+**Status**: in-review
 <!-- Market Lens spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Decisions taken before planning** (2026-09-29, recorded here because the spec was revised
@@ -233,9 +233,9 @@ response, and assert no bar is written and the run reports both errors.
 
 - The primary recovers mid-run: instruments already imported from the fallback stay flagged and
   await reconciliation; instruments not yet reached use the primary.
-- The lapse lasts several sessions: each night's fallback fills that night's window, so a lapse is
-  covered continuously while the fallback works; nights on which the fallback also failed leave
-  gaps that only reconciliation fills, from the primary.
+- The lapse lasts several sessions: each night asks for every session since the last primary price,
+  so a lapse is covered continuously, and a night on which the fallback also failed is filled by the
+  next one that succeeds.
 - A corporate action (split) occurs during fallback: fallback bars for that instrument after the
   action are held back and reported, because adjustment consistency cannot be verified.
 - Fallback and primary disagree on the session's close by more than 0.5% on the day both are
@@ -283,8 +283,11 @@ response, and assert no bar is written and the run reports both errors.
   source.
 - **FR-009**: Fallback bars MUST pass the same validation as primary bars, including calendar,
   price-range, currency and volume checks.
-- **FR-010**: The fallback MUST fill no further back than the scheduled run's own requested window;
-  it never backfills. Sessions missed while the fallback also failed stay gaps until reconciliation.
+- **FR-010**: The fallback MUST ask only for the sessions after the instrument's newest
+  primary-sourced bar, up to the run's last session. It never reaches into the history before the
+  lapse, and because the window always starts at the last primary price, the corporate-action check
+  of FR-008 always covers everything since that price. Nights on which the fallback also failed are
+  filled by the next night that succeeds; an instrument with no primary price is never covered.
 - **FR-010a**: A fallback import MUST hold the same per-instrument import lock as the primary, so the
   two can never write one instrument at the same time.
 
@@ -309,7 +312,8 @@ response, and assert no bar is written and the run reports both errors.
 - **FR-016**: The system MUST publish a versioned, authorized, resumable live event for each
   fallback state change: entered, reconciliation pending, ended, and a change in the counts.
 - **FR-017**: The system MUST raise one notification per opted-in channel per state change, never
-  one per instrument, with a minimal payload that names no instrument or price.
+  one per instrument, with a minimal payload that names no instrument or price. A push is built
+  without the detail (feature 027), so it says the source changed; the email says which way.
 - **FR-018**: The notice kind MUST default to off for every channel until the owner opts in, and
   MUST be revocable per device using the existing consent controls.
 - **FR-019**: There are no reminders while fallback persists; the banner is the standing signal.

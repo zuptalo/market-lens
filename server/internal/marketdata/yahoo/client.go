@@ -117,14 +117,52 @@ func (c *Client) Daily(ctx context.Context, request marketdata.DailyRequest) (ma
 		}
 	}
 
+	bars, err := barsIn(chart, inWindow)
+	if err != nil {
+		return marketdata.DailyPage{}, err
+	}
+	return marketdata.DailyPage{Bars: bars}, nil
+}
+
+// CloseOn reports the currency and close the source gives for one session, or no close if it has
+// none. It is the mapping audit's question, so unlike Daily an action on the day does not hold it
+// back: the close is still what the source said.
+func (c *Client) CloseOn(ctx context.Context, symbol string, session marketdata.SessionDate) (string, *marketdata.Decimal, error) {
+	if strings.TrimSpace(symbol) == "" || session == "" {
+		return "", nil, providerError("provider_request", false, 0)
+	}
+	chart, err := c.chart(ctx, symbol, session.Time(time.UTC).AddDate(0, 0, -1), session.Time(time.UTC).AddDate(0, 0, 2))
+	if err != nil {
+		return "", nil, err
+	}
+	zone, err := time.LoadLocation(chart.Meta.ExchangeTimezoneName)
+	if err != nil || chart.Meta.ExchangeTimezoneName == "" {
+		return "", nil, providerError("provider_payload", false, 0)
+	}
+	bars, err := barsIn(chart, func(stamp int64) (marketdata.SessionDate, bool) {
+		date := marketdata.SessionDate(time.Unix(stamp, 0).In(zone).Format("2006-01-02"))
+		return date, date == session
+	})
+	if err != nil {
+		return "", nil, err
+	}
+	currency := strings.ToUpper(strings.TrimSpace(chart.Meta.Currency))
+	if len(bars) == 0 {
+		return currency, nil, nil
+	}
+	return currency, &bars[0].Close, nil
+}
+
+// barsIn maps the chart's rows whose session the window keeps.
+func barsIn(chart chartResult, inWindow func(int64) (marketdata.SessionDate, bool)) ([]marketdata.ProviderBar, error) {
 	if len(chart.Indicators.Quote) != 1 {
-		return marketdata.DailyPage{}, providerError("provider_payload", false, 0)
+		return nil, providerError("provider_payload", false, 0)
 	}
 	quote := chart.Indicators.Quote[0]
 	count := len(chart.Timestamp)
 	if len(quote.Open) != count || len(quote.High) != count || len(quote.Low) != count ||
 		len(quote.Close) != count || len(quote.Volume) != count {
-		return marketdata.DailyPage{}, providerError("provider_payload", false, 0)
+		return nil, providerError("provider_payload", false, 0)
 	}
 	decimals := chart.Meta.PriceHint
 	if decimals < 2 {
@@ -147,11 +185,11 @@ func (c *Client) Daily(ctx context.Context, request marketdata.DailyRequest) (ma
 		bar, err := mapBar(date, decimals, *quote.Open[index], *quote.High[index], *quote.Low[index],
 			*quote.Close[index], *quote.Volume[index])
 		if err != nil {
-			return marketdata.DailyPage{}, providerError("provider_payload", false, 0)
+			return nil, providerError("provider_payload", false, 0)
 		}
 		bars = append(bars, bar)
 	}
-	return marketdata.DailyPage{Bars: bars}, nil
+	return bars, nil
 }
 
 // mapBar rounds each price to the source's own precision. The source sends binary floats

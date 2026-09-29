@@ -26,6 +26,7 @@ const kindWording: Record<NotificationKind, string> = {
   pipeline_failure: 'when market data does not arrive',
   signal_change: 'when a strategy changes its view',
   release_deployed: 'when Market Lens is updated',
+  market_data_fallback: 'when prices start or stop coming from the fallback provider',
 };
 
 const channelWording: Record<NotificationChannel, string> = {

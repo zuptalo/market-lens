@@ -25,10 +25,11 @@ func TestNoMessageCarriesWhatSomebodyOwns(t *testing.T) {
 	f.subscribe(ownerID, "phone")
 
 	details := map[notify.Kind]map[string]string{
-		notify.KindDecisionWaiting: {"area": "quality"},
-		notify.KindPaperFill:       {"ticker": "ABB", "outcome": "filled"},
-		notify.KindPipelineFailure: {"provider": "eodhd", "stage": "import"},
-		notify.KindSignalChange:    {"ticker": "NOKIA", "from": "hold", "to": "buy", "strategy": "momentum_trend"},
+		notify.KindDecisionWaiting:    {"area": "quality"},
+		notify.KindPaperFill:          {"ticker": "ABB", "outcome": "filled"},
+		notify.KindPipelineFailure:    {"provider": "eodhd", "stage": "import"},
+		notify.KindSignalChange:       {"ticker": "NOKIA", "from": "hold", "to": "buy", "strategy": "momentum_trend"},
+		notify.KindMarketDataFallback: {"state": "entered"},
 	}
 	for kind, detail := range details {
 		f.raise(notify.Raise{Kind: kind, SubjectKey: string(kind), Count: 2, Detail: detail})
