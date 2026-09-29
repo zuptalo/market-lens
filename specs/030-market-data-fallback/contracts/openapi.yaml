@@ -1,0 +1,58 @@
+openapi: 3.1.0
+info:
+  title: Market Lens Market-Data Fallback API
+  version: 1.0.0
+  description: >
+    Whether prices are coming from the fallback provider (feature 030). Shared data: the source of
+    prices is the same for everybody, so any signed-in person may read it. Switching the fallback,
+    auditing its symbols and reconciling are owner commands, not endpoints.
+
+    Live changes arrive as the named event `market_data_fallback.changed.v1` on /events, carrying
+    the same fields as this snapshot.
+servers:
+  - url: /api/v1
+x-market-lens-access-boundary:
+  shared:
+    - /market-data/fallback
+  rule: >
+    Requires an active session. Nothing here can change the fallback.
+
+paths:
+  /market-data/fallback:
+    get:
+      summary: Whether prices are coming from the fallback provider, as last recorded
+      responses:
+        "200":
+          description: The recorded fallback state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FallbackState" }
+        "401": { description: No active session }
+        "500": { description: The state could not be read }
+
+components:
+  schemas:
+    FallbackState:
+      type: object
+      required: [active, provider, since, instruments, pending_reconciliation, changed_at]
+      properties:
+        active:
+          type: boolean
+          description: At least one instrument holds a price from the fallback provider.
+        provider:
+          type: string
+          description: The fallback provider's name.
+        since:
+          type: [string, "null"]
+          format: date
+          description: The earliest session still carried by a fallback price.
+        instruments:
+          type: integer
+          minimum: 0
+          description: How many instruments hold at least one fallback price.
+        pending_reconciliation:
+          type: boolean
+          description: The primary provider is delivering again, but older fallback prices remain.
+        changed_at:
+          type: [string, "null"]
+          format: date-time

@@ -133,7 +133,16 @@ func (s *ImportService) validate(request ImportRequest) error {
 		request.Provider != s.provider.Name() || len(request.Targets) == 0 {
 		return ErrInvalidImport
 	}
+	// The fallback provider only ever runs as a fallback, and a fallback only ever asks it, so a
+	// misconfigured provider name cannot make unofficial data an ordinary import.
+	if (request.Kind == ImportFallback) != (request.Provider == FallbackProvider) {
+		return ErrInvalidImport
+	}
 	switch request.Kind {
+	case ImportFallback:
+		if request.ParentRunID == nil || !request.ParentRunID.Valid() {
+			return ErrInvalidImport
+		}
 	case ImportBackfill, ImportDailyUpdate:
 		if request.ParentRunID != nil {
 			return ErrInvalidImport

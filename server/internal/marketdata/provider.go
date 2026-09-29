@@ -8,6 +8,11 @@ import (
 	"time"
 )
 
+// FallbackProvider is the one provider that may stand in for the primary, and only while the
+// primary refuses authentication (feature 030). Its bars never replace a primary bar, and
+// downstream readers that must not trust them — paper fills, backtests — exclude them by this name.
+const FallbackProvider = "yahoo"
+
 var ErrProviderContractNotImplemented = errors.New("provider collection is not implemented")
 
 type ResolveRequest struct {

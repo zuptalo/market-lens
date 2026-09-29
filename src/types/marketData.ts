@@ -15,9 +15,22 @@ export interface ImportCounts {
   revised?: number;
 }
 
+/**
+ * Whether prices are coming from the fallback provider, as last recorded (feature 030). Shared:
+ * the source of prices is the same for everybody.
+ */
+export interface FallbackState {
+  active: boolean;
+  /** The earliest session still carried by a fallback price. */
+  since: string | null;
+  instruments: number;
+  /** The primary is delivering again, but older fallback prices remain. */
+  pendingReconciliation: boolean;
+}
+
 export interface ImportRunSummary {
   id: string;
-  kind: 'universe_sync' | 'backfill' | 'daily_update' | 'retry';
+  kind: 'universe_sync' | 'backfill' | 'daily_update' | 'retry' | 'fallback';
   provider: string;
   status: ImportStatus;
   startedAt: string;

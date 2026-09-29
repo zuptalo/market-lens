@@ -160,3 +160,26 @@ func contains(haystack, needle string) bool {
 			return false
 		}()
 }
+
+// TestABacktestNeverReadsAFallbackPrice (feature 030, FR-027). Fallback prices are temporary by
+// design: reconciliation replaces them. A backtest that read them would give a different answer
+// before and after, so it reads the primary's bars only — and a fallback session is simply not in
+// its data.
+func TestABacktestNeverReadsAFallbackPrice(t *testing.T) {
+	f := newBacktestFixture(t)
+	last := f.count(`SELECT count(DISTINCT session_date) FROM daily_price_bars`)
+	f.exec(`UPDATE daily_price_bars SET provider = 'yahoo'
+		WHERE session_date = (SELECT max(session_date) FROM daily_price_bars)`)
+
+	run := f.run()
+	if run.Status != backtest.RunStatusSucceeded {
+		t.Fatalf("the backtest ended %s: %s", run.Status, run.ErrorSummary)
+	}
+	if read := f.count(`SELECT count(*) FROM backtest_equity WHERE run_id = $1
+		AND session_date = (SELECT max(session_date) FROM daily_price_bars)`, run.ID.String()); read != 0 {
+		t.Errorf("the backtest valued the account on a fallback session")
+	}
+	if sessions := f.count(`SELECT count(*) FROM backtest_equity WHERE run_id = $1`, run.ID.String()); sessions >= last {
+		t.Errorf("the backtest covered %d sessions of %d, including the fallback one", sessions, last)
+	}
+}

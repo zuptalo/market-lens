@@ -129,6 +129,28 @@ describe('auth store', () => {
     expect(rosterRefreshed).not.toHaveBeenCalled();
   });
 
+  // Feature 030. The fallback banner hears its change through the one authorized stream the
+  // session already holds, rather than opening a second connection of its own.
+  it('tells the fallback banner when where prices come from changes, and nothing else', async () => {
+    const api = fakeAPI();
+    const stream = fakeStream();
+    const store = createAuthStore(api, () => stream);
+    await store.restore();
+
+    const changed = vi.fn();
+    const stop = store.onFallbackChanged(changed);
+    stream.callbacks().onInvalidate({ id: '93', type: 'daily_bar.changed.v1', entityType: 'daily_bar', entityId: 'bar-1' });
+    expect(changed).not.toHaveBeenCalled();
+    stream.callbacks().onInvalidate({ id: '94', type: 'market_data_fallback.changed.v1',
+      entityType: 'market_data_fallback', entityId: 'instance' });
+    expect(changed).toHaveBeenCalledOnce();
+
+    stop();
+    stream.callbacks().onInvalidate({ id: '95', type: 'market_data_fallback.changed.v1',
+      entityType: 'market_data_fallback', entityId: 'instance' });
+    expect(changed).toHaveBeenCalledOnce();
+  });
+
   // An unreadable answer is not the server saying "not signed in" either, so the status is
   // 'unreachable' rather than 'anonymous'. The claim this test exists for is unchanged: whatever
   // went wrong, nothing the server said reaches the state a person can read.

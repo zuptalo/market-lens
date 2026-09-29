@@ -105,6 +105,7 @@ type Dependencies struct {
 	StaticDir               string
 	Version                 string
 	MarketData              MarketDataReader
+	Fallback                FallbackReader
 	Instruments             InstrumentReader
 	Features                FeatureReader
 	Signals                 SignalReader
@@ -173,6 +174,9 @@ func NewRouter(deps Dependencies) http.Handler {
 		protected.HandleFunc("GET /api/v1/market-data/imports", listImportRunsHandler(deps.MarketData))
 		protected.HandleFunc("GET /api/v1/market-data/imports/{id}", getImportRunHandler(deps.MarketData))
 		protected.HandleFunc("GET /api/v1/market-data/quality-findings", listQualityFindingsHandler(deps.MarketData))
+	}
+	if deps.Fallback != nil {
+		protected.HandleFunc("GET /api/v1/market-data/fallback", getFallbackHandler(deps.Fallback))
 	}
 	if deps.Instruments != nil {
 		protected.HandleFunc("GET /api/v1/instruments", listInstrumentsHandler(deps.Instruments))

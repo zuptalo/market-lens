@@ -1,12 +1,15 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import Button from 'primevue/button';
 import Drawer from 'primevue/drawer';
 import Tag from 'primevue/tag';
+import FallbackBanner from '@/components/FallbackBanner.vue';
 import { useTheme } from '@/composables/useTheme';
 import { buildVersion } from '@/utils/version';
 import { useAuth } from '@/composables/useAuth';
+import { fetchFallbackState } from '@/services/marketData';
+import type { FallbackState } from '@/types/marketData';
 
 /**
  * The shell, and the one place this product decides how navigation behaves on a phone.
@@ -39,6 +42,41 @@ const menuOpen = ref(false);
 watch(() => route.fullPath, () => { menuOpen.value = false; });
 
 function closeMenu(): void { menuOpen.value = false; }
+
+/*
+ * Where prices come from (feature 030). The shell owns it because it is true of every screen: while
+ * prices come from the fallback provider, whatever page is open is showing some of them.
+ *
+ * A snapshot on sign-in, then the named change event on the session's stream. A snapshot that
+ * cannot be read shows nothing rather than an error: this is a notice about the data, and failing to
+ * load it must not stand in front of the page itself.
+ */
+const fallback = ref<FallbackState | null>(null);
+
+async function loadFallback(): Promise<void> {
+  try {
+    fallback.value = await fetchFallbackState();
+  } catch {
+    // Keep what is known; the next change event or visit tries again.
+  }
+}
+
+// Changes arrive on the session's one authorized stream, which the auth store already holds; a
+// second connection of the shell's own would be a second stream to authorize, resume and revoke.
+let stopListening: (() => void) | undefined;
+
+watch(() => auth.state.status, (status) => {
+  if (status === 'authenticated') {
+    void loadFallback();
+    stopListening ??= auth.onFallbackChanged(() => { void loadFallback(); });
+  } else {
+    stopListening?.();
+    stopListening = undefined;
+    fallback.value = null;
+  }
+}, { immediate: true });
+
+onBeforeUnmount(() => stopListening?.());
 </script>
 
 <template>
@@ -127,6 +165,7 @@ function closeMenu(): void { menuOpen.value = false; }
         </div>
       </Drawer>
     </header>
+    <FallbackBanner :state="fallback" />
     <main class="app-content"><slot /></main>
   </div>
 </template>

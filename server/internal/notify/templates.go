@@ -49,6 +49,8 @@ var pushWording = map[Kind]struct{ title, body, path string }{
 	KindPipelineFailure: {"Market data did not arrive", "Open Market Lens to see the run.", "/operations"},
 	KindSignalChange:    {"A strategy changed its view", "Open Market Lens to read it.", "/signals"},
 	KindReleaseDeployed: {"Market Lens was updated", "Open it to see what changed.", "/account"},
+	// Built without the detail, so it cannot say which way the source moved; the email does.
+	KindMarketDataFallback: {"Where prices come from changed", "Open Market Lens to see the source.", "/operations"},
 }
 
 func buildPushPayload(kind Kind, count int) ([]byte, error) {
@@ -166,6 +168,22 @@ func emailWording(kind Kind, count int, detail map[string]string,
 		}
 		body += "\n\nNothing you have stored is affected by an update, and nothing needs doing."
 		return fmt.Sprintf("Market Lens %s is live", version), body, nil
+	case KindMarketDataFallback:
+		// No count and no instrument: which instruments are covered is on the Operations screen,
+		// and a number here would be a figure in an email.
+		if detail["state"] == "ended" {
+			return "Prices are back on the primary provider",
+				"Market Lens is reading prices from its primary market-data provider again, and no " +
+					"fallback prices remain.\n\nPaper orders that were waiting fill on the next pass, " +
+					"at the primary provider's prices.", nil
+		}
+		return "Prices are coming from the fallback provider",
+			"The primary market-data provider refused Market Lens, which is what an expired " +
+				"subscription looks like, so tonight's prices came from the fallback provider " +
+				"instead.\n\nWhile this lasts, paper orders wait rather than fill on a fallback " +
+				"price, and backtests read only the primary provider's prices. Renewing the " +
+				"subscription ends it: the primary provider's prices replace the fallback ones on " +
+				"the next nightly import. Operations shows which instruments are covered.", nil
 	}
 	return "", "", fmt.Errorf("no email wording for %q", kind)
 }

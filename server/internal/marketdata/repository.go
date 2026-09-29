@@ -134,7 +134,14 @@ func (r *Repository) BeginImportScope(ctx context.Context, provider string, inst
 	if err != nil {
 		return nil, fmt.Errorf("begin market-data import scope: %w", err)
 	}
-	key := strings.Join([]string{provider, instrumentID.String(), interval}, "|")
+	// The lock belongs to the instrument, not to whichever provider is asking about it: a fallback
+	// import and a primary one must never write the same instrument at once (feature 030). The
+	// provider is still required, so a caller cannot forget to say who is asking.
+	if strings.TrimSpace(provider) == "" {
+		_ = tx.Rollback(ctx)
+		return nil, errors.New("market-data import scope needs a provider")
+	}
+	key := strings.Join([]string{instrumentID.String(), interval}, "|")
 	var acquired bool
 	if err := tx.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0))`, key).Scan(&acquired); err != nil {
 		_ = tx.Rollback(ctx)
@@ -320,11 +327,23 @@ func (s *ImportScope) persist(ctx context.Context, input persistInput) (ImportCo
 		}
 	}
 	for _, action := range input.Validation.Actions {
+		// The primary is the only source of corporate actions; the fallback supplies prices only.
+		if input.Provider == FallbackProvider {
+			break
+		}
 		if _, err := s.upsertAction(ctx, input, action); err != nil {
 			return ImportCounts{}, err
 		}
 	}
+	// Findings are the primary's to raise and the owner's to settle (feature 017). A fallback's own
+	// rejection is not a condition anybody should be asked to decide about, and a clean fallback bar
+	// is not evidence that a condition the primary reported has passed. Its rejected bars are still
+	// not stored, and still counted.
+	fallback := input.Provider == FallbackProvider
 	for _, issue := range input.Validation.Issues {
+		if fallback {
+			break
+		}
 		findingID, err := s.insertFinding(ctx, input, issue)
 		if err != nil {
 			return ImportCounts{}, err
@@ -339,8 +358,10 @@ func (s *ImportScope) persist(ctx context.Context, input persistInput) (ImportCo
 			return ImportCounts{}, err
 		}
 	}
-	if err := s.resolveSettledFindings(ctx, input); err != nil {
-		return ImportCounts{}, err
+	if !fallback {
+		if err := s.resolveSettledFindings(ctx, input); err != nil {
+			return ImportCounts{}, err
+		}
 	}
 	// An item's status reports what this import found out, not what the product already knew.
 	// A rejection matching a finding that is open and has already been re-examined is a standing
@@ -462,6 +483,13 @@ func (s *ImportScope) upsertBar(ctx context.Context, input persistInput, candida
 			return barUnchanged, parseErr
 		}
 		existing.AdjustedClose = &value
+	}
+	// A fallback bar never replaces a primary one. The two sources may adjust differently, and a
+	// fallback value written over a primary one would be a silent splice in the series. The other
+	// direction is ordinary: the primary is the source of record, and its bar replaces a fallback
+	// one below, keeping it as a revision.
+	if input.Provider == FallbackProvider && existing.Provider != FallbackProvider {
+		return barUnchanged, nil
 	}
 	if existing.SourceHash == candidate.SourceHash {
 		// The source stands by what it said. Nothing is written, so the bar keeps the

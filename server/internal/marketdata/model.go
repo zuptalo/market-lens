@@ -139,6 +139,9 @@ const (
 	ImportBackfill     ImportKind = "backfill"
 	ImportDailyUpdate  ImportKind = "daily_update"
 	ImportRetry        ImportKind = "retry"
+	// ImportFallback asks the fallback provider for what a primary run could not get. It always
+	// names that primary run as its parent (feature 030).
+	ImportFallback ImportKind = "fallback"
 )
 
 type ImportStatus string
@@ -204,6 +207,9 @@ var canonicalSafeErrors = map[string]string{
 	"storage_error":           "Market-data storage request failed.",
 	"validation_error":        "Market-data validation failed.",
 	"import_conflict":         "Market-data import scope is already active.",
+	// Feature 030: the fallback source reported a split or dividend since the last primary price,
+	// so its prices could not be made consistent with the primary's history.
+	"fallback_held_back": "Fallback prices were held back: a split or dividend needs the primary provider.",
 }
 
 // NormalizeSafeError converts an internal safe-error value to a canonical public form.

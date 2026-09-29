@@ -67,7 +67,12 @@ var _ api.IntegrationAdministration = (*identity.Service)(nil)
 // given a value no import kind uses so the two can never be confused.
 const marketDataResolve marketdata.ImportKind = "resolve"
 
+// marketDataFallback is the owner's fallback commands (feature 030), again never an import kind.
+const marketDataFallback marketdata.ImportKind = "fallback-command"
+
 type marketDataCommand struct {
+	// Fallback is the fallback action: status, enable, disable, audit or reconcile.
+	Fallback string
 	Kind     marketdata.ImportKind
 	Universe string
 	From     marketdata.SessionDate
@@ -972,6 +977,18 @@ func parseMarketDataCommand(args []string, now time.Time) (marketDataCommand, er
 	}
 	command.To = to
 	switch args[1] {
+	case "fallback":
+		// The owner's fallback commands (feature 030). The action comes first so a typo is refused
+		// rather than read as a flag.
+		if len(args) < 3 || !validFallbackAction(args[2]) {
+			return marketDataCommand{}, errors.New(
+				"expected marketdata fallback status, enable, disable, audit, or reconcile")
+		}
+		if err := flags.Parse(args[3:]); err != nil || flags.NArg() != 0 || strings.TrimSpace(command.Universe) == "" {
+			return marketDataCommand{}, errors.New("fallback takes only an action and a universe")
+		}
+		command.Kind, command.Fallback = marketDataFallback, args[2]
+		return command, nil
 	case "resolve":
 		search := flags.String("search", "", "print provider catalog rows matching this term")
 		exchange := flags.String("exchange", "", "read this provider exchange code instead of the stored ones")
@@ -1156,6 +1173,30 @@ func run() error {
 			return err
 		}
 		repository := marketdata.NewRepository(pool)
+		if command.Kind == marketDataFallback {
+			fallback, fallbackClient, err := newFallback(pool, cfg.MarketData.RequestTimeout)
+			if err != nil {
+				return err
+			}
+			switch command.Fallback {
+			case "audit":
+				entries, err := repository.FallbackAuditEntries(ctx, command.Universe)
+				if err != nil {
+					return err
+				}
+				return executeFallbackAudit(ctx, entries, fallbackClient.CloseOn, os.Stdout)
+			case "reconcile":
+				featureService := features.NewService(features.NewRepository(pool), slog.Default())
+				featureService.Signals = newSignalPass(pool, command.Universe, version, cfg.MarketData.Workers)
+				pass := featurePass{service: featureService,
+					universe: command.Universe, appVersion: version, workers: cfg.MarketData.Workers}
+				importer := featureTriggeringImporter{importer: marketdata.NewImportService(repository, provider), pass: pass}
+				return executeFallbackReconcile(ctx, fallback, importer, repository.ReconciliationDifferences,
+					os.Stdout, cfg.MarketData.Provider, version, cfg.MarketData.MaxRetries, cfg.MarketData.Workers)
+			default:
+				return executeFallbackSwitch(ctx, command.Fallback, fallback, os.Stdout)
+			}
+		}
 		if command.Kind == marketDataResolve {
 			entries, err := repository.UniverseEntries(ctx, cfg.MarketData.Provider, command.Universe)
 			if err != nil {
@@ -1294,6 +1335,13 @@ func run() error {
 		job.Notifications = notificationService
 		job.Failures = notificationService
 		job.Surveyor = notificationService
+		// Offered every night's run; it covers nothing unless the owner switched it on and the
+		// primary refused authentication (feature 030).
+		fallback, _, err := newFallback(pool, cfg.MarketData.RequestTimeout)
+		if err != nil {
+			return err
+		}
+		job.Fallback = fallback
 		job.PaperFills = paper.NewService(paper.NewRepository(pool),
 			intents.NewService(intents.NewRepository(pool),
 				portfolio.NewService(portfolio.NewRepository(pool), slog.Default()),
@@ -1378,6 +1426,7 @@ func run() error {
 		Invitations:   identityService,
 		SecureCookies: cfg.Auth.SecureCookies,
 		MarketData:    marketdata.NewRepository(pool),
+		Fallback:      marketdata.NewFallback(marketdata.NewRepository(pool), nil),
 		Instruments:   instruments.NewQueryService(instruments.NewRepository(pool), marketdata.NewRepository(pool)),
 		Features:      features.NewRepository(pool),
 		Signals:       strategies.NewRepository(pool),
