@@ -480,9 +480,6 @@ export const MARKET_DATA_EVENT_TYPES = [
   // A person's simulated account. Published when an order is promoted, cancelled or filled — the
   // last of which happens on the server after an import, with nobody watching.
   'paper_account.changed.v1',
-  // Whether prices are coming from the fallback provider (feature 030). Shared, and published
-  // once per change, so the banner appears and clears without a reload.
-  'market_data_fallback.changed.v1',
 ] as const;
 
 /** What a market-data event says about the change it reports. */

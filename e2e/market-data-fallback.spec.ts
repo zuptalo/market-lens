@@ -107,7 +107,9 @@ test('the banner appears and clears without a reload', async ({ page }) => {
   const announce = (active: boolean) => page.evaluate((isActive) => {
     (window as unknown as { __announce: (type: string, data: object) => void }).__announce(
       'market_data_fallback.changed.v1',
-      { entity_type: 'market_data_fallback', entity_id: 'instance', active: isActive },
+      // The server's envelope: a shared event, which every signed-in session receives.
+      { version: 1, scope: 'shared', entity_type: 'market_data_fallback', entity_id: 'instance',
+        payload: { active: isActive }, occurred_at: '2026-09-29T18:05:00Z' },
     );
   }, active);
 

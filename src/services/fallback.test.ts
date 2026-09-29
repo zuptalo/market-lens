@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fetchFallbackState, MARKET_DATA_EVENT_TYPES } from './marketData';
+import { fetchFallbackState } from './marketData';
 
 describe('the fallback snapshot', () => {
   it('maps the recorded state', async () => {
@@ -17,11 +17,5 @@ describe('the fallback snapshot', () => {
     await expect(fetchFallbackState(fetcher)).rejects.toThrow();
     const failed = vi.fn().mockResolvedValue({ ok: false, json: async () => ({}) });
     await expect(fetchFallbackState(failed)).rejects.toThrow();
-  });
-
-  // A named event reaches only a listener registered for its name, so the banner hears nothing
-  // unless the type is in the list the live client subscribes to.
-  it('listens for the named change event', () => {
-    expect(MARKET_DATA_EVENT_TYPES).toContain('market_data_fallback.changed.v1');
   });
 });

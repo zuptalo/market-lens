@@ -74,6 +74,8 @@ export function createAuthStore(api: AuthAPI, streamFactory: () => AuthEventStre
   const seenEvents = new Set<string>();
   // Owner-scoped member events invalidate any open member roster without polling.
   const memberListeners = new Set<() => void>();
+  // The fallback banner (feature 030) hears its change through this one stream too.
+  const fallbackListeners = new Set<() => void>();
   stream.configure({
     onInvalidate: (event) => {
       if (seenEvents.has(event.id)) return;
@@ -84,6 +86,9 @@ export function createAuthStore(api: AuthAPI, streamFactory: () => AuthEventStre
       }
       if (event.entityType === 'member' || event.entityType === 'invitation') {
         memberListeners.forEach((listener) => { listener(); });
+      }
+      if (event.entityType === 'market_data_fallback') {
+        fallbackListeners.forEach((listener) => { listener(); });
       }
     },
     onState: (connection) => { state.connection = connection; },
@@ -215,6 +220,11 @@ export function createAuthStore(api: AuthAPI, streamFactory: () => AuthEventStre
       if (!state.csrfToken) throw new Error('Sign in again to sign out.');
       await api.logout(state.csrfToken);
       clearAuthentication();
+    },
+    // Where prices come from changed (feature 030). Shared, so every signed-in person hears it.
+    onFallbackChanged(listener: () => void): () => void {
+      fallbackListeners.add(listener);
+      return () => { fallbackListeners.delete(listener); };
     },
     onMembersChanged(listener: () => void): () => void {
       memberListeners.add(listener);

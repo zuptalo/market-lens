@@ -8,7 +8,7 @@ import FallbackBanner from '@/components/FallbackBanner.vue';
 import { useTheme } from '@/composables/useTheme';
 import { buildVersion } from '@/utils/version';
 import { useAuth } from '@/composables/useAuth';
-import { fetchFallbackState, MarketDataLive, type LiveEventSource } from '@/services/marketData';
+import { fetchFallbackState } from '@/services/marketData';
 import type { FallbackState } from '@/types/marketData';
 
 /**
@@ -47,9 +47,9 @@ function closeMenu(): void { menuOpen.value = false; }
  * Where prices come from (feature 030). The shell owns it because it is true of every screen: while
  * prices come from the fallback provider, whatever page is open is showing some of them.
  *
- * A snapshot on sign-in, then the named change event. A snapshot that cannot be read shows nothing
- * rather than an error: this is a notice about the data, and failing to load it must not stand in
- * front of the page itself.
+ * A snapshot on sign-in, then the named change event on the session's stream. A snapshot that
+ * cannot be read shows nothing rather than an error: this is a notice about the data, and failing to
+ * load it must not stand in front of the page itself.
  */
 const fallback = ref<FallbackState | null>(null);
 
@@ -61,30 +61,22 @@ async function loadFallback(): Promise<void> {
   }
 }
 
-function browserEventSource(url: string, lastEventId: string): LiveEventSource {
-  const endpoint = lastEventId ? `${url}?last_event_id=${encodeURIComponent(lastEventId)}` : url;
-  return new EventSource(endpoint, { withCredentials: true }) as unknown as LiveEventSource;
-}
-
-const fallbackLive = new MarketDataLive({
-  sourceFactory: browserEventSource,
-  onRefresh: (entityType) => { if (entityType === 'market_data_fallback') void loadFallback(); },
-  onState: () => {},
-  reconnectDelayMs: 5_000,
-  staleAfterMs: 30_000,
-});
+// Changes arrive on the session's one authorized stream, which the auth store already holds; a
+// second connection of the shell's own would be a second stream to authorize, resume and revoke.
+let stopListening: (() => void) | undefined;
 
 watch(() => auth.state.status, (status) => {
   if (status === 'authenticated') {
     void loadFallback();
-    fallbackLive.start();
+    stopListening ??= auth.onFallbackChanged(() => { void loadFallback(); });
   } else {
-    fallbackLive.stop();
+    stopListening?.();
+    stopListening = undefined;
     fallback.value = null;
   }
 }, { immediate: true });
 
-onBeforeUnmount(() => fallbackLive.stop());
+onBeforeUnmount(() => stopListening?.());
 </script>
 
 <template>
