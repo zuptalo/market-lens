@@ -275,14 +275,21 @@ func (r *Repository) Inputs(ctx context.Context, configuration Configuration) (*
 	return loaded, nil
 }
 
+// fallbackProvider names the provider whose bars a backtest never reads (feature 030). Its prices
+// are temporary by design — reconciliation replaces them with the primary's — so a result that
+// read them would change after the fact. Named here rather than imported, because this package may
+// not reach the market-data package at all; a test keeps the two names equal.
+const fallbackProvider = "yahoo"
+
 func (r *Repository) loadBars(ctx context.Context, loaded *inputs, identifiers []string, from, to SessionDate) error {
 	rows, err := r.pool.Query(ctx, `SELECT instrument_id::text, session_date::text, open::text, close::text
 		FROM daily_price_bars
 		WHERE instrument_id = ANY($1::uuid[])
 		  AND ($2 = '' OR session_date >= $2::date)
 		  AND ($3 = '' OR session_date <= $3::date)
+		  AND provider <> $4
 		ORDER BY session_date, instrument_id::text`,
-		identifiers, from.String(), to.String())
+		identifiers, from.String(), to.String(), fallbackProvider)
 	if err != nil {
 		return fmt.Errorf("read the bars: %w", err)
 	}
@@ -315,8 +322,9 @@ func (r *Repository) loadBars(ctx context.Context, loaded *inputs, identifiers [
 	}
 	return r.pool.QueryRow(ctx, `SELECT max(last_observed_at) FROM daily_price_bars
 		WHERE instrument_id = ANY($1::uuid[])
-		  AND ($2 = '' OR session_date >= $2::date) AND ($3 = '' OR session_date <= $3::date)`,
-		identifiers, from.String(), to.String()).Scan(&loaded.barsObservedThrough)
+		  AND ($2 = '' OR session_date >= $2::date) AND ($3 = '' OR session_date <= $3::date)
+		  AND provider <> $4`,
+		identifiers, from.String(), to.String(), fallbackProvider).Scan(&loaded.barsObservedThrough)
 }
 
 // loadSignals reads what the strategy said. Signals are read, never recomputed: strategy

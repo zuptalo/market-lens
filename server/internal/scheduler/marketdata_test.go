@@ -101,6 +101,8 @@ type recordingImporter struct {
 	recorded []marketdata.ImportRequest
 	runs     []instruments.UUID
 	err      error
+	// status is what a run that returned without error ended as; empty means succeeded.
+	status marketdata.ImportStatus
 }
 
 func (i *recordingImporter) Import(ctx context.Context, request marketdata.ImportRequest) (marketdata.ImportRun, error) {
@@ -117,7 +119,11 @@ func (i *recordingImporter) Import(ctx context.Context, request marketdata.Impor
 	i.mu.Lock()
 	i.runs = append(i.runs, id)
 	i.mu.Unlock()
-	return marketdata.ImportRun{ID: id, Status: marketdata.ImportSucceeded}, nil
+	status := i.status
+	if status == "" {
+		status = marketdata.ImportSucceeded
+	}
+	return marketdata.ImportRun{ID: id, Status: status}, nil
 }
 
 func (i *recordingImporter) calls() int {
@@ -390,6 +396,50 @@ func TestAFailedImportTellsWhoeverAskedToBeTold(t *testing.T) {
 	}
 	if reporter.provider != "fixture" {
 		t.Errorf("the notification names the provider %q", reporter.provider)
+	}
+}
+
+// A run whose every item failed is still a run that returned: Import reports item failures in the
+// run, not as an error. Production lapsed on 2026-09-29 exactly this way — every item failed
+// authentication — and nobody was told, because only a returned error reached the owner.
+func TestARunThatEndedFailedTellsTheOwner(t *testing.T) {
+	reporter := &failureReporterStub{}
+	importer := &recordingImporter{status: marketdata.ImportFailed}
+	scheduler, err := NewMarketData(MarketDataConfig{
+		Enabled: true, Hour: 20, Minute: 0, Location: mustLocation(t, "Europe/Stockholm"),
+		Provider: "fixture", Universe: "nordic-liquid-v1", AppVersion: "test", Workers: 1,
+	}, staticTargets(t), importer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scheduler.Failures = reporter
+
+	if err := scheduler.RunDue(context.Background(), dueTime()); err != nil {
+		t.Fatal(err)
+	}
+	if reporter.calls != 1 {
+		t.Errorf("the owner was told %d times about a run that ended failed", reporter.calls)
+	}
+}
+
+// A partial run is not a lapse: some data arrived, and the run's own record says what did not.
+func TestAPartialRunRaisesNoFailureNotice(t *testing.T) {
+	reporter := &failureReporterStub{}
+	importer := &recordingImporter{status: marketdata.ImportPartial}
+	scheduler, err := NewMarketData(MarketDataConfig{
+		Enabled: true, Hour: 20, Minute: 0, Location: mustLocation(t, "Europe/Stockholm"),
+		Provider: "fixture", Universe: "nordic-liquid-v1", AppVersion: "test", Workers: 1,
+	}, staticTargets(t), importer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scheduler.Failures = reporter
+
+	if err := scheduler.RunDue(context.Background(), dueTime()); err != nil {
+		t.Fatal(err)
+	}
+	if reporter.calls != 0 {
+		t.Errorf("a partial run told the owner %d times", reporter.calls)
 	}
 }
 

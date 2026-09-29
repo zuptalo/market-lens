@@ -94,7 +94,10 @@ type MarketData struct {
 	// Failures, when set, tells the owner that an import did not complete.
 	Failures ImportFailureReporter
 	// Surveyor, when set, raises the kinds that come from shared data changing.
-	Surveyor    Surveyor
+	Surveyor Surveyor
+	// Fallback, when set, is offered every night's run and covers what the primary refused
+	// (feature 030).
+	Fallback    FallbackCoverer
 	config      MarketDataConfig
 	targets     TargetSource
 	importer    Importer
@@ -118,6 +121,12 @@ func (s *MarketData) maxReachSessions() int {
 		return 2600
 	}
 	return s.config.MaxReachSessions
+}
+
+// FallbackCoverer stands in for the primary provider while it refuses authentication.
+type FallbackCoverer interface {
+	Cover(context.Context, marketdata.ImportRun, marketdata.CoverOptions) (marketdata.ImportRun, bool, error)
+	Observe(context.Context) (marketdata.FallbackState, bool, error)
 }
 
 func NewMarketData(config MarketDataConfig, targets TargetSource, importer Importer) (*MarketData, error) {
@@ -212,11 +221,18 @@ func (s *MarketData) RunDue(ctx context.Context, now time.Time) error {
 		s.tellTheOwner(ctx, err)
 		return err
 	}
+	// Import reports item failures in the run rather than as an error, so a run in which every
+	// item failed returns cleanly. That is what a lapsed subscription looks like — every item
+	// refused authentication — and it went untold until production lapsed on 2026-09-29.
+	if run.Status == marketdata.ImportFailed {
+		s.tellTheOwner(ctx, errors.New("every import item failed"))
+	}
 	if s.Features != nil {
 		if err := s.Features.ComputeSinceRun(ctx, run.ID); err != nil {
 			slog.Default().Error("feature computation after import failed", "import_run_id", run.ID, "error", err)
 		}
 	}
+	s.coverWithFallback(ctx, run)
 	if s.PaperFills != nil {
 		filled, err := s.PaperFills.FillPending(ctx)
 		if err != nil {
@@ -291,4 +307,43 @@ func (s *MarketData) tellTheOwner(ctx context.Context, cause error) {
 		slog.Default().Error("could not raise a notification about the failed import", "error", err)
 	}
 	_ = cause
+}
+
+// fallbackWorkers bounds the fallback's concurrency: it is somebody else's public endpoint, asked
+// as a courtesy, and never more than two requests at once (FR-030).
+const fallbackWorkers = 2
+
+// coverWithFallback offers the night's run to the fallback and then observes the fallback state.
+//
+// Best effort, like the passes around it: the primary run already happened and was recorded, and
+// the fallback failing is the fallback's run to report, never the night's. Observing runs every
+// night, whether or not anything was covered, because a recovering primary ends the fallback by
+// replacing its bars — and that is a change somebody is told about.
+func (s *MarketData) coverWithFallback(ctx context.Context, run marketdata.ImportRun) {
+	if s.Fallback == nil {
+		return
+	}
+	workers := s.config.Workers
+	if workers > fallbackWorkers {
+		workers = fallbackWorkers
+	}
+	covering, covered, err := s.Fallback.Cover(ctx, run, marketdata.CoverOptions{
+		AppVersion: s.config.AppVersion, Workers: workers, MaxRetries: s.config.MaxRetries,
+	})
+	if err != nil {
+		slog.Default().Error("the fallback could not cover the night's run", "import_run_id", run.ID, "error", err)
+	}
+	if covered && err == nil {
+		slog.Default().Info("the fallback covered the night's run", "import_run_id", run.ID,
+			"fallback_run_id", covering.ID, "status", covering.Status)
+		if s.Features != nil {
+			if err := s.Features.ComputeSinceRun(ctx, covering.ID); err != nil {
+				slog.Default().Error("feature computation after the fallback failed",
+					"import_run_id", covering.ID, "error", err)
+			}
+		}
+	}
+	if _, _, err := s.Fallback.Observe(ctx); err != nil {
+		slog.Default().Error("the fallback state could not be observed", "error", err)
+	}
 }

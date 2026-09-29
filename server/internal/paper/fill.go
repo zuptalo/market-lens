@@ -9,6 +9,7 @@ import (
 	"market-lens/server/internal/costs"
 	"market-lens/server/internal/decimal"
 	"market-lens/server/internal/instruments"
+	"market-lens/server/internal/marketdata"
 	"market-lens/server/internal/notify"
 
 	"github.com/jackc/pgx/v5"
@@ -68,6 +69,12 @@ func (s *Service) fillOne(ctx context.Context, order pending) (bool, error) {
 	bar, found, err := s.repository.nextOpen(ctx, order.instrumentID, order.placedSession)
 	if err != nil {
 		return false, err
+	}
+	if found && bar.fallback {
+		// A fallback price is never filled on: a fill is permanent, and this price is temporary by
+		// design (feature 030). The order waits for the primary's bar for this same session, and
+		// is not given up on while it does — a price exists; it is the source that is pending.
+		return false, nil
 	}
 	if !found {
 		// No price yet. That is ordinary the day after an order is placed, and only becomes a
@@ -143,6 +150,8 @@ type bar struct {
 	session    string
 	open       dec
 	observedAt time.Time
+	// fallback is a price from the fallback provider, which no fill may use.
+	fallback bool
 }
 
 func (r *Repository) pendingOrders(ctx context.Context) ([]pending, error) {
@@ -191,11 +200,11 @@ func (r *Repository) pendingOrders(ctx context.Context) ([]pending, error) {
 func (r *Repository) nextOpen(ctx context.Context, instrumentID, after string) (bar, bool, error) {
 	var found bar
 	var open string
-	err := r.pool.QueryRow(ctx, `SELECT session_date::text, open::text, last_observed_at
+	err := r.pool.QueryRow(ctx, `SELECT session_date::text, open::text, last_observed_at, provider = $3
 		FROM daily_price_bars
 		WHERE instrument_id = $1 AND session_date > $2::date
-		ORDER BY session_date LIMIT 1`, instrumentID, after).
-		Scan(&found.session, &open, &found.observedAt)
+		ORDER BY session_date LIMIT 1`, instrumentID, after, marketdata.FallbackProvider).
+		Scan(&found.session, &open, &found.observedAt, &found.fallback)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return bar{}, false, nil
 	}

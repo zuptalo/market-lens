@@ -250,3 +250,34 @@ func TestAFillTellsThePersonIfTheyAskedToBeTold(t *testing.T) {
 		t.Errorf("%d notifications for somebody who asked for none", told)
 	}
 }
+
+// FR-026 (feature 030). A fill is permanent, so it is never made on a fallback price: the order
+// waits for the primary's bar for that session, and is not given up on while it waits — however
+// long ago it was placed. Once the primary's bar replaces the fallback one, it fills as if the
+// fallback had never covered that session.
+func TestAnOrderNeverFillsOnAFallbackPrice(t *testing.T) {
+	f := newFixture(t)
+	f.open(aliceID, "1000000", "SEK")
+	placed := f.session(fixtureSessions - 2)
+	next := f.session(fixtureSessions - 1)
+	f.exec(`UPDATE daily_price_bars SET provider = 'yahoo'
+		WHERE instrument_id = $1 AND session_date = $2::date`, f.instruments[aTicker].String(), next)
+	intent := f.consider(aliceID, aTicker, intents.DirectionBuy, "100", "120.00")
+	f.promote(aliceID, intent, placed)
+
+	if filled := f.fillPass(); filled != 0 {
+		t.Fatalf("an order filled on a fallback price")
+	}
+	if order := f.only(f.view(aliceID)); order.State != paper.StatePending {
+		t.Fatalf("an order waiting on a fallback price reads %s with reason %v", order.State, order.AbsenceReason)
+	}
+
+	f.exec(`UPDATE daily_price_bars SET provider = 'fixture'
+		WHERE instrument_id = $1 AND session_date = $2::date`, f.instruments[aTicker].String(), next)
+	if filled := f.fillPass(); filled != 1 {
+		t.Fatalf("the reconciled order did not fill")
+	}
+	if order := f.only(f.view(aliceID)); order.State != paper.StateFilled {
+		t.Errorf("after reconciliation the order reads %s", order.State)
+	}
+}
