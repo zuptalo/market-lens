@@ -35,5 +35,5 @@ Every task starts with a failing test run for its behavioural reason.
 - [x] T020 Playwright banner at 360x800, 768x1024, 1440x900 and 320px tolerance
 
 ## Phase 7 — Verify and ship
-- [ ] T021 make verify, e2e, docker build, compose config
-- [ ] T022 PR, checks, squash-merge, release, confirm rollout, run the audit in production
+- [x] T021 make verify, e2e, docker build, compose config
+- [x] T022 PR, checks, squash-merge, release, confirm rollout, run the audit in production

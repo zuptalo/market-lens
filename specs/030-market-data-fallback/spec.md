@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-29
 
-**Status**: in-review
+**Status**: shipped — v0.26.0, 2026-09-29
 <!-- Market Lens spec lifecycle: planned → in-progress → in-review → shipped. -->
 
 **Decisions taken before planning** (2026-09-29, recorded here because the spec was revised
