@@ -175,7 +175,7 @@ ones are listed.
 2. **Given** a candidate symbol whose reported currency, exchange or name disagrees with the stored
    instrument, **When** it is evaluated, **Then** it is marked mismatched and never used.
 3. **Given** an unmapped instrument, **When** fallback runs, **Then** it receives no fallback bars,
-   keeps its last primary bar, and is listed in the run and the banner as uncovered.
+   keeps its last primary bar, and is reported by the audit as unmapped.
 4. **Given** a mapping stored by migration, **When** fallback is needed, **Then** only mapped
    instruments are fetched; the migration holds only mappings verified by the audit's rule.
 
@@ -281,6 +281,9 @@ response, and assert no bar is written and the run reports both errors.
   adjusted close equals its close, which is exact while no action follows the last primary bar.
 - **FR-008a**: A fallback import MUST NOT store corporate actions; the primary stays their only
   source.
+- **FR-008b**: A fallback import MUST NOT raise or settle data-quality findings. Findings are the
+  primary's to raise and the owner's to decide (feature 017); a clean fallback bar is not evidence
+  that a condition the primary reported has passed. Rejected fallback bars are still not stored.
 - **FR-009**: Fallback bars MUST pass the same validation as primary bars, including calendar,
   price-range, currency and volume checks.
 - **FR-010**: The fallback MUST ask only for the sessions after the instrument's newest
@@ -306,9 +309,10 @@ response, and assert no bar is written and the run reports both errors.
 
 **Visibility and notification**
 
-- **FR-015**: While any instrument's newest bar is fallback-sourced, the system MUST show a
-  persistent banner giving the start date, the count of affected instruments, and the count
-  uncovered.
+- **FR-015**: While any instrument holds a fallback-sourced bar, the system MUST show a persistent
+  banner giving the start date and the count of covered instruments. Instruments not covered —
+  unmapped, held back, or refused by the fallback — are reported per instrument in the fallback
+  run's items on Operations and by `marketdata fallback audit`, not in the banner.
 - **FR-016**: The system MUST publish a versioned, authorized, resumable live event for each
   fallback state change: entered, reconciliation pending, ended, and a change in the counts.
 - **FR-017**: The system MUST raise one notification per opted-in channel per state change, never

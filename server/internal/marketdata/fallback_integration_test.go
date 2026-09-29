@@ -191,3 +191,53 @@ func TestTheFallbackKindIsOnlyForTheFallbackProvider(t *testing.T) {
 		t.Errorf("the primary ran as a fallback: %v", err)
 	}
 }
+
+// Feature 017's findings are the primary's to raise and the owner's to settle. A clean fallback bar
+// is not evidence that a condition the primary reported has passed, and a fallback's own rejection
+// is not a condition anybody should be asked to decide about — so a fallback import neither settles
+// nor raises one.
+func TestAFallbackImportNeitherSettlesNorRaisesFindings(t *testing.T) {
+	pool := migratedPool(t)
+	// The primary's 04-03 closes above its high, so it is rejected and a finding is raised.
+	primary := primaryRun(t, pool, marketdata.DailyPage{Bars: []marketdata.ProviderBar{
+		bar(t, "2024-04-02", "51.75", "51.75", 100, "primary-0402"),
+		bar(t, "2024-04-03", "120", "120", 100, "primary-0403-invalid"),
+	}})
+	openFindings := func() int {
+		t.Helper()
+		var count int
+		if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM data_quality_findings
+			WHERE instrument_id=$1 AND status='open'`, stockholmInstrument).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		return count
+	}
+	before := openFindings()
+	if before == 0 {
+		t.Fatal("the fixture raised no finding, so this proves nothing")
+	}
+
+	// The fallback answers 04-03 cleanly, and 04-04 invalidly.
+	fallback := newFallbackSource()
+	fallback.set("NORD.ST", "", marketdata.DailyPage{Bars: []marketdata.ProviderBar{
+		bar(t, "2024-04-03", "53", "53", 100, "fallback-0403"),
+		bar(t, "2024-04-04", "130", "130", 100, "fallback-0404-invalid"),
+	}})
+	request := fallbackRequest(t, primary.ID)
+	request.Targets[0].To = session(t, "2024-04-04")
+	if _, err := marketdata.NewImportService(marketdata.NewRepository(pool), fallback).
+		Import(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	if after := openFindings(); after != before {
+		t.Errorf("a fallback import changed the open findings from %d to %d", before, after)
+	}
+	var resolved int
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM data_quality_findings
+		WHERE instrument_id=$1 AND status='resolved'`, stockholmInstrument).Scan(&resolved); err != nil {
+		t.Fatal(err)
+	}
+	if resolved != 0 {
+		t.Errorf("a fallback import settled %d of the primary's findings", resolved)
+	}
+}

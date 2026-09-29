@@ -335,7 +335,15 @@ func (s *ImportScope) persist(ctx context.Context, input persistInput) (ImportCo
 			return ImportCounts{}, err
 		}
 	}
+	// Findings are the primary's to raise and the owner's to settle (feature 017). A fallback's own
+	// rejection is not a condition anybody should be asked to decide about, and a clean fallback bar
+	// is not evidence that a condition the primary reported has passed. Its rejected bars are still
+	// not stored, and still counted.
+	fallback := input.Provider == FallbackProvider
 	for _, issue := range input.Validation.Issues {
+		if fallback {
+			break
+		}
 		findingID, err := s.insertFinding(ctx, input, issue)
 		if err != nil {
 			return ImportCounts{}, err
@@ -350,8 +358,10 @@ func (s *ImportScope) persist(ctx context.Context, input persistInput) (ImportCo
 			return ImportCounts{}, err
 		}
 	}
-	if err := s.resolveSettledFindings(ctx, input); err != nil {
-		return ImportCounts{}, err
+	if !fallback {
+		if err := s.resolveSettledFindings(ctx, input); err != nil {
+			return ImportCounts{}, err
+		}
 	}
 	// An item's status reports what this import found out, not what the product already knew.
 	// A rejection matching a finding that is open and has already been re-examined is a standing
